@@ -21,15 +21,3 @@ deploy:
     - wrangler pages deploy dist/ --project-name=AdequateLLC
   only:
     - main
-```
-
-5. Press **Ctrl + S** to save
-
----
-
-**Important — make sure VS Code is using spaces not tabs**
-
-Look at the bottom right of VS Code. You will see either **Spaces: 2** or **Tab Size: 2**. Click it and select:
-```
-Indent Using Spaces
-2
