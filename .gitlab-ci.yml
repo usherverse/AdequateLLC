@@ -1,0 +1,23 @@
+stages:
+  - build
+  - deploy
+
+build:
+  stage: build
+  image: node:18
+  script:
+    - npm install
+    - npm run build
+  artifacts:
+    paths:
+      - build/
+    expire_in: 1 hour
+
+deploy:
+  stage: deploy
+  image: node:18
+  script:
+    - npm install -g wrangler
+    - wrangler pages deploy build/ --project-name=your-project-name
+  only:
+    - main
