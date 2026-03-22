@@ -18,6 +18,6 @@ deploy:
   image: node:20
   script:
     - npm install -g wrangler
-    - wrangler pages deploy dist/ --project-name=AdequateLLC
+    - wrangler pages deploy dist/ --project-name=adequatellc
   only:
     - main
