@@ -27,8 +27,9 @@ deploy:
 
 ---
 
-**Check it saved**
+**Important — make sure VS Code is using spaces not tabs**
 
-Look at the tab at the top of VS Code. If it shows a white dot next to the filename like this:
+Look at the bottom right of VS Code. You will see either **Spaces: 2** or **Tab Size: 2**. Click it and select:
 ```
-● .gitlab-ci.yml
+Indent Using Spaces
+2
