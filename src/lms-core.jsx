@@ -793,15 +793,13 @@ export default function App() {
   useEffect(()=>{
     import('@/config/supabaseClient').then(({supabase,DEMO_MODE})=>{
       if(DEMO_MODE||!supabase){setDataLoaded(true);return;}
+      // Phase 1: Dashboard-critical data
       Promise.all([
         supabase.from('loans').select('*').order('created_at',{ascending:false}).limit(2000),
         supabase.from('customers').select('*').order('name').limit(2000),
         supabase.from('payments').select('*').order('date',{ascending:false}).limit(5000),
-        supabase.from('leads').select('*').order('created_at',{ascending:false}).limit(1000),
-        supabase.from('interactions').select('*').order('created_at',{ascending:false}).limit(2000),
         supabase.from('workers').select('*').order('name'),
-        supabase.from('audit_log').select('*').order('ts',{ascending:false}).limit(500),
-      ]).then(([lR,cR,pR,ldR,iR,wR,aR])=>{
+      ]).then(([lR,cR,pR,wR])=>{
         // Supabase is the single source of truth.
         // Empty table (data.length===0) = genuinely no rows — never fall back to seed data.
         // Workers fall back to seed only so login still works if the workers table is empty.
@@ -811,14 +809,8 @@ export default function App() {
         else           console.error('[load customers]', cR.error.message);
         if(!pR.error)  setPayments(pR.data?.length ? pR.data.map(fromSupabasePayment) : []);
         else           console.error('[load payments]',  pR.error.message);
-        if(!ldR.error) setLeads(ldR.data?.length ? ldR.data.map(fromSupabaseLead) : []);
-        else           console.error('[load leads]',     ldR.error.message);
-        if(!iR.error)  setInteractions(iR.data?.length ? iR.data.map(fromSupabaseInteraction) : []);
-        else           console.error('[load interactions]', iR.error.message);
         if(!wR.error&&wR.data?.length) setWorkers(wR.data.map(w=>({...w,docs:w.docs||[],avatar:w.avatar||(w.name||'').split(' ').map(x=>x[0]).join('').slice(0,2).toUpperCase()})));
         else if(wR.error) console.error('[load workers]', wR.error.message);
-        if(!aR.error&&aR.data?.length) setAuditLog(aR.data.map(r=>({ts:r.ts,user:r.user_name||'system',action:r.action,target:r.target_id,detail:r.detail})));
-        else if(aR.error) console.error('[load audit_log]', aR.error.message);
         if(!lR.error&&!cR.error){
           const ll=lR.data?.length?lR.data:[];const lc=cR.data?.length?cR.data:[];
           const cids=new Set(lc.map(c=>c.id));const missing=[];
@@ -850,6 +842,21 @@ export default function App() {
           }
         }
         setDataLoaded(true);
+
+        // Phase 2: Lazy Load secondary data in the background
+        Promise.all([
+          supabase.from('leads').select('*').order('created_at',{ascending:false}).limit(1000),
+          supabase.from('interactions').select('*').order('created_at',{ascending:false}).limit(2000),
+          supabase.from('audit_log').select('*').order('ts',{ascending:false}).limit(500),
+        ]).then(([ldR,iR,aR])=>{
+          if(!ldR.error)  setLeads(ldR.data?.length ? ldR.data.map(fromSupabaseLead) : []);
+          else            console.error('[load leads]',     ldR.error.message);
+          if(!iR.error)   setInteractions(iR.data?.length ? iR.data.map(fromSupabaseInteraction) : []);
+          else            console.error('[load interactions]', iR.error.message);
+          if(!aR.error&&aR.data?.length) setAuditLog(aR.data.map(r=>({ts:r.ts,user:r.user_name||'system',action:r.action,target:r.target_id,detail:r.detail})));
+          else if(aR.error) console.error('[load audit_log]', aR.error.message);
+        }).catch(err => console.error('[lazy load fallback]', err.message));
+
       }).catch(err=>{
         console.error('[load] Failed to load from Supabase:',err.message);
         setDataLoaded(true);
