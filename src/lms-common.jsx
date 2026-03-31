@@ -6308,50 +6308,27 @@ export var computeLoanSchedule = function (loan, allPayments) {
   var totalOwed = principal + interest;
   var perSlot, intervalDays, numSlots;
 
-  if (rt === "Daily") {
-    perSlot = Math.ceil(totalOwed / 30);
-    intervalDays = 1;
-    numSlots = 30;
-  } else if (rt === "Weekly") {
-    perSlot = Math.ceil(totalOwed / 4);
-    intervalDays = 7;
-    numSlots = 4;
-  } else if (rt === "Biweekly") {
-    perSlot = Math.ceil(totalOwed / 2);
-    intervalDays = 14;
-    numSlots = 2;
-  } else if (rt === "Monthly") {
-    perSlot = totalOwed;
-    intervalDays = 30;
-    numSlots = 1;
-  } else if (rt === "Lump Sum") {
-    perSlot = totalOwed;
-    intervalDays = 30;
-    numSlots = 1;
-  } else return { slots: [], ledger: [], runningBalance: 0, summary: {} };
-
-  // 1. Generate slots based on repayment frequency (locked to 30-day maturity window)
-  var slots = [];
+  // Business Rule: A loan is strictly DUE only on the 30th day from disbursement.
+  // Repayment frequency (Daily, Weekly, etc.) does NOT influence due status.
   var startDate = new Date(loan.disbursed);
-  
-  for (var i = 0; i < numSlots; i++) {
-    var dueTarget = new Date(startDate);
-    // If last slot, force it to exactly 30 days maturity per business rule
-    if (i === numSlots - 1) {
-      dueTarget.setDate(dueTarget.getDate() + 30);
-    } else {
-      dueTarget.setDate(dueTarget.getDate() + (i + 1) * intervalDays);
-    }
-    
-    slots.push({
-      index: i,
-      due: dueTarget.toISOString().slice(0, 10),
-      perSlot: perSlot,
-      status: "upcoming",
-      payment: null,
-      negBalance: 0,
-    });
-  }
+  var dueTarget = new Date(startDate);
+  dueTarget.setDate(dueTarget.getDate() + 30);
+
+  var slots = [{
+    index: 0,
+    due: dueTarget.toISOString().slice(0, 10),
+    perSlot: totalOwed,
+    status: "upcoming",
+    payment: null,
+    negBalance: 0,
+  }];
+
+  // For informational purposes only, we keep numSlots for progress calculations
+  // but we will no longer use multiple physical slots in the UI or logic.
+  perSlot = totalOwed; 
+  numSlots = 1;
+
+  // 2. Map global payments safely
 
 
   // 2. Map global payments safely
@@ -8700,27 +8677,15 @@ const buildPaymentTimeline = (loan, payments) => {
     : total;
 
   // Build ALL expected slots (past + future up to loan end)
+  // Business Rule: A loan is strictly DUE only on the 30th day from disbursement.
+  // Repayment frequency (Daily, Weekly, etc.) does NOT influence due status.
   const slots = [];
-  if (intervalDays) {
-    const numSlots =
-      rt === "Daily" ? 30 : rt === "Weekly" ? 4 : rt === "Biweekly" ? 2 : 1;
-    for (let i = 0; i < numSlots; i++) {
-      const d = new Date(disbDate);
-      d.setDate(d.getDate() + (i + 1) * intervalDays);
-      slots.push({
-        dueDate: d.toISOString().split("T")[0],
-        expectedAmt: Math.min(installAmt, total - installAmt * i),
-      });
-    }
-  } else {
-    // Lump Sum — one slot at 30 days
-    const dueD = new Date(disbDate);
-    dueD.setDate(dueD.getDate() + 30);
-    slots.push({
-      dueDate: dueD.toISOString().split("T")[0],
-      expectedAmt: total,
-    });
-  }
+  const dueD = new Date(disbDate);
+  dueD.setDate(dueD.getDate() + 30);
+  slots.push({
+    dueDate: dueD.toISOString().split("T")[0],
+    expectedAmt: total,
+  });
 
   // Sort actual payments chronologically
   const sortedPays = [...payments].sort((a, b) => a.date.localeCompare(b.date));
