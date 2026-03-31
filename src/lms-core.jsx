@@ -900,7 +900,7 @@ export default function App() {
       <StylesMemo/>
       {mode==='admin-login'&&<AdminLogin onLogin={handleLogin} onWorkerPortal={()=>setMode('worker')}/>}
       {mode==='admin'&&dataLoaded&&<AdminPanel {...shared} onLogout={()=>setMode('admin-login')}/>}
-      {mode==='worker'&&<WorkerPortal {...shared} dataLoaded={dataLoaded} onBack={()=>setMode('admin-login')} onOpenCustomerProfile={onOpenCustomerProfile}/>}
+      {mode==='worker'&&<WorkerPortal {...shared} dataLoaded={dataLoaded} onBack={()=>setMode('admin-login')}/>}
 
       {/* Global Customer Profile Overlay */}
       {globalCustomerId && (

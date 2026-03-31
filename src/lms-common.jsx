@@ -6330,19 +6330,28 @@ export var computeLoanSchedule = function (loan, allPayments) {
     numSlots = 1;
   } else return { slots: [], ledger: [], runningBalance: 0, summary: {} };
 
-  // 1. Calculate strict maturity slot (30 days from disbursement)
+  // 1. Generate slots based on repayment frequency (locked to 30-day maturity window)
+  var slots = [];
   var startDate = new Date(loan.disbursed);
-  var dueTarget = new Date(startDate);
-  dueTarget.setDate(dueTarget.getDate() + 30);
   
-  var slots = [{
-    index: 0,
-    due: dueTarget.toISOString().slice(0, 10),
-    perSlot: totalOwed,
-    status: "upcoming",
-    payment: null,
-    negBalance: 0,
-  }];
+  for (var i = 0; i < numSlots; i++) {
+    var dueTarget = new Date(startDate);
+    // If last slot, force it to exactly 30 days maturity per business rule
+    if (i === numSlots - 1) {
+      dueTarget.setDate(dueTarget.getDate() + 30);
+    } else {
+      dueTarget.setDate(dueTarget.getDate() + (i + 1) * intervalDays);
+    }
+    
+    slots.push({
+      index: i,
+      due: dueTarget.toISOString().slice(0, 10),
+      perSlot: perSlot,
+      status: "upcoming",
+      payment: null,
+      negBalance: 0,
+    });
+  }
 
 
   // 2. Map global payments safely
@@ -8726,12 +8735,13 @@ const buildPaymentTimeline = (loan, payments) => {
     );
     const windowAmt = onTimePays.reduce((s, p) => s + p.amount, 0);
     onTimePays.forEach((p) => usedPayIds.add(p.id));
-    let status =
-      windowAmt === 0
-        ? "missed"
-        : windowAmt >= slot.expectedAmt * 0.9
-          ? "paid"
-          : "partial";
+
+    let status = "missed";
+    if (windowAmt > 0) {
+      status = windowAmt >= slot.expectedAmt * 0.9 ? "paid" : "partial";
+    } else if (slot.dueDate > todayStr) {
+      status = "upcoming";
+    }
     return {
       ...slot,
       payments: onTimePays,

@@ -87,32 +87,37 @@ export default function DueLoansCalendar({ loans = [], payments = [], workers = 
     return base;
   }, [loans, workerContext]);
 
-  // Expand all active loans into explicit slots using computeLoanSchedule
-  const allUnpaidSlots = useMemo(() => {
+  // Expand ALL loan slots (paid and unpaid) — needed so the calendar always
+  // shows a due date even after partial or full payment has been recorded.
+  const allSlots = useMemo(() => {
     const arr = [];
     const todayNum = new Date(todayStr).getTime();
-    
     filteredLoans.forEach(loan => {
       const { slots, pctPaid, runningBalance, summary, perSlot } = computeLoanSchedule(loan, payments);
       slots.forEach(s => {
-        if (s.status !== 'paid' && s.status !== 'paid_late') {
-            const diffDays = Math.ceil((new Date(s.due).getTime() - todayNum) / 86400000);
-            arr.push({ ...s, loan, pctPaid, summary, runningBalance, perSlot, diffDays });
-        }
+        const diffDays = Math.ceil((new Date(s.due).getTime() - todayNum) / 86400000);
+        arr.push({ ...s, loan, pctPaid, summary, runningBalance, perSlot, diffDays });
       });
     });
     return arr;
   }, [filteredLoans, payments, todayStr]);
 
-  // Aggregate by Date for parsing Calendar Map
+  // Unpaid slots only — used for summary bar counts & Overdue/Upcoming lists.
+  // Paid/paid_late slots are intentionally excluded here so stats stay accurate.
+  const allUnpaidSlots = useMemo(() =>
+    allSlots.filter(s => s.status !== 'paid' && s.status !== 'paid_late'),
+  [allSlots]);
+
+  // Aggregate ALL slots by Date for the calendar grid so due dates remain
+  // visible even after a payment has been made.
   const slotsByDate = useMemo(() => {
     const map = {};
-    allUnpaidSlots.forEach(s => {
+    allSlots.forEach(s => {
       if (!map[s.due]) map[s.due] = [];
       map[s.due].push(s);
     });
     return map;
-  }, [allUnpaidSlots]);
+  }, [allSlots]);
   
   // Advanced Search Filter
   const searchResults = useMemo(() => {
@@ -150,22 +155,40 @@ export default function DueLoansCalendar({ loans = [], payments = [], workers = 
   }, [filteredLoans, payments, searchQuery, startDate, endDate, todayStr]);
 
   // Summary Bar Math
+  // monthCt  — uses the SAME rolling 0-30 day window as the Upcoming tab,
+  //             but scans allSlots (paid + unpaid) so a loan that received a
+  //             payment does NOT vanish from the count.
+  // overdueCt / todayCt / weekCt — unpaid only (allUnpaidSlots), so they
+  //             reflect outstanding obligations accurately.
   const summaryBox = useMemo(() => {
+    const moStart = new Date(yr, mo, 1).toISOString().slice(0, 10);
     const sb = { 
       overdueCt: 0, overdueKES: 0, 
       todayCt: 0, todayKES: 0, 
       weekCt: 0, weekKES: 0, 
       monthCt: 0, monthKES: 0 
     };
+
+    // Overdue / Today / This Week — unpaid slots only
     allUnpaidSlots.forEach(s => {
       const diff = s.diffDays;
-      if (diff < 0) { sb.overdueCt++; sb.overdueKES += s.perSlot; }
-      if (diff === 0) { sb.todayCt++; sb.todayKES += s.perSlot; }
-      if (diff >= 0 && diff <= 7) { sb.weekCt++; sb.weekKES += s.perSlot; }
-      if (diff >= 0 && diff <= 30) { sb.monthCt++; sb.monthKES += s.perSlot; }
+      if (diff < 0 && s.due < moStart) { sb.overdueCt++; sb.overdueKES += s.perSlot; }
+      if (diff === 0)             { sb.todayCt++; sb.todayKES += s.perSlot; }
+      if (diff >= 0 && diff <= 7) { sb.weekCt++;  sb.weekKES  += s.perSlot; }
     });
+
+    // Due This Month — ALL slots (paid or not) with a due date in the next
+    // 30 days. This matches the rolling window the Upcoming tab uses and means
+    // a loan that was just paid doesn't silently drop out of the count.
+    allSlots.forEach(s => {
+      if (s.diffDays >= 0 && s.diffDays <= 30) {
+        sb.monthCt++;
+        sb.monthKES += s.perSlot;
+      }
+    });
+
     return sb;
-  }, [allUnpaidSlots]);
+  }, [allSlots, allUnpaidSlots, yr, mo]);
 
   // Collection Rate mapping math (Paid / Total Expected this month)
   const collectionRate = useMemo(() => {
@@ -250,13 +273,13 @@ export default function DueLoansCalendar({ loans = [], payments = [], workers = 
         {/* Render Badges inside day cell */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
           {countMap.overdue > 0 && (
-            <div className="cal-badge overdue" style={{ background: SEV.overdue.bg, color: SEV.overdue.color, padding: '2px 6px', borderRadius: 4, display: 'flex', justifyContent: 'space-between', fontWeight: 700 }}>
-              <span>{countMap.overdue} due</span> <span className="hide-mob" style={{fontFamily: TH.mono}}>{formatMoney(sumKESMap.overdue)}</span>
+            <div className="cal-badge overdue" style={{ background: SEV.overdue.bg, color: SEV.overdue.color, padding: '2px 6px', borderRadius: 4, display: 'flex', justifyContent: 'center', fontWeight: 700 }}>
+              <span>{countMap.overdue} due</span>
             </div>
           )}
           {countMap.today > 0 && (
-            <div className="cal-badge today" style={{ background: SEV.today.bg, color: SEV.today.color, padding: '2px 6px', borderRadius: 4, display: 'flex', justifyContent: 'space-between', fontWeight: 700 }}>
-              <span>{countMap.today} due</span> <span className="hide-mob" style={{fontFamily: TH.mono}}>{formatMoney(sumKESMap.today)}</span>
+            <div className="cal-badge today" style={{ background: SEV.today.bg, color: SEV.today.color, padding: '2px 6px', borderRadius: 4, display: 'flex', justifyContent: 'center', fontWeight: 700 }}>
+              <span>{countMap.today} due</span>
             </div>
           )}
           {countMap.urgent > 0 && (
@@ -345,16 +368,10 @@ export default function DueLoansCalendar({ loans = [], payments = [], workers = 
                </div>
                <div style={{ color: TH.muted, fontSize: 11, fontWeight: 700 }}>Due: {slot.due}</div>
             </div>
-            <div onClick={() => onOpenCustomerProfile?.(l.customerId)} style={{ color: TH.txt, fontWeight: 700, fontSize: 15, cursor: 'pointer', display: 'inline-block', textDecoration: 'underline decoration-transparent', transition: 'text-decoration 0.2s', ':hover': { textDecoration: `underline ${TH.txt}` } }}>
-              {l.customer}
-            </div>
-            <div style={{ fontFamily: TH.mono, color: TH.accent, fontSize: 12, fontWeight: 800, marginTop: 4 }}>{l.id}</div>
-            <div style={{ color: TH.muted, fontSize: 11, marginTop: 2 }}>Maturity Date: {slot.due}</div>
+            <div style={{ color: TH.muted, fontSize: 11, marginTop: 4 }}>Maturity Date: {slot.due}</div>
           </div>
-          <div style={{ textAlign: 'right' }}>
-            <div style={{ color: TH.txt, fontWeight: 700, fontSize: 15, fontFamily: TH.mono }}>{formatMoney(slot.perSlot)} Due</div>
-            <div style={{ color: TH.muted, fontSize: 11, fontFamily: TH.mono, marginTop: 4 }}>Balance: {formatMoney(l.balance)}</div>
-            <div style={{ color: isPaid ? TH.success : l.daysOverdue > 0 ? TH.danger : TH.success, fontSize: 11, fontWeight: 700, marginTop: 2 }}>
+          <div style={{ textAlign: 'right', display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
+            <div style={{ color: isPaid ? TH.success : l.daysOverdue > 0 ? TH.danger : TH.success, fontSize: 12, fontWeight: 800 }}>
                {isPaid ? '✓ Paid' : l.daysOverdue > 0 ? `${l.daysOverdue}d Overdue` : 'Current'}
             </div>
           </div>
@@ -370,13 +387,14 @@ export default function DueLoansCalendar({ loans = [], payments = [], workers = 
 
   const renderListTab = (mode) => {
     // Mode is 'Overdue' or 'Upcoming'
+    // Calendar deals exclusively with due dates — payment status does NOT affect grouping.
     const grouped = {
       // Overdue Groups
       crt: { lbl: 'Critical (90+ Days)', col: '#991B1B', bg: '#450A0A', slots: [] },
       lte: { lbl: 'Late Stage (31-90 Days)', col: TH.danger, bg: `${TH.danger}15`, slots: [] },
       mid: { lbl: 'Mid Stage (8-30 Days)', col: TH.warn, bg: `${TH.warn}15`, slots: [] },
       erl: { lbl: 'Early (1-7 Days)', col: TH.gold, bg: `${TH.gold}15`, slots: [] },
-      // Upcoming Groups
+      // Upcoming Groups — all loans grouped by due date, regardless of payment status
       tdy: { lbl: 'Due Today', col: TH.warn, bg: `${TH.warn}15`, slots: [] },
       tmr: { lbl: 'Due Tomorrow', col: TH.gold, bg: `${TH.gold}15`, slots: [] },
       u3d: { lbl: 'Due in 2-3 Days (Urgent)', col: TH.accent, bg: `${TH.accent}15`, slots: [] },
@@ -384,24 +402,36 @@ export default function DueLoansCalendar({ loans = [], payments = [], workers = 
       umn: { lbl: 'Due Later This Month', col: TH.success, bg: `${TH.success}15`, slots: [] },
     };
 
-    allUnpaidSlots.forEach(s => {
-      const diff = s.diffDays;
-      if (mode === 'Overdue' && diff < 0) {
-        const ag = Math.abs(diff);
-        if (ag >= 90) grouped.crt.slots.push(s);
-        else if (ag >= 31) grouped.lte.slots.push(s);
-        else if (ag >= 8) grouped.mid.slots.push(s);
-        else grouped.erl.slots.push(s);
-      } else if (mode === 'Upcoming' && diff >= 0) {
-        if (diff === 0) grouped.tdy.slots.push(s);
-        else if (diff === 1) grouped.tmr.slots.push(s);
-        else if (diff <= 3) grouped.u3d.slots.push(s);
-        else if (diff <= 7) grouped.uwk.slots.push(s);
-        else if (diff <= 30) grouped.umn.slots.push(s);
-      }
-    });
+    if (mode === 'Overdue') {
+      // Overdue: only genuinely unpaid past-due loans matter here
+      allUnpaidSlots.forEach(s => {
+        const diff = s.diffDays;
+        if (diff < 0) {
+          const ag = Math.abs(diff);
+          if (ag >= 90) grouped.crt.slots.push(s);
+          else if (ag >= 31) grouped.lte.slots.push(s);
+          else if (ag >= 8) grouped.mid.slots.push(s);
+          else grouped.erl.slots.push(s);
+        }
+      });
+    } else {
+      // Upcoming: ALL loans (paid or not) grouped purely by their due date.
+      // Payment status is irrelevant — the calendar tracks due dates only.
+      allSlots.forEach(s => {
+        const diff = s.diffDays;
+        if (diff >= 0) {
+          if (diff === 0)      grouped.tdy.slots.push(s);
+          else if (diff === 1) grouped.tmr.slots.push(s);
+          else if (diff <= 3)  grouped.u3d.slots.push(s);
+          else if (diff <= 7)  grouped.uwk.slots.push(s);
+          else if (diff <= 30) grouped.umn.slots.push(s);
+        }
+      });
+    }
 
-    const activeGroups = mode === 'Overdue' ? [grouped.crt, grouped.lte, grouped.mid, grouped.erl] : [grouped.tdy, grouped.tmr, grouped.u3d, grouped.uwk, grouped.umn];
+    const activeGroups = mode === 'Overdue'
+      ? [grouped.crt, grouped.lte, grouped.mid, grouped.erl]
+      : [grouped.tdy, grouped.tmr, grouped.u3d, grouped.uwk, grouped.umn];
 
     return (
       <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
@@ -411,7 +441,6 @@ export default function DueLoansCalendar({ loans = [], payments = [], workers = 
               <div style={{ color: g.col, fontWeight: 800, fontSize: 15 }}>{g.lbl}</div>
               <div style={{ display: 'flex', gap: 14 }}>
                  <div style={{ color: TH.txt, fontSize: 13, fontWeight: 700 }}>{g.slots.length} Loans</div>
-                 <div style={{ color: g.col, fontSize: 13, fontWeight: 800, fontFamily: TH.mono }}>{formatMoney(g.slots.reduce((acc, s) => acc + s.perSlot, 0))}</div>
               </div>
             </div>
             <div style={{ padding: 20 }}>
@@ -451,9 +480,6 @@ export default function DueLoansCalendar({ loans = [], payments = [], workers = 
                                 </div>
                              </div>
                              <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
-                                <div style={{ textAlign: 'right' }}>
-                                   <div style={{ color: TH.txt, fontWeight: 700, fontFamily: TH.mono }}>{formatMoney(lg.totalDue)} Due</div>
-                                </div>
                                 <div style={{ color: TH.muted, fontSize: 12, transform: isExp ? 'rotate(180deg)' : 'rotate(0deg)', transition: 'transform 0.2s' }}>▼</div>
                              </div>
                           </div>
@@ -585,10 +611,10 @@ export default function DueLoansCalendar({ loans = [], payments = [], workers = 
             onMouseOut={e => { if(b.t) e.currentTarget.style.background = TH.card; }}
           >
              <div className="summary-title" style={{ color: TH.muted, fontSize: 11, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 6 }}>{b.l}</div>
-             <div className="summary-value" style={{ color: b.c, fontSize: 18, fontWeight: 800, fontFamily: TH.mono }}>
-               {b.override ? b.override : formatMoney(b.v)}
+             <div className="summary-value" style={{ color: b.c, fontSize: 24, fontWeight: 900, fontFamily: TH.mono }}>
+               {b.override ? b.override : b.u}
              </div>
-             {b.u !== null && <div className="summary-sub" style={{ color: TH.txt, fontSize: 12, marginTop: 4 }}>{b.u} Loans</div>}
+             {!b.override && <div className="summary-sub" style={{ color: TH.txt, fontSize: 11, marginTop: 2, fontWeight: 700 }}>Total Loans</div>}
           </div>
         ))}
       </div>
@@ -660,7 +686,6 @@ export default function DueLoansCalendar({ loans = [], payments = [], workers = 
               <div style={{ color: TH.accent, fontWeight: 800, fontSize: 15 }}>Search Results</div>
               <div style={{ display: 'flex', gap: 14 }}>
                  <div style={{ color: TH.txt, fontSize: 13, fontWeight: 700 }}>{searchResults.length} Loans Found</div>
-                 <div style={{ color: TH.accent, fontSize: 13, fontWeight: 800, fontFamily: TH.mono }}>{formatMoney(searchResults.reduce((acc, lg) => acc + lg.totalDue, 0))}</div>
               </div>
             </div>
             <div style={{ padding: 20 }}>
@@ -691,9 +716,6 @@ export default function DueLoansCalendar({ loans = [], payments = [], workers = 
                             </div>
                          </div>
                          <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
-                            <div style={{ textAlign: 'right' }}>
-                               <div style={{ color: TH.txt, fontWeight: 700, fontFamily: TH.mono }}>{formatMoney(lg.totalDue)} Bal</div>
-                            </div>
                             <div style={{ color: TH.muted, fontSize: 12, transform: isExp ? 'rotate(180deg)' : 'rotate(0deg)', transition: 'transform 0.2s' }}>▼</div>
                          </div>
                       </div>
