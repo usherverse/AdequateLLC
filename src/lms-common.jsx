@@ -6344,6 +6344,11 @@ export var computeLoanSchedule = function (loan, allPayments) {
     negBalance: 0,
   }];
 
+  // IMPORTANT: this engine currently uses a single "maturity" slot equal to totalOwed.
+  // Allocation must therefore only mark the slot paid when the full total is covered.
+  // (Previously, the allocator used repayment-type instalment perSlot, which could
+  // incorrectly "clear" the single slot on partial payments.)
+  var allocPerSlot = Number(slots[0] && slots[0].perSlot) || 0;
 
   // 2. Map global payments safely
   var loanPays = (allPayments || [])
@@ -6385,8 +6390,9 @@ export var computeLoanSchedule = function (loan, allPayments) {
     if (effectiveAmount < 0) effectiveAmount = 0;
 
     // Allocate slot by slot
-    var fullSlots = Math.floor(effectiveAmount / perSlot);
-    var remainder = effectiveAmount % perSlot;
+    var divisor = allocPerSlot > 0 ? allocPerSlot : 1;
+    var fullSlots = Math.floor(effectiveAmount / divisor);
+    var remainder = effectiveAmount % divisor;
     var paidSlots = [];
 
     for (var k = 0; k < fullSlots && unresolvedIndices.length > 0; k++) {
@@ -6398,13 +6404,20 @@ export var computeLoanSchedule = function (loan, allPayments) {
     runningNegBalance = remainder > 0 ? -remainder : 0;
 
     paidSlots.forEach(function (idx) {
-      if ((pay.date || "").slice(0, 10) <= slots[idx].due) {
-        slots[idx].status = "paid";
+      // Only mark the (single) maturity slot as paid if the loan is fully settled.
+      // Partial payments should NOT clear the loan/calendar slot.
+      if (totalPaid >= totalOwed) {
+        if ((pay.date || "").slice(0, 10) <= slots[idx].due) {
+          slots[idx].status = "paid";
+        } else {
+          // Late but paid
+          slots[idx].status = "paid_late";
+        }
+        slots[idx].payment = pay;
       } else {
-        // Late but paid
-        slots[idx].status = "paid_late";
+        // Keep status unresolved; payment is captured via totalPaid/pctPaid.
+        slots[idx].payment = pay;
       }
-      slots[idx].payment = pay;
     });
 
     ledger.push({
