@@ -809,6 +809,7 @@ export default function App() {
       const CUSTOMERS_FAST = 200;
       const PAYMENTS_FAST = 500;
       const LOANS_MAX = 2000;
+      const CUSTOMERS_PAGE = 200; // always page customers in 200s to avoid timeouts
       const CUSTOMERS_MAX = 2000;
       const PAYMENTS_MAX = 5000;
 
@@ -880,34 +881,75 @@ export default function App() {
 
       setDataLoaded(true);
 
-      // Phase 1b (background): load the remaining rows and replace state once ready.
-      // This keeps the first paint fast while preserving full data compatibility.
-      Promise.all([
-        supabase.from('loans').select('*').order('created_at', { ascending: false }).range(0, LOANS_MAX - 1),
-        supabase.from('customers').select('*').order('name').range(0, CUSTOMERS_MAX - 1),
-        supabase.from('payments').select('*').order('date', { ascending: false }).range(0, PAYMENTS_MAX - 1),
-      ]).then(([lFull, cFull, pFull]) => {
-        const nextLoans = (!lFull.error && lFull.data?.length) ? lFull.data.map(fromSupabaseLoan) : [];
-        if (lFull.error) console.error('[load loans full]', lFull.error.message);
-        const nextCustomers = (!cFull.error && cFull.data?.length) ? cFull.data.map(fromSupabaseCustomer) : [];
-        if (cFull.error) console.error('[load customers full]', cFull.error.message);
-        const nextPayments = (!pFull.error && pFull.data?.length) ? pFull.data.map(fromSupabasePayment) : [];
-        if (pFull.error) console.error('[load payments full]', pFull.error.message);
+      // Phase 1b (background): fetch remaining data without heavy single queries.
+      // - Loans/payments can still be fetched in one go
+      // - Customers MUST be paged (200/page) to avoid "statement timeout" on order(name)
+      setTimeout(() => {
+        // Loans + payments (single query)
+        Promise.all([
+          supabase.from('loans').select('*').order('created_at', { ascending: false }).range(0, LOANS_MAX - 1),
+          supabase.from('payments').select('*').order('date', { ascending: false }).range(0, PAYMENTS_MAX - 1),
+        ]).then(([lFull, pFull]) => {
+          const nextLoans = (!lFull.error && lFull.data?.length) ? lFull.data.map(fromSupabaseLoan) : [];
+          if (lFull.error) console.error('[load loans full]', lFull.error.message);
+          const nextPayments = (!pFull.error && pFull.data?.length) ? pFull.data.map(fromSupabasePayment) : [];
+          if (pFull.error) console.error('[load payments full]', pFull.error.message);
 
-        const cache2 = readCache();
-        const hasWarm2 = !!(cache2?.customers?.length || cache2?.loans?.length || cache2?.payments?.length);
-        const allEmptyFull = nextLoans.length === 0 && nextCustomers.length === 0 && nextPayments.length === 0;
-        const anyErrorFull = !!(lFull.error || cFull.error || pFull.error);
+          const cache2 = readCache();
+          const hasWarm2 = !!(cache2?.customers?.length || cache2?.loans?.length || cache2?.payments?.length);
+          const anyErrorFull = !!(lFull.error || pFull.error);
+          const allEmptyFull = nextLoans.length === 0 && nextPayments.length === 0;
+          if (!anyErrorFull && !(hasWarm2 && allEmptyFull)) {
+            setLoans(nextLoans);
+            setPayments(nextPayments);
+            writeCache({
+              loans: nextLoans,
+              customers: (readCache()?.customers) || customers,
+              payments: nextPayments,
+            });
+          }
+        }).catch((err) => console.error('[load full loans/payments]', err?.message || err));
 
-        if (!anyErrorFull && !(hasWarm2 && allEmptyFull)) {
-          setLoans(nextLoans);
-          setCustomers(nextCustomers);
-          setPayments(nextPayments);
-          writeCache({ loans: nextLoans, customers: nextCustomers, payments: nextPayments });
-        } else if (hasWarm2 && allEmptyFull) {
-          console.warn('[load] Supabase returned empty full datasets; keeping cached data.');
-        }
-      }).catch((err) => console.error('[load full]', err?.message || err));
+        // Customers (paged)
+        (async () => {
+          try {
+            // Only start paging if the first page was "full" (likely more data exists)
+            const firstPageCount = Array.isArray(cFast.data) ? cFast.data.length : 0;
+            if (firstPageCount < CUSTOMERS_FAST) return;
+
+            let offset = CUSTOMERS_FAST;
+            let combined = nextCustomersFast.slice();
+            // Fetch up to CUSTOMERS_MAX total
+            while (combined.length < CUSTOMERS_MAX) {
+              const { data, error } = await supabase
+                .from('customers')
+                .select('*')
+                .order('name')
+                .range(offset, offset + CUSTOMERS_PAGE - 1);
+
+              if (error) { console.error('[load customers page]', error.message); break; }
+              const page = (data && data.length) ? data.map(fromSupabaseCustomer) : [];
+              if (page.length === 0) break;
+
+              combined = combined.concat(page);
+              offset += CUSTOMERS_PAGE;
+
+              // Update progressively so categories populate gradually (not one big freeze)
+              setCustomers(combined);
+              writeCache({
+                loans: (readCache()?.loans) || loans,
+                customers: combined,
+                payments: (readCache()?.payments) || payments,
+              });
+
+              // Yield to UI thread between pages
+              await new Promise(r => setTimeout(r, 50));
+            }
+          } catch (e) {
+            console.error('[load customers paged]', e?.message || e);
+          }
+        })();
+      }, 300); // slight delay so first paint happens before background work
 
       // Phase 2: Lazy Load secondary data
       Promise.all([
@@ -929,6 +971,12 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    // React 18 StrictMode runs effects twice in dev; guard so we don't double-load.
+    // (Production runs once.)
+    const onceRef = (globalThis.__acl_load_once_ref ||= { ran: false });
+    if (onceRef.ran) return;
+    onceRef.ran = true;
+
     // Hydrate from cache immediately, then refresh from Supabase.
     const cache = readCache();
     if (cache) {
