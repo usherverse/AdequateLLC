@@ -32,3 +32,14 @@ yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
+
+# Linters
+eslint-errors.txt
+lint-results*.txt
+
+# Temporary / Dev scripts
+tmp_*
+repair.cjs
+update_imports.cjs
+verify_docs.js
+vite.config.js.timestamp-*
