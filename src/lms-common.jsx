@@ -6301,6 +6301,7 @@ export var computeLoanSchedule = function (loan, allPayments) {
   if (!loan || !loan.disbursed)
     return { slots: [], ledger: [], runningBalance: 0, summary: {} };
 
+  var todayStr = new Date().toISOString().split("T")[0];
   var rt = loan.repaymentType;
   var principal = Number(loan.amount) || 0;
   var interest = Math.round(principal * 0.3); // Flat 30% interest rule
