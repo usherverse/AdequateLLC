@@ -804,42 +804,50 @@ export default function App() {
       const { supabase, DEMO_MODE } = await import('@/config/supabaseClient');
       if (DEMO_MODE || !supabase) { setDataLoaded(true); return; }
 
-      // Phase 1: Dashboard-critical data
-      const [lR, cR, pR, wR] = await Promise.all([
-        supabase.from('loans').select('*').order('created_at', { ascending: false }).limit(2000),
-        supabase.from('customers').select('*').order('name').limit(2000),
-        supabase.from('payments').select('*').order('date', { ascending: false }).limit(5000),
+      // Phase 1 (fast): load a small first page so UI populates quickly.
+      const LOANS_FAST = 200;
+      const CUSTOMERS_FAST = 200;
+      const PAYMENTS_FAST = 500;
+      const LOANS_MAX = 2000;
+      const CUSTOMERS_MAX = 2000;
+      const PAYMENTS_MAX = 5000;
+
+      const [lFast, cFast, pFast, wR] = await Promise.all([
+        supabase.from('loans').select('*').order('created_at', { ascending: false }).range(0, LOANS_FAST - 1),
+        supabase.from('customers').select('*').order('name').range(0, CUSTOMERS_FAST - 1),
+        supabase.from('payments').select('*').order('date', { ascending: false }).range(0, PAYMENTS_FAST - 1),
         supabase.from('workers').select('*').order('name'),
       ]);
 
-      const nextLoans = (!lR.error && lR.data?.length) ? lR.data.map(fromSupabaseLoan) : [];
-      if (lR.error) console.error('[load loans]', lR.error.message);
-      const nextCustomers = (!cR.error && cR.data?.length) ? cR.data.map(fromSupabaseCustomer) : [];
-      if (cR.error) console.error('[load customers]', cR.error.message);
-      const nextPayments = (!pR.error && pR.data?.length) ? pR.data.map(fromSupabasePayment) : [];
-      if (pR.error) console.error('[load payments]', pR.error.message);
+      const nextLoansFast = (!lFast.error && lFast.data?.length) ? lFast.data.map(fromSupabaseLoan) : [];
+      if (lFast.error) console.error('[load loans]', lFast.error.message);
+      const nextCustomersFast = (!cFast.error && cFast.data?.length) ? cFast.data.map(fromSupabaseCustomer) : [];
+      if (cFast.error) console.error('[load customers]', cFast.error.message);
+      const nextPaymentsFast = (!pFast.error && pFast.data?.length) ? pFast.data.map(fromSupabasePayment) : [];
+      if (pFast.error) console.error('[load payments]', pFast.error.message);
       if (!wR.error && wR.data?.length) setWorkers(wR.data.map(w => ({ ...w, docs: w.docs || [], avatar: w.avatar || (w.name || '').split(' ').map(x => x[0]).join('').slice(0, 2).toUpperCase() })));
       else if (wR.error) console.error('[load workers]', wR.error.message);
 
       // Prevent wiping a warm cache when Supabase returns 0 rows unexpectedly (e.g., RLS)
       const cache = readCache();
       const hasWarm = !!(cache?.customers?.length || cache?.loans?.length || cache?.payments?.length);
-      const allEmpty = nextLoans.length === 0 && nextCustomers.length === 0 && nextPayments.length === 0;
-      const anyError = !!(lR.error || cR.error || pR.error);
+      const allEmptyFast = nextLoansFast.length === 0 && nextCustomersFast.length === 0 && nextPaymentsFast.length === 0;
+      const anyErrorFast = !!(lFast.error || cFast.error || pFast.error);
 
-      if (!anyError && !(hasWarm && allEmpty)) {
-        setLoans(nextLoans);
-        setCustomers(nextCustomers);
-        setPayments(nextPayments);
-        writeCache({ loans: nextLoans, customers: nextCustomers, payments: nextPayments });
-      } else if (hasWarm && allEmpty) {
+      if (!anyErrorFast && !(hasWarm && allEmptyFast)) {
+        // Only update state if it would actually populate something or there is no warm cache.
+        setLoans(nextLoansFast);
+        setCustomers(nextCustomersFast);
+        setPayments(nextPaymentsFast);
+        writeCache({ loans: nextLoansFast, customers: nextCustomersFast, payments: nextPaymentsFast });
+      } else if (hasWarm && allEmptyFast) {
         console.warn('[load] Supabase returned empty datasets; keeping cached data.');
       }
 
       // Backfill missing customers referenced by loans (preserves previous behavior)
-      if (!lR.error && !cR.error) {
-        const ll = lR.data?.length ? lR.data : [];
-        const lc = cR.data?.length ? cR.data : [];
+      if (!lFast.error && !cFast.error) {
+        const ll = lFast.data?.length ? lFast.data : [];
+        const lc = cFast.data?.length ? cFast.data : [];
         const cids = new Set(lc.map(c => c.id));
         const missing = [];
         ll.forEach(l => {
@@ -871,6 +879,35 @@ export default function App() {
       }
 
       setDataLoaded(true);
+
+      // Phase 1b (background): load the remaining rows and replace state once ready.
+      // This keeps the first paint fast while preserving full data compatibility.
+      Promise.all([
+        supabase.from('loans').select('*').order('created_at', { ascending: false }).range(0, LOANS_MAX - 1),
+        supabase.from('customers').select('*').order('name').range(0, CUSTOMERS_MAX - 1),
+        supabase.from('payments').select('*').order('date', { ascending: false }).range(0, PAYMENTS_MAX - 1),
+      ]).then(([lFull, cFull, pFull]) => {
+        const nextLoans = (!lFull.error && lFull.data?.length) ? lFull.data.map(fromSupabaseLoan) : [];
+        if (lFull.error) console.error('[load loans full]', lFull.error.message);
+        const nextCustomers = (!cFull.error && cFull.data?.length) ? cFull.data.map(fromSupabaseCustomer) : [];
+        if (cFull.error) console.error('[load customers full]', cFull.error.message);
+        const nextPayments = (!pFull.error && pFull.data?.length) ? pFull.data.map(fromSupabasePayment) : [];
+        if (pFull.error) console.error('[load payments full]', pFull.error.message);
+
+        const cache2 = readCache();
+        const hasWarm2 = !!(cache2?.customers?.length || cache2?.loans?.length || cache2?.payments?.length);
+        const allEmptyFull = nextLoans.length === 0 && nextCustomers.length === 0 && nextPayments.length === 0;
+        const anyErrorFull = !!(lFull.error || cFull.error || pFull.error);
+
+        if (!anyErrorFull && !(hasWarm2 && allEmptyFull)) {
+          setLoans(nextLoans);
+          setCustomers(nextCustomers);
+          setPayments(nextPayments);
+          writeCache({ loans: nextLoans, customers: nextCustomers, payments: nextPayments });
+        } else if (hasWarm2 && allEmptyFull) {
+          console.warn('[load] Supabase returned empty full datasets; keeping cached data.');
+        }
+      }).catch((err) => console.error('[load full]', err?.message || err));
 
       // Phase 2: Lazy Load secondary data
       Promise.all([
