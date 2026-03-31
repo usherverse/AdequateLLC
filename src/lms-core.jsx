@@ -799,8 +799,11 @@ export default function App() {
   };
 
   // ── Load all data from Supabase (after session is available) ──────────────────
+  const loadInFlightRef = useRef(false);
   const loadAllData = useCallback(async () => {
     try {
+      if (loadInFlightRef.current) return;
+      loadInFlightRef.current = true;
       const { supabase, DEMO_MODE } = await import('@/config/supabaseClient');
       if (DEMO_MODE || !supabase) { setDataLoaded(true); return; }
 
@@ -845,39 +848,9 @@ export default function App() {
         console.warn('[load] Supabase returned empty datasets; keeping cached data.');
       }
 
-      // Backfill missing customers referenced by loans (preserves previous behavior)
-      if (!lFast.error && !cFast.error) {
-        const ll = lFast.data?.length ? lFast.data : [];
-        const lc = cFast.data?.length ? cFast.data : [];
-        const cids = new Set(lc.map(c => c.id));
-        const missing = [];
-        ll.forEach(l => {
-          if (l.customer_id && !cids.has(l.customer_id)) {
-            cids.add(l.customer_id);
-            missing.push({
-              id: l.customer_id, name: l.customer_name || 'Unknown', phone: l.phone || null,
-              alt_phone: null, id_no: 'PENDING-' + l.customer_id,
-              business: null, location: null, residence: null, officer: l.officer || null,
-              loans: 1, risk: 'Medium', gender: null, dob: null, blacklisted: false,
-              bl_reason: null, from_lead: null,
-              n1_name: null, n1_phone: null, n1_relation: null,
-              n2_name: null, n2_phone: null, n2_relation: null,
-              n3_name: null, n3_phone: null, n3_relation: null, joined: l.disbursed || null
-            });
-          }
-        });
-        if (missing.length > 0) {
-          console.warn('[load] Synthesized', missing.length, 'missing customer records from loan data.');
-          setCustomers(cs => {
-            const existingIds = new Set(cs.map(c => c.id));
-            const toAdd = missing.filter(m => !existingIds.has(m.id)).map(fromSupabaseCustomer);
-            return toAdd.length > 0 ? [...cs, ...toAdd] : cs;
-          });
-          supabase.from('customers').upsert(missing, { onConflict: 'id' })
-            .then(({ error }) => { if (error) console.error('[backfill customers]', error.message); })
-            .catch(() => {});
-        }
-      }
+      // NOTE: We intentionally do NOT run the "synthesize missing customers" step during
+      // the fast first-page load. With customer paging, many loans will reference customers
+      // outside the first 200 rows, and synthesizing at this stage is noisy and misleading.
 
       setDataLoaded(true);
 
@@ -945,6 +918,40 @@ export default function App() {
               // Yield to UI thread between pages
               await new Promise(r => setTimeout(r, 50));
             }
+
+            // After paging completes (or stops), now it is meaningful to backfill any truly
+            // missing customers referenced by the currently loaded loans.
+            if (!lFast.error && !cFast.error) {
+              const ll = lFast.data?.length ? lFast.data : [];
+              const cids = new Set(combined.map(c => c.id));
+              const missing = [];
+              ll.forEach(l => {
+                if (l.customer_id && !cids.has(l.customer_id)) {
+                  cids.add(l.customer_id);
+                  missing.push({
+                    id: l.customer_id, name: l.customer_name || 'Unknown', phone: l.phone || null,
+                    alt_phone: null, id_no: 'PENDING-' + l.customer_id,
+                    business: null, location: null, residence: null, officer: l.officer || null,
+                    loans: 1, risk: 'Medium', gender: null, dob: null, blacklisted: false,
+                    bl_reason: null, from_lead: null,
+                    n1_name: null, n1_phone: null, n1_relation: null,
+                    n2_name: null, n2_phone: null, n2_relation: null,
+                    n3_name: null, n3_phone: null, n3_relation: null, joined: l.disbursed || null
+                  });
+                }
+              });
+              if (missing.length > 0) {
+                console.warn('[load] Synthesized', missing.length, 'missing customer records from loan data.');
+                setCustomers(cs => {
+                  const existingIds = new Set(cs.map(c => c.id));
+                  const toAdd = missing.filter(m => !existingIds.has(m.id)).map(fromSupabaseCustomer);
+                  return toAdd.length > 0 ? [...cs, ...toAdd] : cs;
+                });
+                supabase.from('customers').upsert(missing, { onConflict: 'id' })
+                  .then(({ error }) => { if (error) console.error('[backfill customers]', error.message); })
+                  .catch(() => {});
+              }
+            }
           } catch (e) {
             console.error('[load customers paged]', e?.message || e);
           }
@@ -967,6 +974,8 @@ export default function App() {
     } catch (e) {
       console.error('[load] Failed to load from Supabase:', e?.message || e);
       // Don't flip to loaded on auth-less failures; allow re-attempt post-login
+    } finally {
+      loadInFlightRef.current = false;
     }
   }, []);
 
