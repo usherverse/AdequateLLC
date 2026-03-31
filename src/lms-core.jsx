@@ -348,7 +348,7 @@ const AdminPanel = ({onLogout,loans,setLoans,customers,setCustomers,workers,setW
 // ═══════════════════════════════════════════
 //  WORKER PORTAL
 // ═══════════════════════════════════════════
-const WorkerPortal = ({workers,setWorkers,loans,setLoans,customers,setCustomers,payments,leads,setLeads,interactions,setInteractions,auditLog,setAuditLog,onBack}) => {
+const WorkerPortal = ({workers,setWorkers,loans,setLoans,customers,setCustomers,payments,leads,setLeads,interactions,setInteractions,auditLog,setAuditLog,onBack,dataLoaded,onOpenCustomerProfile}) => {
   const [loggedIn,setLoggedIn]=useState(false);
   const [curr,setCurr]=useState(null);
   const [email,setEmail]=useState('');
@@ -415,6 +415,13 @@ const WorkerPortal = ({workers,setWorkers,loans,setLoans,customers,setCustomers,
     </div>
   );
 
+  if (!dataLoaded) return (
+    <div style={{minHeight:'100vh',background:'#080C14',display:'flex',alignItems:'center',justifyContent:'center',flexDirection:'column',gap:16}}>
+      <div style={{width:40,height:40,border:'3px solid #1E2D45',borderTop:'3px solid #00D4AA',borderRadius:'50%',animation:'spin .8s linear infinite'}}/>
+      <div style={{color:'#475569',fontSize:13,fontFamily:'system-ui'}}>Loading Workspace…</div>
+    </div>
+  );
+
   return (
     <div style={{minHeight:'100vh',background:T.bg}}>
       <div style={{background:T.surface,borderBottom:`1px solid ${T.border}`,padding:'10px 18px',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
@@ -425,7 +432,7 @@ const WorkerPortal = ({workers,setWorkers,loans,setLoans,customers,setCustomers,
           <Btn sm v='ghost' onClick={()=>{setLoggedIn(false);setCurr(null);}}>Logout</Btn>
         </div>
       </div>
-      <WorkerPanel worker={curr} workers={workers} setWorkers={setWorkers} loans={loans} payments={payments} customers={customers} leads={leads} allWorkers={workers} setCustomers={setCustomers} onSubmitLoan={l=>setLoans(ls=>[l,...ls])} setLeads={setLeads} interactions={interactions} setInteractions={setInteractions} addAudit={addAudit} showToast={showToast}/>
+      <WorkerPanel worker={curr} workers={workers} setWorkers={setWorkers} loans={loans} payments={payments} customers={customers} leads={leads} allWorkers={workers} setCustomers={setCustomers} onSubmitLoan={l=>setLoans(ls=>[l,...ls])} setLeads={setLeads} interactions={interactions} setInteractions={setInteractions} addAudit={addAudit} showToast={showToast} onOpenCustomerProfile={onOpenCustomerProfile}/>
       <ToastContainer toasts={toasts}/>
     </div>
   );
@@ -872,11 +879,13 @@ export default function App() {
   const shared={loans,setLoans,customers,setCustomers,workers,setWorkers,payments,setPayments,leads,setLeads,interactions,setInteractions,auditLog,setAuditLog,onOpenCustomerProfile: setGlobalCustomerId};
 
   // Show loading spinner while fetching data
-  if(!dataLoaded) return (
+  // We only block rendering here if in admin mode. The login screens (admin-login & worker)
+  // are allowed to render instantly so the app feels fast.
+  if(!dataLoaded && mode === 'admin') return (
     <div style={{minHeight:'100vh',background:'#080C14',display:'flex',alignItems:'center',justifyContent:'center',flexDirection:'column',gap:16}}>
       <div style={{width:40,height:40,border:'3px solid #1E2D45',borderTop:'3px solid #00D4AA',borderRadius:'50%',animation:'spin .8s linear infinite'}}/>
       <style>{'@keyframes spin{to{transform:rotate(360deg)}}'}</style>
-      <div style={{color:'#475569',fontSize:13,fontFamily:'system-ui'}}>Loading…</div>
+      <div style={{color:'#475569',fontSize:13,fontFamily:'system-ui'}}>Loading Workspace…</div>
     </div>
   );
 
@@ -884,8 +893,8 @@ export default function App() {
     <>
       <StylesMemo/>
       {mode==='admin-login'&&<AdminLogin onLogin={handleLogin} onWorkerPortal={()=>setMode('worker')}/>}
-      {mode==='admin'&&<AdminPanel {...shared} onLogout={()=>setMode('admin-login')}/>}
-      {mode==='worker'&&<WorkerPanel {...shared} onBack={()=>setMode('admin-login')} onOpenCustomerProfile={onOpenCustomerProfile}/>}
+      {mode==='admin'&&dataLoaded&&<AdminPanel {...shared} onLogout={()=>setMode('admin-login')}/>}
+      {mode==='worker'&&<WorkerPortal {...shared} dataLoaded={dataLoaded} onBack={()=>setMode('admin-login')} onOpenCustomerProfile={onOpenCustomerProfile}/>}
 
       {/* Global Customer Profile Overlay */}
       {globalCustomerId && (
