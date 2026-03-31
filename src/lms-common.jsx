@@ -328,6 +328,64 @@ export const Styles = () => (
       [style*="gridTemplateColumns"]{grid-template-columns:1fr!important}
       [style*="grid-template-columns"]{grid-template-columns:1fr!important}
       [style*="gridColumn: span 2"],[style*="gridColumn:span 2"]{grid-column:span 1!important}
+
+      /* ── REPAYMENTS COMMAND CENTER MOBILE ── */
+      .topbar-actions {
+        display: grid !important;
+        grid-template-columns: 1fr 1fr !important;
+        width: 100%;
+        gap: 8px !important;
+      }
+      .topbar-actions > button {
+        height: 44px;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        font-size: 13px !important;
+      }
+      .rcc-header {
+        flex-direction: column !important;
+        gap: 12px;
+      }
+      .rcc-summary-bar {
+        grid-template-columns: repeat(4, 1fr) !important;
+        gap: 8px !important;
+      }
+      .rcc-summary-bar > div {
+        padding: 10px !important;
+        text-align: center;
+      }
+      .rcc-summary-bar > div > div:first-child {
+        font-size: 9px !important;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .rcc-summary-bar > div > div:nth-child(2) {
+        font-size: 14px !important;
+      }
+      /* Fifth button drops down and spans full width */
+      .rcc-summary-bar > div:nth-child(5) {
+        grid-column: 1 / -1;
+      }
+      .rcc-calendar-grid {
+        gap: 2px !important;
+      }
+      .rcc-calendar-grid > div {
+        font-size: 10px !important;
+      }
+      .rcc-side-panel {
+        position: fixed !important;
+        top: 0 !important;
+        left: 0 !important;
+        width: 100% !important;
+        height: 100% !important;
+        max-height: 100% !important;
+        z-index: 9999 !important;
+        border-radius: 0 !important;
+        border: none !important;
+      }
+
     }
   `}</style>
 );
@@ -6271,22 +6329,20 @@ export var computeLoanSchedule = function (loan, allPayments) {
     numSlots = 1;
   } else return { slots: [], ledger: [], runningBalance: 0, summary: {} };
 
-  // 1. Calculate base slots
+  // 1. Calculate strict maturity slot (30 days from disbursement)
   var startDate = new Date(loan.disbursed);
-  var todayStr = new Date().toISOString().slice(0, 10);
-  var slots = [];
-  for (var i = 0; i < numSlots; i++) {
-    var d = new Date(startDate);
-    d.setDate(d.getDate() + (i + 1) * intervalDays);
-    slots.push({
-      index: i,
-      due: d.toISOString().slice(0, 10),
-      perSlot: perSlot,
-      status: "upcoming",
-      payment: null,
-      negBalance: 0,
-    });
-  }
+  var dueTarget = new Date(startDate);
+  dueTarget.setDate(dueTarget.getDate() + 30);
+  
+  var slots = [{
+    index: 0,
+    due: dueTarget.toISOString().slice(0, 10),
+    perSlot: totalOwed,
+    status: "upcoming",
+    payment: null,
+    negBalance: 0,
+  }];
+
 
   // 2. Map global payments safely
   var loanPays = (allPayments || [])

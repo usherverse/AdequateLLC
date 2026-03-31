@@ -66,6 +66,14 @@ export default function DueLoansCalendar({ loans = [], payments = [], workers = 
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
 
+  // Reset scroll to top when toggling views/modals
+  React.useEffect(() => {
+    try {
+      document.querySelector('.main-scroll')?.scrollTo({ top: 0, behavior: 'instant' });
+      window.scrollTo({ top: 0, behavior: 'instant' });
+    } catch(e) {}
+  }, [activeTab, selectedDay]);
+
   const todayStr = new Date().toISOString().slice(0, 10);
   const yr = currentDate.getFullYear();
   const mo = currentDate.getMonth();
@@ -242,13 +250,13 @@ export default function DueLoansCalendar({ loans = [], payments = [], workers = 
         {/* Render Badges inside day cell */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
           {countMap.overdue > 0 && (
-            <div style={{ background: SEV.overdue.bg, color: SEV.overdue.color, padding: '2px 6px', borderRadius: 4, fontSize: 10, fontWeight: 700, display: 'flex', justifyContent: 'space-between' }}>
-              <span>{countMap.overdue} due</span> <span style={{fontFamily: TH.mono}}>{formatMoney(sumKESMap.overdue)}</span>
+            <div className="cal-badge overdue" style={{ background: SEV.overdue.bg, color: SEV.overdue.color, padding: '2px 6px', borderRadius: 4, display: 'flex', justifyContent: 'space-between', fontWeight: 700 }}>
+              <span>{countMap.overdue} due</span> <span className="hide-mob" style={{fontFamily: TH.mono}}>{formatMoney(sumKESMap.overdue)}</span>
             </div>
           )}
           {countMap.today > 0 && (
-            <div style={{ background: SEV.today.bg, color: SEV.today.color, padding: '2px 6px', borderRadius: 4, fontSize: 10, fontWeight: 700, display: 'flex', justifyContent: 'space-between' }}>
-              <span>{countMap.today} due</span> <span style={{fontFamily: TH.mono}}>{formatMoney(sumKESMap.today)}</span>
+            <div className="cal-badge today" style={{ background: SEV.today.bg, color: SEV.today.color, padding: '2px 6px', borderRadius: 4, display: 'flex', justifyContent: 'space-between', fontWeight: 700 }}>
+              <span>{countMap.today} due</span> <span className="hide-mob" style={{fontFamily: TH.mono}}>{formatMoney(sumKESMap.today)}</span>
             </div>
           )}
           {countMap.urgent > 0 && (
@@ -288,13 +296,13 @@ export default function DueLoansCalendar({ loans = [], payments = [], workers = 
     const headers = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 
     return (
-      <div style={{ background: TH.card, borderRadius: 12, padding: 20, border: `1px solid ${TH.border}` }}>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 8, marginBottom: 8 }}>
+      <div style={{ background: TH.card, borderRadius: 12, padding: '16px 8px', border: `1px solid ${TH.border}` }}>
+        <div className="rcc-calendar-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 8, marginBottom: 8 }}>
           {headers.map(h => (
             <div key={h} style={{ color: TH.muted, fontSize: 12, fontWeight: 700, textAlign: 'center', textTransform: 'uppercase' }}>{h}</div>
           ))}
         </div>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 8, background: TH.card }}>
+        <div className="rcc-calendar-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 8, background: TH.card }}>
           {blanks}
           {days.map(d => getDayUI(d))}
           {trailingBlanks}
@@ -341,7 +349,7 @@ export default function DueLoansCalendar({ loans = [], payments = [], workers = 
               {l.customer}
             </div>
             <div style={{ fontFamily: TH.mono, color: TH.accent, fontSize: 12, fontWeight: 800, marginTop: 4 }}>{l.id}</div>
-            <div style={{ color: TH.muted, fontSize: 11, marginTop: 2 }}>Payment {slot.index + 1} of {slot.summary.paid + slot.summary.missed + slot.summary.upcoming + slot.summary.overdue}</div>
+            <div style={{ color: TH.muted, fontSize: 11, marginTop: 2 }}>Maturity Date: {slot.due}</div>
           </div>
           <div style={{ textAlign: 'right' }}>
             <div style={{ color: TH.txt, fontWeight: 700, fontSize: 15, fontFamily: TH.mono }}>{formatMoney(slot.perSlot)} Due</div>
@@ -479,10 +487,10 @@ export default function DueLoansCalendar({ loans = [], payments = [], workers = 
   };
 
   return (
-    <div style={{ background: TH.bg, minHeight: '100vh', padding: 20, fontFamily: TH.sys, overflowY: 'auto' }}>
+    <div style={{ background: TH.bg, padding: 20, fontFamily: TH.sys }}>
       
       {/* HEADER TABS & ACTIONS */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 20 }}>
+      <div className="rcc-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 20, flexWrap: 'wrap' }}>
         <div>
           <h1 style={{ color: TH.txt, fontSize: 24, margin: '0 0 4px 0', fontWeight: 800 }}>Repayments Command Center</h1>
           <p style={{ color: TH.muted, fontSize: 13, margin: 0 }}>Auto-synced scheduler based on live ledger analytics.</p>
@@ -551,7 +559,7 @@ export default function DueLoansCalendar({ loans = [], payments = [], workers = 
       </div>
 
       {/* SUMMARY BAR */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 12, marginBottom: 20 }}>
+      <div className="rcc-summary-bar" style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 12, marginBottom: 20 }}>
         {[
           { l: 'Total Overdue', c: TH.danger, u: summaryBox.overdueCt, v: summaryBox.overdueKES, t: 'Overdue' },
           { l: 'Due Today', c: TH.warn, u: summaryBox.todayCt, v: summaryBox.todayKES, t: 'Upcoming' },
@@ -568,16 +576,19 @@ export default function DueLoansCalendar({ loans = [], payments = [], workers = 
               borderRadius: 12, 
               padding: 16, 
               cursor: b.t ? 'pointer' : 'default',
-              transition: 'all 0.2s ease'
+              transition: 'all 0.2s ease',
+              display: 'flex',
+              flexDirection: 'column',
+              justifyContent: 'center'
             }}
             onMouseOver={e => { if(b.t) e.currentTarget.style.background = TH.surface; }}
             onMouseOut={e => { if(b.t) e.currentTarget.style.background = TH.card; }}
           >
-             <div style={{ color: TH.muted, fontSize: 11, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 6 }}>{b.l}</div>
-             <div style={{ color: b.c, fontSize: 18, fontWeight: 800, fontFamily: TH.mono }}>
+             <div className="summary-title" style={{ color: TH.muted, fontSize: 11, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 6 }}>{b.l}</div>
+             <div className="summary-value" style={{ color: b.c, fontSize: 18, fontWeight: 800, fontFamily: TH.mono }}>
                {b.override ? b.override : formatMoney(b.v)}
              </div>
-             {b.u !== null && <div style={{ color: TH.txt, fontSize: 12, marginTop: 4 }}>{b.u} Loans</div>}
+             {b.u !== null && <div className="summary-sub" style={{ color: TH.txt, fontSize: 12, marginTop: 4 }}>{b.u} Loans</div>}
           </div>
         ))}
       </div>
@@ -616,7 +627,7 @@ export default function DueLoansCalendar({ loans = [], payments = [], workers = 
 
             {/* Slide-in Side Panel equivalent (Right Sidebar) */}
             {selectedDay && (
-              <div style={{ width: 360, background: TH.card, border: `1px solid ${TH.accent}`, borderRadius: 12, display: 'flex', flexDirection: 'column', overflow: 'hidden', boxShadow: `-10px 0 30px ${TH.bg}` }}>
+              <div className="rcc-side-panel" style={{ width: 360, background: TH.card, border: `1px solid ${TH.accent}`, borderRadius: 12, display: 'flex', flexDirection: 'column', overflow: 'hidden', boxShadow: `-10px 0 30px ${TH.bg}` }}>
                  <div style={{ padding: '16px 20px', background: TH.surface, borderBottom: `1px solid ${TH.border}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <div style={{ color: TH.txt, fontSize: 16, fontWeight: 800 }}>Date Schedule</div>
                     <button onClick={() => setSelectedDay(null)} style={{ background: 'transparent', border: 'none', color: TH.muted, cursor: 'pointer', fontSize: 18 }}>✕</button>

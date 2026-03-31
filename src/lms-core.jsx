@@ -206,10 +206,8 @@ const AdminPanel = ({onLogout,loans,setLoans,customers,setCustomers,workers,setW
 
   // Loan status update — runs on mount and then every 24 hours
   useEffect(()=>{
-    const GRACE={Daily:3,Weekly:10,Biweekly:18,Monthly:35,'Lump Sum':35};
-    // Only reclassify Active→Overdue for loans disbursed within the last 180 days.
-    // Seed / demo loans with older dates are preserved as-is so the app shows realistic
-    // data on first load. Already-Overdue loans still get their daysOverdue refreshed.
+    // Strict Business Logic: Repayment frequency does not determine loan maturity.
+    // A loan is 'due' strictly 30 days from disbursement date calculation.
     const MAX_RECLASSIFY_DAYS = 180;
     const updateLoans=()=>{
       const n=new Date();
@@ -217,7 +215,8 @@ const AdminPanel = ({onLogout,loans,setLoans,customers,setCustomers,workers,setW
         if(!['Active','Overdue'].includes(l.status)||!l.disbursed) return l;
         const disbDate=new Date(l.disbursed);
         const diffDays=Math.floor((n-disbDate)/(1000*60*60*24));
-        const grace=GRACE[l.repaymentType]??30;
+        const grace=30; // Enforced strict due logic
+
         if(l.status==='Active'){
           if(diffDays>grace&&diffDays<=MAX_RECLASSIFY_DAYS&&l.balance>0){
             const upd={...l,status:'Overdue',daysOverdue:Math.max(0,diffDays-grace)};
@@ -319,7 +318,7 @@ const AdminPanel = ({onLogout,loans,setLoans,customers,setCustomers,workers,setW
             )}
             <RefreshBtn onRefresh={()=>{ scrollTop(); navTo(screen); }}/>
           </div>
-          <div style={{display:'flex',gap:7,alignItems:'center',flexWrap:'wrap'}}>
+          <div className="topbar-actions" style={{display:'flex',gap:7,alignItems:'center',flexWrap:'wrap'}}>
             {pendingApprovals>0&&<button onClick={()=>navTo('loans')} style={{background:T.gLo,border:`1px solid ${T.gold}38`,borderRadius:8,padding:'4px 9px',color:T.gold,fontSize:12,fontWeight:700,cursor:'pointer'}}>⏳ {pendingApprovals}</button>}
             {overdue>0&&<button onClick={()=>navTo('collections')} style={{background:T.dLo,border:`1px solid ${T.danger}38`,borderRadius:8,padding:'4px 9px',color:T.danger,fontSize:12,fontWeight:700,cursor:'pointer'}}>{overdue} Overdue</button>}
             {unalloc>0&&<button onClick={()=>navTo('payments')} style={{background:T.wLo,border:`1px solid ${T.warn}38`,borderRadius:8,padding:'4px 9px',color:T.warn,fontSize:12,fontWeight:700,cursor:'pointer'}}>{unalloc} Unalloc</button>}
