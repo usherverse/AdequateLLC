@@ -789,92 +789,223 @@ export default function App() {
   // ISSUE 4 FIX: Global Customer Profile State
   const [globalCustomerId, setGlobalCustomerId] = useState(null);
 
-  // ── Load all data from Supabase on mount ─────────────────────────────
-  useEffect(()=>{
-    import('@/config/supabaseClient').then(({supabase,DEMO_MODE})=>{
-      if(DEMO_MODE||!supabase){setDataLoaded(true);return;}
-      // Phase 1: Dashboard-critical data
-      Promise.all([
-        supabase.from('loans').select('*').order('created_at',{ascending:false}).limit(2000),
-        supabase.from('customers').select('*').order('name').limit(2000),
-        supabase.from('payments').select('*').order('date',{ascending:false}).limit(5000),
+  // ── Local cache (speed up first paint after login) ──────────────────────────
+  const CACHE_KEY = 'acl_cache_v1';
+  const readCache = () => {
+    try { return JSON.parse(localStorage.getItem(CACHE_KEY) || 'null'); } catch(e){ return null; }
+  };
+  const writeCache = (next) => {
+    try { localStorage.setItem(CACHE_KEY, JSON.stringify({ ...next, ts: Date.now() })); } catch(e){}
+  };
+
+  // ── Load all data from Supabase (after session is available) ──────────────────
+  const loadAllData = useCallback(async () => {
+    try {
+      const { supabase, DEMO_MODE } = await import('@/config/supabaseClient');
+      if (DEMO_MODE || !supabase) { setDataLoaded(true); return; }
+
+      // Phase 1 (fast): load a small first page so UI populates quickly.
+      const LOANS_FAST = 200;
+      const CUSTOMERS_FAST = 200;
+      const PAYMENTS_FAST = 500;
+      const LOANS_MAX = 2000;
+      const CUSTOMERS_PAGE = 200; // always page customers in 200s to avoid timeouts
+      const CUSTOMERS_MAX = 2000;
+      const PAYMENTS_MAX = 5000;
+
+      const [lFast, cFast, pFast, wR] = await Promise.all([
+        supabase.from('loans').select('*').order('created_at', { ascending: false }).range(0, LOANS_FAST - 1),
+        supabase.from('customers').select('*').order('name').range(0, CUSTOMERS_FAST - 1),
+        supabase.from('payments').select('*').order('date', { ascending: false }).range(0, PAYMENTS_FAST - 1),
         supabase.from('workers').select('*').order('name'),
-      ]).then(([lR,cR,pR,wR])=>{
-        // Supabase is the single source of truth.
-        // Empty table (data.length===0) = genuinely no rows — never fall back to seed data.
-        // Workers fall back to seed only so login still works if the workers table is empty.
-        if(!lR.error)  setLoans(lR.data?.length ? lR.data.map(fromSupabaseLoan) : []);
-        else           console.error('[load loans]',  lR.error.message);
-        if(!cR.error)  setCustomers(cR.data?.length ? cR.data.map(fromSupabaseCustomer) : []);
-        else           console.error('[load customers]', cR.error.message);
-        if(!pR.error)  setPayments(pR.data?.length ? pR.data.map(fromSupabasePayment) : []);
-        else           console.error('[load payments]',  pR.error.message);
-        if(!wR.error&&wR.data?.length) setWorkers(wR.data.map(w=>({...w,docs:w.docs||[],avatar:w.avatar||(w.name||'').split(' ').map(x=>x[0]).join('').slice(0,2).toUpperCase()})));
-        else if(wR.error) console.error('[load workers]', wR.error.message);
-        if(!lR.error&&!cR.error){
-          const ll=lR.data?.length?lR.data:[];const lc=cR.data?.length?cR.data:[];
-          const cids=new Set(lc.map(c=>c.id));const missing=[];
-          ll.forEach(l=>{
-            if(l.customer_id&&!cids.has(l.customer_id)){
-              cids.add(l.customer_id);
-              missing.push({id:l.customer_id,name:l.customer_name||'Unknown',phone:l.phone||null,
-                alt_phone:null,id_no:'PENDING-'+l.customer_id,
-                business:null,location:null,residence:null,officer:l.officer||null,
-                loans:1,risk:'Medium',gender:null,dob:null,blacklisted:false,
-                bl_reason:null,from_lead:null,
-                n1_name:null,n1_phone:null,n1_relation:null,
-                n2_name:null,n2_phone:null,n2_relation:null,
-                n3_name:null,n3_phone:null,n3_relation:null,joined:l.disbursed||null});
-            }
-          });
-          if(missing.length>0){
-            console.warn('[load] Synthesized',missing.length,'missing customer records from loan data.');
-            setCustomers(cs=>{
-              const existingIds=new Set(cs.map(c=>c.id));
-              const toAdd=missing.filter(m=>!existingIds.has(m.id)).map(fromSupabaseCustomer);
-              return toAdd.length>0?[...cs,...toAdd]:cs;
+      ]);
+
+      const nextLoansFast = (!lFast.error && lFast.data?.length) ? lFast.data.map(fromSupabaseLoan) : [];
+      if (lFast.error) console.error('[load loans]', lFast.error.message);
+      const nextCustomersFast = (!cFast.error && cFast.data?.length) ? cFast.data.map(fromSupabaseCustomer) : [];
+      if (cFast.error) console.error('[load customers]', cFast.error.message);
+      const nextPaymentsFast = (!pFast.error && pFast.data?.length) ? pFast.data.map(fromSupabasePayment) : [];
+      if (pFast.error) console.error('[load payments]', pFast.error.message);
+      if (!wR.error && wR.data?.length) setWorkers(wR.data.map(w => ({ ...w, docs: w.docs || [], avatar: w.avatar || (w.name || '').split(' ').map(x => x[0]).join('').slice(0, 2).toUpperCase() })));
+      else if (wR.error) console.error('[load workers]', wR.error.message);
+
+      // Prevent wiping a warm cache when Supabase returns 0 rows unexpectedly (e.g., RLS)
+      const cache = readCache();
+      const hasWarm = !!(cache?.customers?.length || cache?.loans?.length || cache?.payments?.length);
+      const allEmptyFast = nextLoansFast.length === 0 && nextCustomersFast.length === 0 && nextPaymentsFast.length === 0;
+      const anyErrorFast = !!(lFast.error || cFast.error || pFast.error);
+
+      if (!anyErrorFast && !(hasWarm && allEmptyFast)) {
+        // Only update state if it would actually populate something or there is no warm cache.
+        setLoans(nextLoansFast);
+        setCustomers(nextCustomersFast);
+        setPayments(nextPaymentsFast);
+        writeCache({ loans: nextLoansFast, customers: nextCustomersFast, payments: nextPaymentsFast });
+      } else if (hasWarm && allEmptyFast) {
+        console.warn('[load] Supabase returned empty datasets; keeping cached data.');
+      }
+
+      // Backfill missing customers referenced by loans (preserves previous behavior)
+      if (!lFast.error && !cFast.error) {
+        const ll = lFast.data?.length ? lFast.data : [];
+        const lc = cFast.data?.length ? cFast.data : [];
+        const cids = new Set(lc.map(c => c.id));
+        const missing = [];
+        ll.forEach(l => {
+          if (l.customer_id && !cids.has(l.customer_id)) {
+            cids.add(l.customer_id);
+            missing.push({
+              id: l.customer_id, name: l.customer_name || 'Unknown', phone: l.phone || null,
+              alt_phone: null, id_no: 'PENDING-' + l.customer_id,
+              business: null, location: null, residence: null, officer: l.officer || null,
+              loans: 1, risk: 'Medium', gender: null, dob: null, blacklisted: false,
+              bl_reason: null, from_lead: null,
+              n1_name: null, n1_phone: null, n1_relation: null,
+              n2_name: null, n2_phone: null, n2_relation: null,
+              n3_name: null, n3_phone: null, n3_relation: null, joined: l.disbursed || null
             });
-            import('@/config/supabaseClient').then(({supabase:sb,DEMO_MODE:dm})=>{
-              if(dm||!sb) return;
-              sb.from('customers').upsert(missing,{onConflict:'id'})
-                .then(({error})=>{if(error)console.error('[backfill customers]',error.message);});
-            }).catch(()=>{});
           }
+        });
+        if (missing.length > 0) {
+          console.warn('[load] Synthesized', missing.length, 'missing customer records from loan data.');
+          setCustomers(cs => {
+            const existingIds = new Set(cs.map(c => c.id));
+            const toAdd = missing.filter(m => !existingIds.has(m.id)).map(fromSupabaseCustomer);
+            return toAdd.length > 0 ? [...cs, ...toAdd] : cs;
+          });
+          supabase.from('customers').upsert(missing, { onConflict: 'id' })
+            .then(({ error }) => { if (error) console.error('[backfill customers]', error.message); })
+            .catch(() => {});
         }
-        setDataLoaded(true);
+      }
 
-        // Phase 2: Lazy Load secondary data in the background
+      setDataLoaded(true);
+
+      // Phase 1b (background): fetch remaining data without heavy single queries.
+      // - Loans/payments can still be fetched in one go
+      // - Customers MUST be paged (200/page) to avoid "statement timeout" on order(name)
+      setTimeout(() => {
+        // Loans + payments (single query)
         Promise.all([
-          supabase.from('leads').select('*').order('created_at',{ascending:false}).limit(1000),
-          supabase.from('interactions').select('*').order('created_at',{ascending:false}).limit(2000),
-          supabase.from('audit_log').select('*').order('ts',{ascending:false}).limit(500),
-        ]).then(([ldR,iR,aR])=>{
-          if(!ldR.error)  setLeads(ldR.data?.length ? ldR.data.map(fromSupabaseLead) : []);
-          else            console.error('[load leads]',     ldR.error.message);
-          if(!iR.error)   setInteractions(iR.data?.length ? iR.data.map(fromSupabaseInteraction) : []);
-          else            console.error('[load interactions]', iR.error.message);
-          if(!aR.error&&aR.data?.length) setAuditLog(aR.data.map(r=>({ts:r.ts,user:r.user_name||'system',action:r.action,target:r.target_id,detail:r.detail})));
-          else if(aR.error) console.error('[load audit_log]', aR.error.message);
-        }).catch(err => console.error('[lazy load fallback]', err.message));
+          supabase.from('loans').select('*').order('created_at', { ascending: false }).range(0, LOANS_MAX - 1),
+          supabase.from('payments').select('*').order('date', { ascending: false }).range(0, PAYMENTS_MAX - 1),
+        ]).then(([lFull, pFull]) => {
+          const nextLoans = (!lFull.error && lFull.data?.length) ? lFull.data.map(fromSupabaseLoan) : [];
+          if (lFull.error) console.error('[load loans full]', lFull.error.message);
+          const nextPayments = (!pFull.error && pFull.data?.length) ? pFull.data.map(fromSupabasePayment) : [];
+          if (pFull.error) console.error('[load payments full]', pFull.error.message);
 
-      }).catch(err=>{
-        console.error('[load] Failed to load from Supabase:',err.message);
-        setDataLoaded(true);
-      });
-    }).catch(()=>setDataLoaded(true));
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  },[]);
+          const cache2 = readCache();
+          const hasWarm2 = !!(cache2?.customers?.length || cache2?.loans?.length || cache2?.payments?.length);
+          const anyErrorFull = !!(lFull.error || pFull.error);
+          const allEmptyFull = nextLoans.length === 0 && nextPayments.length === 0;
+          if (!anyErrorFull && !(hasWarm2 && allEmptyFull)) {
+            setLoans(nextLoans);
+            setPayments(nextPayments);
+            writeCache({
+              loans: nextLoans,
+              customers: (readCache()?.customers) || customers,
+              payments: nextPayments,
+            });
+          }
+        }).catch((err) => console.error('[load full loans/payments]', err?.message || err));
+
+        // Customers (paged)
+        (async () => {
+          try {
+            // Only start paging if the first page was "full" (likely more data exists)
+            const firstPageCount = Array.isArray(cFast.data) ? cFast.data.length : 0;
+            if (firstPageCount < CUSTOMERS_FAST) return;
+
+            let offset = CUSTOMERS_FAST;
+            let combined = nextCustomersFast.slice();
+            // Fetch up to CUSTOMERS_MAX total
+            while (combined.length < CUSTOMERS_MAX) {
+              const { data, error } = await supabase
+                .from('customers')
+                .select('*')
+                .order('name')
+                .range(offset, offset + CUSTOMERS_PAGE - 1);
+
+              if (error) { console.error('[load customers page]', error.message); break; }
+              const page = (data && data.length) ? data.map(fromSupabaseCustomer) : [];
+              if (page.length === 0) break;
+
+              combined = combined.concat(page);
+              offset += CUSTOMERS_PAGE;
+
+              // Update progressively so categories populate gradually (not one big freeze)
+              setCustomers(combined);
+              writeCache({
+                loans: (readCache()?.loans) || loans,
+                customers: combined,
+                payments: (readCache()?.payments) || payments,
+              });
+
+              // Yield to UI thread between pages
+              await new Promise(r => setTimeout(r, 50));
+            }
+          } catch (e) {
+            console.error('[load customers paged]', e?.message || e);
+          }
+        })();
+      }, 300); // slight delay so first paint happens before background work
+
+      // Phase 2: Lazy Load secondary data
+      Promise.all([
+        supabase.from('leads').select('*').order('created_at', { ascending: false }).limit(1000),
+        supabase.from('interactions').select('*').order('created_at', { ascending: false }).limit(2000),
+        supabase.from('audit_log').select('*').order('ts', { ascending: false }).limit(500),
+      ]).then(([ldR, iR, aR]) => {
+        if (!ldR.error) setLeads(ldR.data?.length ? ldR.data.map(fromSupabaseLead) : []);
+        else console.error('[load leads]', ldR.error.message);
+        if (!iR.error) setInteractions(iR.data?.length ? iR.data.map(fromSupabaseInteraction) : []);
+        else console.error('[load interactions]', iR.error.message);
+        if (!aR.error && aR.data?.length) setAuditLog(aR.data.map(r => ({ ts: r.ts, user: r.user_name || 'system', action: r.action, target: r.target_id, detail: r.detail })));
+        else if (aR.error) console.error('[load audit_log]', aR.error.message);
+      }).catch(err => console.error('[lazy load fallback]', err.message));
+    } catch (e) {
+      console.error('[load] Failed to load from Supabase:', e?.message || e);
+      // Don't flip to loaded on auth-less failures; allow re-attempt post-login
+    }
+  }, []);
+
+  useEffect(() => {
+    // React 18 StrictMode runs effects twice in dev; guard so we don't double-load.
+    // (Production runs once.)
+    const onceRef = (globalThis.__acl_load_once_ref ||= { ran: false });
+    if (onceRef.ran) return;
+    onceRef.ran = true;
+
+    // Hydrate from cache immediately, then refresh from Supabase.
+    const cache = readCache();
+    if (cache) {
+      if (Array.isArray(cache.loans) && cache.loans.length) setLoans(cache.loans);
+      if (Array.isArray(cache.customers) && cache.customers.length) setCustomers(cache.customers);
+      if (Array.isArray(cache.payments) && cache.payments.length) setPayments(cache.payments);
+      if ((cache.loans?.length || cache.customers?.length || cache.payments?.length)) setDataLoaded(true);
+    }
+
+    // Attempt load (will refresh cache/state)
+    loadAllData();
+  }, [loadAllData]);
 
   const ADMIN_ROLES = ['admin', 'Admin'];
   const handleLogin = (email) => {
     SFX.login();
     import('@/config/supabaseClient').then(({supabase,DEMO_MODE})=>{
       if(!DEMO_MODE && supabase && email){
+        // Render the app shell immediately after auth, then correct mode once role is known.
+        // This avoids a long post-login blank screen caused by waiting on network calls.
+        setMode('admin');
+        // Now that auth succeeded, load the protected data immediately.
+        // This restores customers/loans/payments that are hidden when unauthenticated.
+        loadAllData();
         supabase.from('workers').select('role').eq('email', email.trim()).single()
           .then(({data,error})=>{
             const role = (!error&&data)?data.role:null;
-            setMode(role&&ADMIN_ROLES.includes(role) ? 'admin' : 'worker');
-          });
+            if (role && !ADMIN_ROLES.includes(role)) setMode('worker');
+          }).catch(()=>{});
         return;
       }
       const w = SEED_WORKERS.find(w=>w.email===email?.trim());
@@ -883,17 +1014,6 @@ export default function App() {
   };
 
   const shared={loans,setLoans,customers,setCustomers,workers,setWorkers,payments,setPayments,leads,setLeads,interactions,setInteractions,auditLog,setAuditLog,onOpenCustomerProfile: setGlobalCustomerId};
-
-  // Show loading spinner while fetching data
-  // We only block rendering here if in admin mode. The login screens (admin-login & worker)
-  // are allowed to render instantly so the app feels fast.
-  if(!dataLoaded && mode === 'admin') return (
-    <div style={{minHeight:'100vh',background:'#080C14',display:'flex',alignItems:'center',justifyContent:'center',flexDirection:'column',gap:16}}>
-      <div style={{width:40,height:40,border:'3px solid #1E2D45',borderTop:'3px solid #00D4AA',borderRadius:'50%',animation:'spin .8s linear infinite'}}/>
-      <style>{'@keyframes spin{to{transform:rotate(360deg)}}'}</style>
-      <div style={{color:'#475569',fontSize:13,fontFamily:'system-ui'}}>Loading Workspace…</div>
-    </div>
-  );
 
   return (
     <>

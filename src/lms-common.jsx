@@ -6348,6 +6348,11 @@ export var computeLoanSchedule = function (loan, allPayments) {
 
   // 2. Map global payments safely
 
+  // IMPORTANT: this engine currently uses a single "maturity" slot equal to totalOwed.
+  // Allocation must therefore only mark the slot paid when the full total is covered.
+  // (Previously, the allocator used repayment-type instalment perSlot, which could
+  // incorrectly "clear" the single slot on partial payments.)
+  var allocPerSlot = Number(slots[0] && slots[0].perSlot) || 0;
 
   // 2. Map global payments safely
   var loanPays = (allPayments || [])
