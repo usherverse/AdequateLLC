@@ -321,9 +321,7 @@ export default function CustomerProfile({
       </div>
 
       {showEdit && (
-        <Dialog title={`Edit Profile · ${customer.name}`} onClose={() => setShowEdit(false)} width={640}>
-          <CustomerEditForm customer={customer} workers={workers} onSave={handleUpdate} onClose={() => setShowEdit(false)} />
-        </Dialog>
+        <CustomerEditForm customer={customer} workers={workers} onSave={handleUpdate} onClose={() => setShowEdit(false)} />
       )}
       </div>
     </div>

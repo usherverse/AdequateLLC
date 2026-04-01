@@ -1677,6 +1677,7 @@ export const Dialog = ({
   children,
   onClose,
   width = 520,
+  minHeight,
   zIndex = 9900,
 }) => {
   useModalLock();
@@ -1786,6 +1787,7 @@ export const Dialog = ({
           width: "100%",
           maxWidth: mw,
           maxHeight: maxH,
+          minHeight: minHeight || undefined,
           display: "flex",
           flexDirection: "column",
           boxShadow: "0 40px 80px #000000D0",
@@ -6302,31 +6304,47 @@ export var computeLoanSchedule = function (loan, allPayments) {
     return { slots: [], ledger: [], runningBalance: 0, summary: {} };
 
   var todayStr = new Date().toISOString().split("T")[0];
-  var rt = loan.repaymentType;
+  var rt = loan.repaymentType || "Monthly";
   var principal = Number(loan.amount) || 0;
   var interest = Math.round(principal * 0.3); // Flat 30% interest rule
   var totalOwed = principal + interest;
-  var perSlot, intervalDays, numSlots;
 
-  // Business Rule: A loan is strictly DUE only on the 30th day from disbursement.
-  // Repayment frequency (Daily, Weekly, etc.) does NOT influence due status.
+  // ── Frequency-aware slot configuration ─────────────────────────────────────
+  // Each repayment type divides the 30-day window into equal installments.
+  // Daily  → 30 slots, 1-day apart
+  // Weekly → 4 slots, 7 days apart
+  // Biweekly → 2 slots, 14 days apart
+  // Monthly / Lump Sum → 1 slot on day 30
+  var intervalDays, numSlots;
+  if (rt === "Daily") {
+    intervalDays = 1; numSlots = 30;
+  } else if (rt === "Weekly") {
+    intervalDays = 7; numSlots = 4;
+  } else if (rt === "Biweekly") {
+    intervalDays = 14; numSlots = 2;
+  } else {
+    intervalDays = 30; numSlots = 1;
+  }
+
+  var perSlot = Math.round(totalOwed / numSlots);
+  // Last slot absorbs rounding remainder so totals stay exact
+  var lastSlot = totalOwed - perSlot * (numSlots - 1);
+
+  // ── Build slot schedule ────────────────────────────────────────────────────
   var startDate = new Date(loan.disbursed);
-  var dueTarget = new Date(startDate);
-  dueTarget.setDate(dueTarget.getDate() + 30);
-
-  var slots = [{
-    index: 0,
-    due: dueTarget.toISOString().slice(0, 10),
-    perSlot: totalOwed,
-    status: "upcoming",
-    payment: null,
-    negBalance: 0,
-  }];
-
-  // For informational purposes only, we keep numSlots for progress calculations
-  // but we will no longer use multiple physical slots in the UI or logic.
-  perSlot = totalOwed; 
-  numSlots = 1;
+  var slots = [];
+  for (var i = 0; i < numSlots; i++) {
+    var slotDate = new Date(startDate);
+    slotDate.setDate(startDate.getDate() + intervalDays * (i + 1));
+    slots.push({
+      index: i,
+      due: slotDate.toISOString().slice(0, 10),
+      perSlot: i === numSlots - 1 ? lastSlot : perSlot,
+      status: "upcoming",
+      payment: null,
+      negBalance: 0,
+    });
+  }
 
   // 2. Map global payments safely
 
@@ -6359,96 +6377,74 @@ export var computeLoanSchedule = function (loan, allPayments) {
   var pctPaid = Math.round(calcPct);
 
   // 5. Fill Slots Chronologically via Ledger (Issue 2 specific states)
-  var runningNegBalance = 0;
+  // 5. Fill Slots Chronologically with Fractional Support
   var ledger = [];
-  var unresolvedIndices = slots.map(function (_, i) {
-    return i;
+  slots.forEach(function (s) {
+    s.paidAmount = 0;
+    s.payments = [];
   });
 
-  loanPays.forEach(function (pay) {
-    var effectiveAmount =
-      Number(pay.amount || 0) + (runningNegBalance < 0 ? runningNegBalance : 0);
-    if (effectiveAmount < 0) effectiveAmount = 0;
+  var remainingAmount = 0;
+  var isLoanSettled = loan.status === "Settled" || loan.status === "Written off" || Number(loan.balance) <= 0 || pctPaid >= 100;
 
-    // Allocate slot by slot
-    var fullSlots = Math.floor(effectiveAmount / perSlot);
-    var remainder = effectiveAmount % perSlot;
+  loanPays.forEach(function (pay) {
+    var amt = Number(pay.amount || 0);
+    remainingAmount += amt;
     var paidSlots = [];
 
-    for (var k = 0; k < fullSlots && unresolvedIndices.length > 0; k++) {
-      paidSlots.push(unresolvedIndices.shift());
-    }
+    slots.forEach(function (s, idx) {
+      if (remainingAmount <= 0) return;
+      var shortfall = s.perSlot - s.paidAmount;
+      if (shortfall <= 0) return;
 
-    var surplusSlots =
-      fullSlots > paidSlots.length ? fullSlots - paidSlots.length : 0;
-    runningNegBalance = remainder > 0 ? -remainder : 0;
-
-    paidSlots.forEach(function (idx) {
-      if ((pay.date || "").slice(0, 10) <= slots[idx].due) {
-        slots[idx].status = "paid";
-      } else {
-        // Late but paid
-        slots[idx].status = "paid_late";
+      var apply = Math.min(remainingAmount, shortfall);
+      s.paidAmount += apply;
+      remainingAmount -= apply;
+      s.payments.push(pay);
+      if (!s.payment) s.payment = pay; // primary payment reference
+      
+      if (s.paidAmount >= s.perSlot) {
+         paidSlots.push(idx);
       }
-      slots[idx].payment = pay;
     });
 
     ledger.push({
       payId: pay.id,
       date: pay.date,
-      amount: pay.amount,
-      effectiveAmount: effectiveAmount,
+      amount: amt,
       paidSlots: paidSlots,
-      surplusSlots: surplusSlots,
-      negativeBalance: runningNegBalance,
+      surplusSlots: 0,
+      negativeBalance: remainingAmount, // surplus amount
       mpesa: pay.mpesa || pay.mpesa_code || null,
       allocatedBy: pay.allocatedBy || null,
     });
   });
 
-  // 6. Resolve skipped (missed), overdue, due_today cleanly
-  var hasLaterPayment = function (idx) {
-    for (var j = idx + 1; j < slots.length; j++) {
-      if (["paid", "paid_late"].includes(slots[j].status)) return true;
-    }
-    return false;
-  };
+  // 6. Resolve Statuses and Due Amounts
+  slots.forEach(function (s, idx) {
+    s.negBalance = 0; // Clear the old semantic
+    s.carriedForward = 0;
+    s.isCombined = false;
+    
+    // Calculate what is ACTUALLY remaining to pay for this specific slot
+    s.totalDue = Math.max(0, s.perSlot - s.paidAmount);
 
-  var isLoanSettled = loan.status === "Settled" || loan.status === "Written off" || Number(loan.balance) <= 0 || pctPaid >= 100;
-
-  unresolvedIndices.forEach(function (idx) {
-    var s = slots[idx];
-    if (isLoanSettled) {
-      if (s.due < todayStr) {
+    if (isLoanSettled || s.paidAmount >= s.perSlot) {
+      // Slot is fully paid
+      if (s.due < todayStr && s.payment && s.payment.date > s.due) {
         s.status = "paid_late";
       } else {
         s.status = "paid";
       }
     } else {
+      // Slot is NOT fully paid
       if (s.due < todayStr) {
-        // Skipped
-        if (hasLaterPayment(idx)) {
-          s.status = "missed";
-        } else {
-          s.status = "overdue";
-        }
+        s.status = "overdue";
       } else if (s.due === todayStr) {
         s.status = "due_today";
       } else {
         s.status = "upcoming";
       }
-    }
-  });
-
-  var currentCarry = 0;
-  slots.forEach(function (s) {
-    s.carriedForward = currentCarry;
-    s.totalDue = s.perSlot + currentCarry;
-    s.isCombined = currentCarry > 0;
-    if (["missed", "overdue"].includes(s.status)) {
-      currentCarry += s.perSlot;
-    } else if (["paid", "paid_late"].includes(s.status)) {
-      currentCarry = 0;
     }
   });
 
@@ -6472,7 +6468,7 @@ export var computeLoanSchedule = function (loan, allPayments) {
   return {
     slots: slots,
     ledger: ledger,
-    runningBalance: runningNegBalance,
+    runningBalance: 0, // Obsoleted: fractional accounting natively handles part-payments now
     perSlot: perSlot,
     total: totalOwed,
     totalPaid: totalPaid,
@@ -7157,7 +7153,7 @@ const LoanDetail = ({
                               fontSize: 12,
                             }}
                           >
-                            KES {slot.perSlot.toLocaleString("en-KE")}
+                            KES {(["paid", "paid_late"].includes(slot.status) ? slot.perSlot : (slot.totalDue !== undefined ? slot.totalDue : slot.perSlot)).toLocaleString("en-KE")}
                           </div>
                           {sty.label && (
                             <div
@@ -7292,6 +7288,7 @@ export const RepayTracker = ({ loans, payments }) => {
   const [activeType, setActiveType] = useState("Daily");
   const [selLoan, setSelLoan] = useState(null);
   const [selSlot, setSelSlot] = useState(null);
+  const [searchQuery, setSearchQuery] = useState("");
 
   // Lock the page scroll container synchronously before paint so the modal
   // and the lock appear in the same frame — no visible jump on first open.
@@ -7351,9 +7348,7 @@ export const RepayTracker = ({ loans, payments }) => {
   );
 
   // KEY FIX — computeLoanSchedule runs the full payment allocation engine.
-  // Previously it was called inside .map() on every render, meaning O(loans × payments)
-  // work per render. Memoize the full schedules array so it only recomputes when
-  // loans or payments actually change.
+  // Memoize the full schedules array so it only recomputes when loans or payments change.
   const schedules = useMemo(() => {
     const result = {};
     activeLoans.forEach((loan) => {
@@ -7361,6 +7356,17 @@ export const RepayTracker = ({ loans, payments }) => {
     });
     return result;
   }, [activeLoans, payments]);
+
+  // Search filter — matches customer name or loan ID (case-insensitive)
+  const filteredLoans = useMemo(() => {
+    if (!searchQuery.trim()) return activeLoans;
+    const q = searchQuery.trim().toLowerCase();
+    return activeLoans.filter(
+      (l) =>
+        (l.customer || "").toLowerCase().includes(q) ||
+        (l.id || "").toLowerCase().includes(q),
+    );
+  }, [activeLoans, searchQuery]);
 
   // ── Slot detail popup ──────────────────────────────────────────────────────
   // FIX — Bug 3: SlotPopup was a component defined inside RepayTracker's render body.
@@ -7536,7 +7542,7 @@ export const RepayTracker = ({ loans, payments }) => {
                     fontSize: 14,
                   }}
                 >
-                  KES {(slot.totalDue || slot.perSlot).toLocaleString("en-KE")}
+                  KES {slot.perSlot.toLocaleString("en-KE")}
                 </div>
               </div>
               <div>
@@ -7764,7 +7770,7 @@ export const RepayTracker = ({ loans, payments }) => {
           display: "flex",
           justifyContent: "space-between",
           alignItems: "center",
-          marginBottom: 16,
+          marginBottom: 12,
         }}
       >
         <div>
@@ -7778,7 +7784,7 @@ export const RepayTracker = ({ loans, payments }) => {
               marginBottom: 3,
             }}
           >
-            PAYMENT ENGINE v2
+            LOAN MONITOR ENGINE
           </div>
           <div style={{ color: "#E2E8F0", fontWeight: 800, fontSize: 15 }}>
             Schedule Monitor
@@ -7788,7 +7794,7 @@ export const RepayTracker = ({ loans, payments }) => {
           </div>
         </div>
         {/* Type filter */}
-        <div style={{ display: "flex", gap: 4 }}>
+        <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
           {TYPES.map(function (t) {
             var ct = typeCounts[t] || 0;
             return (
@@ -7796,6 +7802,7 @@ export const RepayTracker = ({ loans, payments }) => {
                 key={t}
                 onClick={function () {
                   setActiveType(t);
+                  setSearchQuery("");
                 }}
                 style={{
                   background: activeType === t ? "#00D4AA" : "transparent",
@@ -7837,6 +7844,55 @@ export const RepayTracker = ({ loans, payments }) => {
         </div>
       </div>
 
+      {/* Search bar */}
+      <div style={{ marginBottom: 10, position: "relative" }}>
+        <input
+          type="text"
+          value={searchQuery}
+          onChange={function (e) { setSearchQuery(e.target.value); }}
+          placeholder="Search by customer name or loan ID…"
+          style={{
+            width: "100%",
+            background: "#0D1F35",
+            border: "1px solid " + (searchQuery ? "#00D4AA60" : "#1A3050"),
+            borderRadius: 8,
+            padding: "7px 12px 7px 32px",
+            color: "#E2E8F0",
+            fontSize: 12,
+            outline: "none",
+            boxSizing: "border-box",
+            transition: "border-color .15s",
+          }}
+        />
+        <span style={{
+          position: "absolute",
+          left: 10,
+          top: "50%",
+          transform: "translateY(-50%)",
+          color: searchQuery ? "#00D4AA" : "#475569",
+          fontSize: 12,
+          pointerEvents: "none",
+        }}>🔍</span>
+        {searchQuery && (
+          <button
+            onClick={function () { setSearchQuery(""); }}
+            style={{
+              position: "absolute",
+              right: 8,
+              top: "50%",
+              transform: "translateY(-50%)",
+              background: "transparent",
+              border: "none",
+              color: "#475569",
+              cursor: "pointer",
+              fontSize: 12,
+              padding: 0,
+              lineHeight: 1,
+            }}
+          >✕</button>
+        )}
+      </div>
+
       {/* Loan cards — scrollable container, max 3 cards visible */}
       {activeLoans.length === 0 ? (
         <div
@@ -7860,8 +7916,20 @@ export const RepayTracker = ({ loans, payments }) => {
             paddingRight: 2,
           }}
         >
+          {filteredLoans.length === 0 && (
+            <div style={{
+              color: "#475569",
+              textAlign: "center",
+              padding: "20px",
+              fontSize: 12,
+              border: "1px dashed #0F2040",
+              borderRadius: 10,
+            }}>
+              No loans match &ldquo;{searchQuery}&rdquo;
+            </div>
+          )}
           <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
-            {activeLoans.map(function (loan) {
+            {filteredLoans.map(function (loan) {
               const sched =
                 schedules[loan.id] || computeLoanSchedule(loan, payments);
               const {
@@ -8188,7 +8256,7 @@ export const CustomerEditForm = ({ customer, workers, onSave, onClose }) => {
   ];
 
   return (
-    <Dialog title={`Edit — ${customer.name}`} onClose={onClose} width={580}>
+    <Dialog title={`Edit — ${customer.name}`} onClose={onClose} width={580} minHeight="80vh">
       {err.length > 0 && (
         <div
           style={{
@@ -8693,17 +8761,21 @@ const buildPaymentTimeline = (loan, payments) => {
   // PASS 1: match each payment to slots whose window it falls in (on-time)
   const usedPayIds = new Set();
   const timeline = slots.map((slot, slotIdx) => {
-    const prevDue = slotIdx > 0 ? slots[slotIdx - 1].dueDate : loan.disbursed;
+    // For the first (and only) slot, use a far-past sentinel so that
+    // pre-disbursement payments (advances, demo data, out-of-order entries)
+    // are caught here as on-time rather than falling to PASS 2 as "Late".
+    const prevDue = slotIdx > 0 ? slots[slotIdx - 1].dueDate : '2000-01-01';
     const onTimePays = sortedPays.filter(
       (p) =>
-        p.date > prevDue && p.date <= slot.dueDate && !usedPayIds.has(p.id),
+        p.date >= prevDue && p.date <= slot.dueDate && !usedPayIds.has(p.id),
     );
     const windowAmt = onTimePays.reduce((s, p) => s + p.amount, 0);
     onTimePays.forEach((p) => usedPayIds.add(p.id));
 
     let status = "missed";
     if (windowAmt > 0) {
-      status = windowAmt >= slot.expectedAmt * 0.9 ? "paid" : "partial";
+      // Only mark as "paid" when the full expected amount is covered
+      status = windowAmt >= slot.expectedAmt ? "paid" : "partial";
     } else if (slot.dueDate > todayStr) {
       status = "upcoming";
     }
@@ -8735,7 +8807,8 @@ const buildPaymentTimeline = (loan, payments) => {
       });
       slot.windowAmt += applying;
       remaining -= applying;
-      if (slot.windowAmt >= slot.expectedAmt * 0.9) {
+      // Only promote to paid/paid-late when the FULL amount is covered
+      if (slot.windowAmt >= slot.expectedAmt) {
         slot.status = pay.date <= slot.dueDate ? "paid" : "paid-late";
       } else {
         slot.status = "partial";
@@ -8786,6 +8859,13 @@ const PaymentTimeline = ({ loan, payments, compact = false }) => {
     totalExpected > 0
       ? Math.min(100, Math.round((totalPaid / totalExpected) * 100))
       : 0;
+
+  // Count actual payment RECEIPTS (not slots)
+  const totalPayCount = pays.length;
+  // Count receipts that sit in partial-status slots
+  const partialPayCount = timeline
+    .filter(t => t.status === 'partial')
+    .reduce((s, t) => s + t.payments.length + t.latePayments.length, 0);
 
   const statusColor = (s) =>
     s === "paid"
@@ -8884,7 +8964,7 @@ const PaymentTimeline = ({ loan, payments, compact = false }) => {
       >
         {statBox("Partial", partial, T.gold, "partial")}
         {statBox("Upcoming", upcoming, T.muted, "upcoming")}
-        {statBox("Total", timeline.length, T.txt, null)}
+        {statBox("Payments", totalPayCount, T.accent, null)}
       </div>
 
       {/* ── Active filter banner ── */}
@@ -9351,7 +9431,11 @@ export const LoanModal = ({
       (c) => c.id === loan.customerId || c.name === loan.customer,
     ) || { name: loan.customer };
     const pays = payments.filter((p) => p.loanId === loan.id);
-    const ints = (interactions || []).filter((i) => i.loanId === loan.id);
+    const ints = (interactions || []).filter((i) =>
+      i.loanId === loan.id ||
+      i.customerId === loan.customerId ||
+      i.customer_id === loan.customerId
+    );
     const lastPay =
       [...pays].sort((a, b) => b.date.localeCompare(a.date))[0] || null;
     const paid = pays.reduce((s, p) => s + p.amount, 0);
@@ -9482,32 +9566,70 @@ export const LoanModal = ({
             style={{
               display: "flex",
               alignItems: "center",
-              gap: 8,
+              justifyContent: "space-between",
               marginBottom: 12,
               flexWrap: "wrap",
+              gap: 8,
             }}
           >
-            <Badge color={SC[loan.status] || T.muted}>{loan.status}</Badge>
-            {cust.id && onViewCustomer && (
-              <button
-                onClick={() => {
-                  onClose();
-                  onViewCustomer(cust);
-                }}
-                style={{
-                  background: T.aLo,
-                  border: `1px solid ${T.aMid}`,
-                  color: T.accent,
-                  borderRadius: 7,
-                  padding: "4px 10px",
-                  cursor: "pointer",
-                  fontSize: 12,
-                  fontWeight: 700,
-                }}
-              >
-                View Customer Profile →
-              </button>
-            )}
+            <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+              <Badge color={SC[loan.status] || T.muted}>{loan.status}</Badge>
+              {cust.id && onViewCustomer && (
+                <button
+                  onClick={() => {
+                    onClose();
+                    onViewCustomer(cust);
+                  }}
+                  style={{
+                    background: T.aLo,
+                    border: `1px solid ${T.aMid}`,
+                    color: T.accent,
+                    borderRadius: 7,
+                    padding: "4px 10px",
+                    cursor: "pointer",
+                    fontSize: 12,
+                    fontWeight: 700,
+                  }}
+                >
+                  View Customer Profile →
+                </button>
+              )}
+              {cust.phone && (
+                <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                  <a
+                    href={`tel:${cust.phone}`}
+                    style={{
+                      background: T.surface, border: `1px solid ${T.border}`,
+                      color: T.txt, borderRadius: 7, width: 28, height: 28,
+                      display: "flex", alignItems: "center", justifyContent: "center", textDecoration: "none",
+                      fontSize: 14
+                    }}
+                    title="Call Customer"
+                  >📞</a>
+                  <a
+                    href={`sms:${cust.phone}`}
+                    style={{
+                      background: T.surface, border: `1px solid ${T.border}`,
+                      color: T.txt, borderRadius: 7, width: 28, height: 28,
+                      display: "flex", alignItems: "center", justifyContent: "center", textDecoration: "none",
+                      fontSize: 14
+                    }}
+                    title="Text Customer"
+                  >💬</a>
+                </div>
+              )}
+            </div>
+
+            <div style={{ display: "flex", gap: 12, fontSize: 11, background: T.surface, border: `1px solid ${T.border}`, padding: '4px 10px', borderRadius: 7 }}>
+              <div><span style={{ color: T.dim }}>Disbursed:</span> <span style={{ color: T.txt, fontWeight: 700 }}>{loan.disbursed || "—"}</span></div>
+              <div style={{ width: 1, background: T.border }} />
+              <div><span style={{ color: T.dim }}>Due:</span> <span style={{ color: loan.daysOverdue > 0 ? T.danger : T.txt, fontWeight: 700 }}>{(() => {
+                if (!loan.disbursed) return "—";
+                const d = new Date(loan.disbursed);
+                d.setDate(d.getDate() + 30);
+                return d.toISOString().split("T")[0];
+              })()}</span></div>
+            </div>
           </div>
 
           {/* Key figures — driven entirely by calculateLoanStatus engine */}
@@ -9521,13 +9643,25 @@ export const LoanModal = ({
           >
             {[
               ["Principal", fmt(loan.amount), T.txt],
+              ["Rate", "30%", T.txt],
+              ["Base Int.", fmt(Math.round((loan.amount || 0) * 0.3)), T.txt],
+              [
+                "Paid",
+                fmt(paid),
+                paid > 0 ? T.ok : T.txt,
+              ],
               [
                 "Balance",
                 fmt(loan.balance),
                 loan.status === "Overdue" ? T.danger : T.txt,
               ],
               [
-                "Interest",
+                "Overdue",
+                loan.daysOverdue > 0 ? `${loan.daysOverdue}d` : "None",
+                loan.daysOverdue > 0 ? T.danger : T.ok,
+              ],
+              [
+                "Late Int.",
                 fmt(engine.interestAccrued),
                 engine.interestAccrued > 0 ? T.warn : T.muted,
               ],
@@ -9537,11 +9671,6 @@ export const LoanModal = ({
                 engine.penaltyAccrued > 0 ? T.danger : T.muted,
               ],
               ["Total Due", fmt(engine.totalAmountDue), T.accent],
-              [
-                "Overdue",
-                loan.daysOverdue > 0 ? `${loan.daysOverdue}d` : "None",
-                loan.daysOverdue > 0 ? T.danger : T.ok,
-              ],
             ].map(([k, v, col]) => (
               <div
                 key={k}
@@ -9790,13 +9919,13 @@ export const LoanModal = ({
                   >
                     {[
                       ["Remaining", fmt(loan.balance)],
-                      ["Interest", fmt(engine.interestAccrued)],
+                      ["Late Int.", fmt(engine.interestAccrued)],
                       ["Penalty", fmt(engine.penaltyAccrued)],
                       ["Total Due", fmt(engine.totalAmountDue)],
                       ["Phase", engine.status],
                       [
                         "Progress",
-                        `${loan.amount > 0 ? Math.min(100, Math.round((paid / loan.amount) * 100)) : 0}%`,
+                        `${loan.amount > 0 ? Math.min(100, Math.round((paid / (loan.amount * 1.3)) * 100)) : 0}%`,
                       ],
                     ].map(([k, v]) => (
                       <div
@@ -9848,44 +9977,66 @@ export const LoanModal = ({
                     borderRadius: 9,
                   }}
                 >
-                  No interactions for this loan
+                  No interactions recorded for this customer.
                 </div>
               )}
               {[...ints]
-                .sort((a, b) => b.date.localeCompare(a.date))
-                .map((i) => (
-                  <div
-                    key={i.id}
-                    style={{
-                      background: T.surface,
-                      border: `1px solid ${T.border}`,
-                      borderRadius: 9,
-                      padding: "10px 12px",
-                      marginBottom: 7,
-                    }}
-                  >
+                .sort((a, b) => {
+                  const da = a.created_at || a.createdAt || a.date || '';
+                  const db = b.created_at || b.createdAt || b.date || '';
+                  return db.localeCompare(da);
+                })
+                .map((i) => {
+                  const isLoanLevel = i.loanId === loan.id;
+                  return (
                     <div
+                      key={i.id}
                       style={{
-                        display: "flex",
-                        justifyContent: "space-between",
-                        marginBottom: 4,
+                        background: T.surface,
+                        border: `1px solid ${isLoanLevel ? T.accent + '50' : T.border}`,
+                        borderRadius: 9,
+                        padding: "10px 12px",
+                        marginBottom: 7,
                       }}
                     >
-                      <Badge color={T.accent}>{i.type}</Badge>
-                      <span style={{ color: T.muted, fontSize: 11 }}>
-                        {i.date}
-                      </span>
-                    </div>
-                    <div style={{ color: T.txt, fontSize: 13 }}>{i.notes}</div>
-                    {i.promiseAmount && (
                       <div
-                        style={{ color: T.gold, fontSize: 12, marginTop: 4 }}
+                        style={{
+                          display: "flex",
+                          justifyContent: "space-between",
+                          alignItems: "flex-start",
+                          marginBottom: 4,
+                        }}
                       >
-                        Promise: {fmt(i.promiseAmount)} by {i.promiseDate}
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                          <Badge color={T.accent}>{i.type}</Badge>
+                          <span style={{
+                            fontSize: 10, fontWeight: 700,
+                            color: isLoanLevel ? T.accent : T.muted,
+                            background: isLoanLevel ? T.aLo : T.surface,
+                            border: `1px solid ${isLoanLevel ? T.aMid : T.border}`,
+                            borderRadius: 4, padding: '1px 6px',
+                          }}>
+                            {isLoanLevel ? '📎 Loan' : '👤 Customer'}
+                          </span>
+                        </div>
+                        <span style={{ color: T.muted, fontSize: 11, flexShrink: 0, marginLeft: 6 }}>
+                          {(i.created_at || i.createdAt || i.date || '').slice(0, 10)}
+                        </span>
                       </div>
-                    )}
-                  </div>
-                ))}
+                      <div style={{ color: T.txt, fontSize: 13, lineHeight: 1.5 }}>{i.notes}</div>
+                      {i.officer && (
+                        <div style={{ color: T.muted, fontSize: 11, marginTop: 5 }}>By: {i.officer}</div>
+                      )}
+                      {i.promiseAmount && (
+                        <div
+                          style={{ color: T.gold, fontSize: 12, marginTop: 4 }}
+                        >
+                          Promise: {fmt(i.promiseAmount)} by {i.promiseDate}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
             </div>
           )}
           {actions && (

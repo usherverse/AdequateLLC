@@ -1,541 +1,431 @@
 import React, { useState, useMemo } from 'react';
-import { computeLoanSchedule } from '@/lms-common'; // Use the newly fixed engine
 
-// --- Core Theme Settings based strictly on user prompt
+// ─── Theme ────────────────────────────────────────────────────────────────────
 const TH = {
-  bg: '#080C14',
-  card: '#111827',
-  surface: '#1A2740',
-  border: '#1E2D45',
-  txt: '#E2E8F0',
-  muted: '#64748B',
-  accent: '#00D4AA',
-  danger: '#EF4444',
-  warn: '#F59E0B',
-  gold: '#D4A017',
-  success: '#10B981',
-  blue: '#3B82F6',
-  mono: 'monospace',
-  sys: 'system-ui, -apple-system, sans-serif'
+  bg: '#080C14', card: '#111827', surface: '#1A2740', border: '#1E2D45',
+  txt: '#E2E8F0', muted: '#64748B', accent: '#00D4AA', danger: '#EF4444',
+  warn: '#F59E0B', gold: '#D4A017', success: '#10B981', blue: '#3B82F6',
+  mono: 'monospace', sys: 'system-ui, -apple-system, sans-serif',
 };
 
 const SEV = {
-  overdue:   { color: TH.danger, bg: `${TH.danger}15`, label: 'Overdue',  border: `3px solid ${TH.danger}` },
-  today:     { color: TH.warn,   bg: `${TH.warn}15`,   label: 'Today',    border: `3px solid ${TH.warn}` },
-  urgent:    { color: TH.gold,   bg: `${TH.gold}15`,   label: '1-3 Days', border: `3px solid ${TH.gold}` },
-  upcoming:  { color: TH.blue,   bg: `${TH.blue}15`,   label: '4-7 Days', border: `3px solid ${TH.blue}` },
-  future:    { color: TH.success,bg: `${TH.success}15`,label: '8-30 Days',border: `3px solid ${TH.success}` },
-  cleared:   { color: TH.success,bg: `${TH.success}00`,label: 'Cleared',  border: `none` },
-  none:      { color: 'transparent', bg: 'transparent', label: '', border: 'none' }
+  overdue:  { color: TH.danger,  bg: `${TH.danger}15`,  label: 'Overdue',   border: `3px solid ${TH.danger}` },
+  today:    { color: TH.warn,    bg: `${TH.warn}15`,    label: 'Today',     border: `3px solid ${TH.warn}` },
+  urgent:   { color: TH.gold,    bg: `${TH.gold}15`,    label: '1-3 Days',  border: `3px solid ${TH.gold}` },
+  upcoming: { color: TH.blue,    bg: `${TH.blue}15`,    label: '4-7 Days',  border: `3px solid ${TH.blue}` },
+  future:   { color: TH.success, bg: `${TH.success}15`, label: '8-30 Days', border: `3px solid ${TH.success}` },
+  settled:  { color: TH.success, bg: `${TH.success}00`, label: 'Settled',   border: 'none' },
+  none:     { color: 'transparent', bg: 'transparent',  label: '',          border: 'none' },
 };
 
-// Returns severity object based on diff days and payment status
-const getSlotSeverity = (slot, currDayStr) => {
-  if (slot.status === 'paid' || slot.status === 'paid_late') return SEV.cleared;
-  const sDate = new Date(slot.due);
-  const cDate = new Date(currDayStr);
-  const diffDays = Math.ceil((sDate - cDate) / (1000 * 60 * 60 * 24));
-  
-  if (diffDays < 0) return SEV.overdue;
-  if (diffDays === 0) return SEV.today;
-  if (diffDays >= 1 && diffDays <= 3) return SEV.urgent;
-  if (diffDays >= 4 && diffDays <= 7) return SEV.upcoming;
-  if (diffDays >= 8 && diffDays <= 30) return SEV.future;
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+/** Returns the ISO-date string for the loan's strict 30-day maturity. */
+const getLoanMaturityDate = (loan) => {
+  if (!loan.disbursed) return null;
+  const d = new Date(loan.disbursed);
+  d.setDate(d.getDate() + 30);
+  return d.toISOString().slice(0, 10);
+};
+
+/** True when the loan has been fully settled (Settled status or zero balance). */
+const isLoanSettled = (loan) =>
+  loan.status === 'Settled' || Number(loan.balance) <= 0;
+
+/** Diff in whole days between maturityDate and todayStr (negative = overdue). */
+const diffFromToday = (maturityDate, todayStr) => {
+  const ms = new Date(maturityDate).getTime() - new Date(todayStr).getTime();
+  return Math.ceil(ms / 86400000);
+};
+
+const getSeverity = (diff, settled) => {
+  if (settled) return SEV.settled;
+  if (diff < 0) return SEV.overdue;
+  if (diff === 0) return SEV.today;
+  if (diff <= 3) return SEV.urgent;
+  if (diff <= 7) return SEV.upcoming;
+  if (diff <= 30) return SEV.future;
   return SEV.none;
 };
 
-// Generates the calendar grid (fill in empty days)
 const getDaysInMonth = (year, month) => {
   const d = new Date(year, month, 1);
   const days = [];
-  while (d.getMonth() === month) {
-    days.push(new Date(d));
-    d.setDate(d.getDate() + 1);
-  }
+  while (d.getMonth() === month) { days.push(new Date(d)); d.setDate(d.getDate() + 1); }
   return days;
 };
 
-// --- Main component
-export default function DueLoansCalendar({ loans = [], payments = [], workers = [], workerContext = {}, onOpenCustomerProfile }) {
+const fmtMoney = (v) => `KES ${Number(v || 0).toLocaleString('en-KE')}`;
+
+// ─── Component ────────────────────────────────────────────────────────────────
+export default function DueLoansCalendar({
+  loans = [], payments = [], workers = [], workerContext = {}, onOpenCustomerProfile,
+}) {
   const [currentDate, setCurrentDate] = useState(new Date());
-  const [viewMode, setViewMode] = useState('Month'); // Month, Week
-  const [activeTab, setActiveTab] = useState('Calendar'); // Calendar, Overdue, Upcoming
+  const [activeTab, setActiveTab]     = useState('Calendar');
   const [selectedDay, setSelectedDay] = useState(null);
   const [expandedGroups, setExpandedGroups] = useState({});
   const [searchQuery, setSearchQuery] = useState('');
-  const [startDate, setStartDate] = useState('');
-  const [endDate, setEndDate] = useState('');
+  const [startDate, setStartDate]     = useState('');
+  const [endDate, setEndDate]         = useState('');
 
-  // Reset scroll to top when toggling views/modals
+  // Reset scroll on tab/day change
   React.useEffect(() => {
     try {
       document.querySelector('.main-scroll')?.scrollTo({ top: 0, behavior: 'instant' });
       window.scrollTo({ top: 0, behavior: 'instant' });
-    } catch(e) {}
+    } catch (e) {}
   }, [activeTab, selectedDay]);
 
   const todayStr = new Date().toISOString().slice(0, 10);
   const yr = currentDate.getFullYear();
   const mo = currentDate.getMonth();
 
-  // Role based filtering
-  const filteredLoans = useMemo(() => {
-    let base = loans.filter(l => l.status === 'Active' || l.status === 'Overdue' || l.status === 'Settled');
+  // ── Base loan list (role-filtered, exclude rejected/written-off) ────────────
+  const baseLoanList = useMemo(() => {
+    let base = loans.filter(l =>
+      ['Active', 'Overdue', 'Settled'].includes(l.status) && l.disbursed
+    );
     if (workerContext.role === 'Loan Officer' && workerContext.name) {
       base = base.filter(l => l.officer === workerContext.name);
     }
     return base;
   }, [loans, workerContext]);
 
-  // Expand ALL loan slots (paid and unpaid) — needed so the calendar always
-  // shows a due date even after partial or full payment has been recorded.
-  const allSlots = useMemo(() => {
-    const arr = [];
-    const todayNum = new Date(todayStr).getTime();
-    filteredLoans.forEach(loan => {
-      const { slots, pctPaid, runningBalance, summary, perSlot } = computeLoanSchedule(loan, payments);
-      slots.forEach(s => {
-        const diffDays = Math.ceil((new Date(s.due).getTime() - todayNum) / 86400000);
-        arr.push({ ...s, loan, pctPaid, summary, runningBalance, perSlot, diffDays });
-      });
-    });
-    return arr;
-  }, [filteredLoans, payments, todayStr]);
+  // ── Build one maturity record per loan ─────────────────────────────────────
+  // Each record carries accurate payment-derived figures so cards never show
+  // the original principal instead of the real remaining balance.
+  const maturityRecords = useMemo(() => {
+    return baseLoanList.map(loan => {
+      const maturity = getLoanMaturityDate(loan);
+      if (!maturity) return null;
+      const diff    = diffFromToday(maturity, todayStr);
 
-  // Unpaid slots only — used for summary bar counts & Overdue/Upcoming lists.
-  // Paid/paid_late slots are intentionally excluded here so stats stay accurate.
-  const allUnpaidSlots = useMemo(() =>
-    allSlots.filter(s => s.status !== 'paid' && s.status !== 'paid_late'),
-  [allSlots]);
+      // Total originally owed = principal + flat 30% interest
+      const totalOwed = Number(loan.amount) + Math.round(Number(loan.amount) * 0.3);
 
-  // Aggregate ALL slots by Date for the calendar grid so due dates remain
-  // visible even after a payment has been made.
-  const slotsByDate = useMemo(() => {
+      // Sum all allocated payments recorded against this loan
+      const totalPaid = (payments || [])
+        .filter(p =>
+          (p.loanId === loan.id || p.loan_id === loan.id) &&
+          (p.status === 'Allocated' || p.status === 'allocated')
+        )
+        .reduce((s, p) => s + Number(p.amount || 0), 0);
+
+      // Actual remaining balance after all payments
+      const remainingBalance = Math.max(0, totalOwed - totalPaid);
+
+      // Mark settled if the overarching status says so, or if math proves it's 100% paid
+      const settled = isLoanSettled(loan) || remainingBalance <= 0;
+      const sev     = getSeverity(diff, settled);
+
+      return { loan, maturity, diff, settled, sev, totalOwed, totalPaid, remainingBalance };
+    }).filter(Boolean);
+  }, [baseLoanList, payments, todayStr]);
+
+  // ── Index maturity records by date for calendar grid ───────────────────────
+  const recordsByDate = useMemo(() => {
     const map = {};
-    allSlots.forEach(s => {
-      if (!map[s.due]) map[s.due] = [];
-      map[s.due].push(s);
+    maturityRecords.forEach(r => {
+      if (!map[r.maturity]) map[r.maturity] = [];
+      map[r.maturity].push(r);
     });
     return map;
-  }, [allSlots]);
-  
-  // Advanced Search Filter
+  }, [maturityRecords]);
+
+  // ── Summary bar ────────────────────────────────────────────────────────────
+  // Only unsettled loans count for overdue / today / week / month buckets.
+  // Use remainingBalance (computed from actual payments) — not loan.balance.
+  const summaryBox = useMemo(() => {
+    const sb = { overdueCt: 0, overdueKES: 0, todayCt: 0, todayKES: 0, weekCt: 0, weekKES: 0, monthCt: 0, monthKES: 0 };
+    maturityRecords.forEach(({ diff, settled, remainingBalance }) => {
+      if (settled) return;
+      if (diff < 0)                { sb.overdueCt++; sb.overdueKES += remainingBalance; }
+      if (diff === 0)              { sb.todayCt++;   sb.todayKES   += remainingBalance; }
+      if (diff >= 0 && diff <= 7)  { sb.weekCt++;    sb.weekKES    += remainingBalance; }
+      if (diff >= 0 && diff <= 30) { sb.monthCt++;   sb.monthKES   += remainingBalance; }
+    });
+    return sb;
+  }, [maturityRecords]);
+
+  // ── Collection rate for the current calendar month ─────────────────────────
+  // Uses actual totalPaid vs totalOwed from payment records.
+  const collectionRate = useMemo(() => {
+    const moStart = new Date(yr, mo, 1).toISOString().slice(0, 10);
+    const moEnd   = new Date(yr, mo + 1, 0).toISOString().slice(0, 10);
+    let expected = 0, actualPaid = 0;
+    maturityRecords.forEach(({ maturity, totalOwed, totalPaid }) => {
+      if (maturity >= moStart && maturity <= moEnd) {
+        expected  += totalOwed;
+        actualPaid += totalPaid;
+      }
+    });
+    return expected > 0 ? Math.min(Math.round((actualPaid / expected) * 100), 100) : 100;
+  }, [maturityRecords, yr, mo]);
+
+  // ── Search results ─────────────────────────────────────────────────────────
   const searchResults = useMemo(() => {
     const q = searchQuery.toLowerCase().trim();
     if (!q && !startDate && !endDate) return [];
-    
-    // Filter the full loans array
-    const matchedLoans = filteredLoans.filter(l => {
-      const textMatch = !q || (
-        l.id.toLowerCase().includes(q) ||
-        l.customer.toLowerCase().includes(q) ||
-        (l.officer || '').toLowerCase().includes(q)
-      );
-      const startMatch = !startDate || (l.disbursed && l.disbursed >= startDate);
-      const endMatch = !endDate || (l.disbursed && l.disbursed <= endDate);
+    return maturityRecords.filter(({ loan, maturity }) => {
+      const textMatch  = !q || loan.id.toLowerCase().includes(q) || loan.customer.toLowerCase().includes(q) || (loan.officer || '').toLowerCase().includes(q);
+      const startMatch = !startDate || maturity >= startDate;
+      const endMatch   = !endDate   || maturity <= endDate;
       return textMatch && startMatch && endMatch;
     });
+  }, [maturityRecords, searchQuery, startDate, endDate]);
 
-    const todayNum = new Date(todayStr).getTime();
-
-    // Reconstruct loanGroup objects so they match the rendering expected format
-    return matchedLoans.map(l => {
-       const { slots, pctPaid, runningBalance, summary, perSlot } = computeLoanSchedule(l, payments);
-       const fullSlots = slots.map(s => ({
-         ...s, loan: l, pctPaid, summary, runningBalance, perSlot,
-         diffDays: Math.ceil((new Date(s.due).getTime() - todayNum) / 86400000)
-       }));
-       
-       return {
-          loan: l,
-          slots: fullSlots,
-          totalDue: l.balance
-       };
-    });
-  }, [filteredLoans, payments, searchQuery, startDate, endDate, todayStr]);
-
-  // Summary Bar Math
-  // monthCt  — uses the SAME rolling 0-30 day window as the Upcoming tab,
-  //             but scans allSlots (paid + unpaid) so a loan that received a
-  //             payment does NOT vanish from the count.
-  // overdueCt / todayCt / weekCt — unpaid only (allUnpaidSlots), so they
-  //             reflect outstanding obligations accurately.
-  const summaryBox = useMemo(() => {
-    const moStart = new Date(yr, mo, 1).toISOString().slice(0, 10);
-    const sb = { 
-      overdueCt: 0, overdueKES: 0, 
-      todayCt: 0, todayKES: 0, 
-      weekCt: 0, weekKES: 0, 
-      monthCt: 0, monthKES: 0 
-    };
-
-    // Overdue / Today / This Week — unpaid slots only
-    allUnpaidSlots.forEach(s => {
-      const diff = s.diffDays;
-      if (diff < 0 && s.due < moStart) { sb.overdueCt++; sb.overdueKES += s.perSlot; }
-      if (diff === 0)             { sb.todayCt++; sb.todayKES += s.perSlot; }
-      if (diff >= 0 && diff <= 7) { sb.weekCt++;  sb.weekKES  += s.perSlot; }
-    });
-
-    // Due This Month — ALL slots (paid or not) with a due date in the next
-    // 30 days. This matches the rolling window the Upcoming tab uses and means
-    // a loan that was just paid doesn't silently drop out of the count.
-    allSlots.forEach(s => {
-      if (s.diffDays >= 0 && s.diffDays <= 30) {
-        sb.monthCt++;
-        sb.monthKES += s.perSlot;
-      }
-    });
-
-    return sb;
-  }, [allSlots, allUnpaidSlots, yr, mo]);
-
-  // Collection Rate mapping math (Paid / Total Expected this month)
-  const collectionRate = useMemo(() => {
-    const moStart = new Date(yr, mo, 1).toISOString().slice(0,10);
-    const moEnd = new Date(yr, mo+1, 0).toISOString().slice(0,10);
-    let expected = 0;
-    let actualPaid = 0;
-    
-    filteredLoans.forEach(loan => {
-      const { slots, ledger } = computeLoanSchedule(loan, payments);
-      slots.forEach(s => {
-        if (s.due >= moStart && s.due <= moEnd) {
-          expected += s.perSlot;
-          if (s.status === 'paid' || s.status === 'paid_late') actualPaid += s.perSlot;
-        }
-      });
-    });
-    return expected > 0 ? Math.round((actualPaid / expected) * 100) : 100;
-  }, [filteredLoans, payments, yr, mo]);
-
-  // UI Helpers
-  const formatMoney = (val) => `KES ${Number(val).toLocaleString('en-KE')}`;
-  
-  const handleDayClick = (dateStr) => {
-    setSelectedDay(slotsByDate[dateStr] ? { date: dateStr, slots: slotsByDate[dateStr] } : null);
-  };
-
+  // ── Calendar cell renderer ─────────────────────────────────────────────────
   const getDayUI = (dateObj) => {
-    const dStr = new Date(dateObj.getTime() - dateObj.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
-    const daySlots = slotsByDate[dStr] || [];
-    
-    // Pick the most urgent severity logic
-    let highestSev = SEV.none;
-    const countMap = { overdue: 0, today: 0, urgent: 0, upcoming: 0, future: 0 };
-    let sumKESMap = { overdue: 0, today: 0, urgent: 0, upcoming: 0, future: 0 };
+    const dStr = new Date(dateObj.getTime() - dateObj.getTimezoneOffset() * 60000)
+      .toISOString().slice(0, 10);
+    const dayRecords = recordsByDate[dStr] || [];
 
-    daySlots.forEach(s => {
-      const sv = getSlotSeverity(s, todayStr);
-      if (sv === SEV.overdue) { countMap.overdue++; sumKESMap.overdue += s.perSlot; }
-      else if (sv === SEV.today) { countMap.today++; sumKESMap.today += s.perSlot; }
-      else if (sv === SEV.urgent) { countMap.urgent++; sumKESMap.urgent += s.perSlot; }
-      else if (sv === SEV.upcoming) { countMap.upcoming++; sumKESMap.upcoming += s.perSlot; }
-      else if (sv === SEV.future) { countMap.future++; sumKESMap.future += s.perSlot; }
+    // Count by severity
+    const cnt = { overdue: 0, today: 0, urgent: 0, upcoming: 0, future: 0, settled: 0 };
+    let highest = SEV.none;
+    dayRecords.forEach(r => {
+      if (r.sev === SEV.overdue)  { cnt.overdue++;  if (highest === SEV.none) highest = SEV.overdue; }
+      else if (r.sev === SEV.today)    { cnt.today++;    if (![SEV.overdue].includes(highest)) highest = SEV.today; }
+      else if (r.sev === SEV.urgent)   { cnt.urgent++;   if (![SEV.overdue, SEV.today].includes(highest)) highest = SEV.urgent; }
+      else if (r.sev === SEV.upcoming) { cnt.upcoming++; if (![SEV.overdue, SEV.today, SEV.urgent].includes(highest)) highest = SEV.upcoming; }
+      else if (r.sev === SEV.future)   { cnt.future++;   if (highest === SEV.none) highest = SEV.future; }
+      else if (r.sev === SEV.settled)  { cnt.settled++; }
     });
-
-    if (countMap.overdue > 0) highestSev = SEV.overdue;
-    else if (countMap.today > 0) highestSev = SEV.today;
-    else if (countMap.urgent > 0) highestSev = SEV.urgent;
-    else if (countMap.upcoming > 0) highestSev = SEV.upcoming;
-    else if (countMap.future > 0) highestSev = SEV.future;
 
     const isToday = dStr === todayStr;
-    const isSel = selectedDay?.date === dStr;
+    const isSel   = selectedDay?.date === dStr;
+    const outMonth = dateObj.getMonth() !== mo;
 
     return (
-      <div 
-        key={dStr} 
-        onClick={() => handleDayClick(dStr)}
+      <div
+        key={dStr}
+        onClick={() => setSelectedDay({ date: dStr, records: dayRecords })}
         style={{
           background: isToday ? `${TH.accent}10` : TH.surface,
-          borderTop: `1px solid ${isSel ? TH.accent : TH.border}`,
-          borderRight: `1px solid ${isSel ? TH.accent : TH.border}`,
+          borderTop:    `1px solid ${isSel ? TH.accent : TH.border}`,
+          borderRight:  `1px solid ${isSel ? TH.accent : TH.border}`,
           borderBottom: `1px solid ${isSel ? TH.accent : TH.border}`,
-          borderLeft: highestSev !== SEV.none ? highestSev.border : `1px solid ${TH.border}`,
-          minHeight: 110,
+          borderLeft:   highest !== SEV.none ? highest.border : `1px solid ${TH.border}`,
+          minHeight: 80,
           padding: 8,
           cursor: 'pointer',
           display: 'flex',
           flexDirection: 'column',
           transition: 'all 0.2s ease',
-          opacity: dateObj.getMonth() !== mo ? 0.4 : 1
+          opacity: outMonth ? 0.4 : 1,
         }}
         onMouseOver={e => e.currentTarget.style.background = TH.border}
-        onMouseOut={e => e.currentTarget.style.background = isToday ? `${TH.accent}10` : TH.surface}
+        onMouseOut={e  => e.currentTarget.style.background = isToday ? `${TH.accent}10` : TH.surface}
       >
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
-          <span style={{ color: isToday ? TH.accent : TH.txt, fontWeight: isToday ? 800 : 500, fontFamily: TH.sys, fontSize: 13 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+          <span style={{ color: isToday ? TH.accent : TH.txt, fontWeight: isToday ? 800 : 500, fontSize: 13 }}>
             {dateObj.getDate()}
           </span>
         </div>
-        
-        {/* Render Badges inside day cell */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-          {countMap.overdue > 0 && (
-            <div className="cal-badge overdue" style={{ background: SEV.overdue.bg, color: SEV.overdue.color, padding: '2px 6px', borderRadius: 4, display: 'flex', justifyContent: 'center', fontWeight: 700 }}>
-              <span>{countMap.overdue} due</span>
-            </div>
-          )}
-          {countMap.today > 0 && (
-            <div className="cal-badge today" style={{ background: SEV.today.bg, color: SEV.today.color, padding: '2px 6px', borderRadius: 4, display: 'flex', justifyContent: 'center', fontWeight: 700 }}>
-              <span>{countMap.today} due</span>
-            </div>
-          )}
-          {countMap.urgent > 0 && (
-            <div style={{ background: SEV.urgent.bg, color: SEV.urgent.color, padding: '2px 6px', borderRadius: 4, fontSize: 10, fontWeight: 700 }}>
-              {countMap.urgent} urgent
-            </div>
-          )}
-          {countMap.upcoming > 0 && (
-            <div style={{ background: SEV.upcoming.bg, color: SEV.upcoming.color, padding: '2px 6px', borderRadius: 4, fontSize: 10, fontWeight: 700 }}>
-              {countMap.upcoming} upcoming
-            </div>
-          )}
-          {countMap.future > 0 && (
-            <div style={{ background: SEV.future.bg, color: SEV.future.color, padding: '2px 6px', borderRadius: 4, fontSize: 10, fontWeight: 700 }}>
-              {countMap.future} future
-            </div>
-          )}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+          {cnt.overdue  > 0 && <div style={{ background: SEV.overdue.bg,  color: SEV.overdue.color,  padding: '2px 5px', borderRadius: 4, fontSize: 10, fontWeight: 700 }}>{cnt.overdue} overdue</div>}
+          {cnt.today    > 0 && <div style={{ background: SEV.today.bg,    color: SEV.today.color,    padding: '2px 5px', borderRadius: 4, fontSize: 10, fontWeight: 700 }}>{cnt.today} due today</div>}
+          {cnt.urgent   > 0 && <div style={{ background: SEV.urgent.bg,   color: SEV.urgent.color,   padding: '2px 5px', borderRadius: 4, fontSize: 10, fontWeight: 700 }}>{cnt.urgent} urgent</div>}
+          {cnt.upcoming > 0 && <div style={{ background: SEV.upcoming.bg, color: SEV.upcoming.color, padding: '2px 5px', borderRadius: 4, fontSize: 10, fontWeight: 700 }}>{cnt.upcoming} upcoming</div>}
+          {cnt.future   > 0 && <div style={{ background: SEV.future.bg,   color: SEV.future.color,   padding: '2px 5px', borderRadius: 4, fontSize: 10, fontWeight: 700 }}>{cnt.future} future</div>}
+          {cnt.settled  > 0 && <div style={{ color: TH.muted, fontSize: 9 }}>✓ {cnt.settled} settled</div>}
         </div>
       </div>
     );
   };
 
+  // ── Loan card for side panel / list views ──────────────────────────────────
+  const renderLoanCard = (r) => {
+    const { loan, maturity, diff, settled, totalOwed, totalPaid, remainingBalance } = r;
+    const statusLabel = settled ? 'Settled' : diff < 0 ? 'Overdue' : diff === 0 ? 'Due Today' : `Due in ${diff}d`;
+    const statusColor = settled ? TH.success : diff < 0 ? TH.danger : diff === 0 ? TH.warn : TH.blue;
+    const pctPaid     = totalOwed > 0 ? Math.min(Math.round((totalPaid / totalOwed) * 100), 100) : 0;
+
+    return (
+      <div key={loan.id} style={{ background: TH.surface, border: `1px solid ${TH.border}`, borderRadius: 10, padding: 14, marginBottom: 10 }}>
+        {/* Header */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 10 }}>
+          <div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+              <div style={{ background: `${statusColor}15`, color: statusColor, border: `1px solid ${statusColor}30`, padding: '2px 8px', borderRadius: 6, fontSize: 10, fontWeight: 800, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                {statusLabel}
+              </div>
+            </div>
+            <div style={{ color: TH.txt, fontWeight: 700, fontSize: 14 }}>{loan.customer}</div>
+            <div style={{ color: TH.accent, fontFamily: TH.mono, fontSize: 11, fontWeight: 800, marginTop: 1 }}>{loan.id}</div>
+          </div>
+          <div style={{ textAlign: 'right' }}>
+            <div style={{ color: settled ? TH.success : TH.danger, fontWeight: 800, fontSize: 15 }}>{fmtMoney(remainingBalance)}</div>
+            <div style={{ color: TH.muted, fontSize: 10, marginTop: 2 }}>Outstanding Balance</div>
+          </div>
+        </div>
+        {/* Progress bar */}
+        <div style={{ marginBottom: 10 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+            <span style={{ color: TH.muted, fontSize: 10 }}>Repayment progress</span>
+            <span style={{ color: TH.accent, fontFamily: TH.mono, fontSize: 10, fontWeight: 700 }}>{pctPaid}%</span>
+          </div>
+          <div style={{ height: 5, background: TH.bg, borderRadius: 99, overflow: 'hidden' }}>
+            <div style={{ height: '100%', width: `${pctPaid}%`, background: pctPaid >= 100 ? TH.success : 'linear-gradient(90deg,#00D4AA,#00FFD1)', borderRadius: 99, transition: 'width .4s' }} />
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 3 }}>
+            <span style={{ color: TH.success, fontSize: 9 }}>Paid: {fmtMoney(totalPaid)}</span>
+            <span style={{ color: TH.muted, fontSize: 9 }}>Total: {fmtMoney(totalOwed)}</span>
+          </div>
+        </div>
+        {/* Meta row */}
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 10 }}>
+          <div style={{ background: TH.bg, borderRadius: 8, padding: '8px 10px' }}>
+            <div style={{ color: TH.muted, fontSize: 9, textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 2 }}>Maturity Date</div>
+            <div style={{ color: TH.txt, fontSize: 12, fontWeight: 700 }}>{maturity}</div>
+          </div>
+          <div style={{ background: TH.bg, borderRadius: 8, padding: '8px 10px' }}>
+            <div style={{ color: TH.muted, fontSize: 9, textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 2 }}>Disbursed</div>
+            <div style={{ color: TH.txt, fontSize: 12, fontWeight: 700 }}>{loan.disbursed}</div>
+          </div>
+          <div style={{ background: TH.bg, borderRadius: 8, padding: '8px 10px' }}>
+            <div style={{ color: TH.muted, fontSize: 9, textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 2 }}>Remaining Balance</div>
+            <div style={{ color: settled ? TH.success : remainingBalance === 0 ? TH.success : TH.danger, fontSize: 12, fontWeight: 700 }}>{fmtMoney(remainingBalance)}</div>
+          </div>
+          <div style={{ background: TH.bg, borderRadius: 8, padding: '8px 10px' }}>
+            <div style={{ color: TH.muted, fontSize: 9, textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 2 }}>Officer</div>
+            <div style={{ color: TH.txt, fontSize: 12, fontWeight: 700 }}>{loan.officer || '—'}</div>
+          </div>
+        </div>
+        {/* Action buttons */}
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', borderTop: `1px dashed ${TH.border}`, paddingTop: 10 }}>
+          <a href={`tel:${loan.phone}`} style={{ textDecoration: 'none', background: `${TH.accent}15`, color: TH.accent, padding: '4px 10px', borderRadius: 6, fontSize: 11, fontWeight: 700 }}>📞 Call</a>
+          <a href={`sms:${loan.phone}`} style={{ textDecoration: 'none', background: `${TH.blue}15`,   color: TH.blue,   padding: '4px 10px', borderRadius: 6, fontSize: 11, fontWeight: 700 }}>💬 SMS</a>
+          <button onClick={() => onOpenCustomerProfile?.(loan.customerId)} style={{ background: `${TH.muted}20`, color: TH.txt, padding: '4px 10px', borderRadius: 6, fontSize: 11, fontWeight: 700, border: 'none', cursor: 'pointer' }}>👤 Profile</button>
+        </div>
+      </div>
+    );
+  };
+
+  // ── Calendar grid ──────────────────────────────────────────────────────────
   const renderCalendarTab = () => {
-    // Generate grid padding
     const days = getDaysInMonth(yr, mo);
     const firstDay = days[0].getDay();
     const blanks = Array.from({ length: firstDay === 0 ? 6 : firstDay - 1 }).map((_, i) => {
-      const d = new Date(yr, mo, 0 - i);
-      return getDayUI(d);
+      const d = new Date(yr, mo, 0 - i); return getDayUI(d);
     }).reverse();
-    
-    const trailingBlanks = Array.from({ length: (7 - ((blanks.length + days.length) % 7)) % 7 }).map((_, i) => {
-      const d = new Date(yr, mo + 1, i + 1);
-      return getDayUI(d);
+    const trailing = Array.from({ length: (7 - ((blanks.length + days.length) % 7)) % 7 }).map((_, i) => {
+      const d = new Date(yr, mo + 1, i + 1); return getDayUI(d);
     });
-
     const headers = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-
     return (
       <div style={{ background: TH.card, borderRadius: 12, padding: '16px 8px', border: `1px solid ${TH.border}` }}>
-        <div className="rcc-calendar-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 8, marginBottom: 8 }}>
-          {headers.map(h => (
-            <div key={h} style={{ color: TH.muted, fontSize: 12, fontWeight: 700, textAlign: 'center', textTransform: 'uppercase' }}>{h}</div>
-          ))}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 8, marginBottom: 8 }}>
+          {headers.map(h => <div key={h} style={{ color: TH.muted, fontSize: 12, fontWeight: 700, textAlign: 'center', textTransform: 'uppercase' }}>{h}</div>)}
         </div>
-        <div className="rcc-calendar-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 8, background: TH.card }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 8 }}>
           {blanks}
           {days.map(d => getDayUI(d))}
-          {trailingBlanks}
+          {trailing}
         </div>
       </div>
     );
   };
 
-  const renderLoanCard = (slot) => {
-    const l = slot.loan;
-    const diff = slot.diffDays;
-    const isPaid = slot.status === 'paid' || slot.status === 'paid_late';
-    
-    // Determine status badge color and text
-    let statusLabel = 'Upcoming';
-    let statusColor = TH.blue;
-    let statusBg = `${TH.blue}15`;
-
-    if (isPaid) {
-      statusLabel = 'Settled';
-      statusColor = TH.success;
-      statusBg = `${TH.success}15`;
-    } else if (diff < 0) {
-      statusLabel = 'Overdue';
-      statusColor = TH.danger;
-      statusBg = `${TH.danger}15`;
-    } else if (diff === 0) {
-      statusLabel = 'Due Today';
-      statusColor = TH.warn;
-      statusBg = `${TH.warn}15`;
-    }
-
-    return (
-      <div key={`${l.id}-${slot.index}`} style={{ background: TH.surface, border: `1px solid ${TH.border}`, borderRadius: 10, padding: 14, marginBottom: 10, display: 'flex', flexDirection: 'column', gap: 10 }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-          <div style={{ flex: 1 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
-               <div style={{ background: statusBg, color: statusColor, padding: '2px 8px', borderRadius: 6, fontSize: 10, fontWeight: 800, textTransform: 'uppercase', letterSpacing: 0.5, border: `1px solid ${statusColor}30` }}>
-                 {statusLabel}
-               </div>
-               <div style={{ color: TH.muted, fontSize: 11, fontWeight: 700 }}>Due: {slot.due}</div>
-            </div>
-            <div style={{ color: TH.muted, fontSize: 11, marginTop: 4 }}>Maturity Date: {slot.due}</div>
-          </div>
-          <div style={{ textAlign: 'right', display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
-            <div style={{ color: isPaid ? TH.success : l.daysOverdue > 0 ? TH.danger : TH.success, fontSize: 12, fontWeight: 800 }}>
-               {isPaid ? '✓ Paid' : l.daysOverdue > 0 ? `${l.daysOverdue}d Overdue` : 'Current'}
-            </div>
-          </div>
-        </div>
-        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', borderTop: `1px dashed ${TH.border}`, paddingTop: 10 }}>
-          <a href={`tel:${l.phone}`} style={{ textDecoration: 'none', background: `${TH.accent}15`, color: TH.accent, padding: '4px 10px', borderRadius: 6, fontSize: 11, fontWeight: 700 }}>📞 Call</a>
-          <a href={`sms:${l.phone}`} style={{ textDecoration: 'none', background: `${TH.blue}15`, color: TH.blue, padding: '4px 10px', borderRadius: 6, fontSize: 11, fontWeight: 700 }}>💬 SMS</a>
-          <button onClick={() => onOpenCustomerProfile?.(l.customerId)} style={{ background: `${TH.muted}20`, color: TH.txt, padding: '4px 10px', borderRadius: 6, fontSize: 11, fontWeight: 700, border: 'none', cursor: 'pointer' }}>👤 Profile</button>
-        </div>
-      </div>
-    );
-  };
-
+  // ── Overdue / Upcoming list ────────────────────────────────────────────────
   const renderListTab = (mode) => {
-    // Mode is 'Overdue' or 'Upcoming'
-    // Calendar deals exclusively with due dates — payment status does NOT affect grouping.
-    const grouped = {
-      // Overdue Groups
-      crt: { lbl: 'Critical (90+ Days)', col: '#991B1B', bg: '#450A0A', slots: [] },
-      lte: { lbl: 'Late Stage (31-90 Days)', col: TH.danger, bg: `${TH.danger}15`, slots: [] },
-      mid: { lbl: 'Mid Stage (8-30 Days)', col: TH.warn, bg: `${TH.warn}15`, slots: [] },
-      erl: { lbl: 'Early (1-7 Days)', col: TH.gold, bg: `${TH.gold}15`, slots: [] },
-      // Upcoming Groups — all loans grouped by due date, regardless of payment status
-      tdy: { lbl: 'Due Today', col: TH.warn, bg: `${TH.warn}15`, slots: [] },
-      tmr: { lbl: 'Due Tomorrow', col: TH.gold, bg: `${TH.gold}15`, slots: [] },
-      u3d: { lbl: 'Due in 2-3 Days (Urgent)', col: TH.accent, bg: `${TH.accent}15`, slots: [] },
-      uwk: { lbl: 'Due This Week', col: TH.blue, bg: `${TH.blue}15`, slots: [] },
-      umn: { lbl: 'Due Later This Month', col: TH.success, bg: `${TH.success}15`, slots: [] },
+    const groups = mode === 'Overdue' ? {
+      crt: { lbl: 'Critical (90+ days)',      col: '#991B1B', bg: '#450A0A',           records: [] },
+      lte: { lbl: 'Late Stage (31-90 days)',  col: TH.danger, bg: `${TH.danger}15`,    records: [] },
+      mid: { lbl: 'Mid Stage (8-30 days)',    col: TH.warn,   bg: `${TH.warn}15`,      records: [] },
+      erl: { lbl: 'Early (1-7 days)',         col: TH.gold,   bg: `${TH.gold}15`,      records: [] },
+    } : {
+      tdy: { lbl: 'Due Today',                col: TH.warn,    bg: `${TH.warn}15`,    records: [] },
+      tmr: { lbl: 'Due Tomorrow',             col: TH.gold,    bg: `${TH.gold}15`,    records: [] },
+      u3d: { lbl: 'Due in 2-3 Days (Urgent)', col: TH.accent,  bg: `${TH.accent}15`,  records: [] },
+      uwk: { lbl: 'Due This Week',            col: TH.blue,    bg: `${TH.blue}15`,    records: [] },
+      umn: { lbl: 'Due Later This Month',     col: TH.success, bg: `${TH.success}15`, records: [] },
     };
 
-    if (mode === 'Overdue') {
-      // Overdue: only genuinely unpaid past-due loans matter here
-      allUnpaidSlots.forEach(s => {
-        const diff = s.diffDays;
-        if (diff < 0) {
-          const ag = Math.abs(diff);
-          if (ag >= 90) grouped.crt.slots.push(s);
-          else if (ag >= 31) grouped.lte.slots.push(s);
-          else if (ag >= 8) grouped.mid.slots.push(s);
-          else grouped.erl.slots.push(s);
+    maturityRecords.forEach(r => {
+      if (r.settled) return; // settled loans excluded from both lists
+      const d = r.diff;
+      if (mode === 'Overdue') {
+        if (d < 0) {
+          const ag = Math.abs(d);
+          if (ag >= 90) groups.crt.records.push(r);
+          else if (ag >= 31) groups.lte.records.push(r);
+          else if (ag >= 8)  groups.mid.records.push(r);
+          else               groups.erl.records.push(r);
         }
-      });
-    } else {
-      // Upcoming: ALL loans (paid or not) grouped purely by their due date.
-      // Payment status is irrelevant — the calendar tracks due dates only.
-      allSlots.forEach(s => {
-        const diff = s.diffDays;
-        if (diff >= 0) {
-          if (diff === 0)      grouped.tdy.slots.push(s);
-          else if (diff === 1) grouped.tmr.slots.push(s);
-          else if (diff <= 3)  grouped.u3d.slots.push(s);
-          else if (diff <= 7)  grouped.uwk.slots.push(s);
-          else if (diff <= 30) grouped.umn.slots.push(s);
-        }
-      });
-    }
+      } else {
+        if (d === 0)      groups.tdy.records.push(r);
+        else if (d === 1) groups.tmr.records.push(r);
+        else if (d <= 3)  groups.u3d.records.push(r);
+        else if (d <= 7)  groups.uwk.records.push(r);
+        else if (d <= 30) groups.umn.records.push(r);
+      }
+    });
 
-    const activeGroups = mode === 'Overdue'
-      ? [grouped.crt, grouped.lte, grouped.mid, grouped.erl]
-      : [grouped.tdy, grouped.tmr, grouped.u3d, grouped.uwk, grouped.umn];
+    const activeGroups = Object.values(groups).filter(g => g.records.length > 0);
 
     return (
       <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-        {activeGroups.filter(g => g.slots.length > 0).map(g => (
-          <div key={g.lbl} style={{ background: TH.card, borderRadius: 12, border: `1px solid ${TH.border}`, overflow: 'hidden' }}>
-            <div style={{ background: g.bg, padding: '14px 20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: `1px solid ${TH.border}` }}>
-              <div style={{ color: g.col, fontWeight: 800, fontSize: 15 }}>{g.lbl}</div>
-              <div style={{ display: 'flex', gap: 14 }}>
-                 <div style={{ color: TH.txt, fontSize: 13, fontWeight: 700 }}>{g.slots.length} Loans</div>
+        {activeGroups.map(g => {
+          const key = g.lbl;
+          const isExp = expandedGroups[key];
+          return (
+            <div key={key} style={{ background: TH.card, borderRadius: 12, border: `1px solid ${TH.border}`, overflow: 'hidden' }}>
+              <div
+                onClick={() => setExpandedGroups(p => ({ ...p, [key]: !p[key] }))}
+                style={{ background: g.bg, padding: '14px 20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: `1px solid ${TH.border}`, cursor: 'pointer' }}
+              >
+                <div style={{ color: g.col, fontWeight: 800, fontSize: 15 }}>{g.lbl}</div>
+                <div style={{ display: 'flex', gap: 14, alignItems: 'center' }}>
+                  <div style={{ color: TH.txt, fontSize: 13, fontWeight: 700 }}>{g.records.length} Loans</div>
+                  <div style={{ color: TH.muted, fontSize: 12, transform: isExp ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s' }}>▼</div>
+                </div>
               </div>
+              {isExp && (
+                <div style={{ padding: 20 }}>
+                  {g.records.slice(0, 50).map(renderLoanCard)}
+                  {g.records.length > 50 && (
+                    <div style={{ color: TH.muted, fontSize: 13, textAlign: 'center', marginTop: 10 }}>
+                      + {g.records.length - 50} more. Use search to refine.
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
-            <div style={{ padding: 20 }}>
-              {(() => {
-                const slotsByLoan = {};
-                g.slots.forEach(s => {
-                  if (!slotsByLoan[s.loan.id]) {
-                    slotsByLoan[s.loan.id] = { loan: s.loan, slots: [], totalDue: 0 };
-                  }
-                  slotsByLoan[s.loan.id].slots.push(s);
-                  slotsByLoan[s.loan.id].totalDue += s.perSlot;
-                });
-                
-                const loanGroups = Object.values(slotsByLoan);
-                
-                return (
-                  <>
-                    {loanGroups.slice(0, 50).map(lg => {
-                      const key = `${g.lbl}-${lg.loan.id}`;
-                      const isExp = expandedGroups[key];
-                      
-                      return (
-                        <div key={lg.loan.id} style={{ marginBottom: 12, background: TH.surface, border: `1px solid ${TH.border}`, borderRadius: 10, overflow: 'hidden' }}>
-                          <div 
-                            onClick={() => setExpandedGroups(prev => ({ ...prev, [key]: !prev[key] }))}
-                            style={{ padding: '14px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer', background: isExp ? `${TH.accent}10` : 'transparent', transition: 'background 0.2s' }}
-                          >
-                             <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
-                                <div style={{ width: 24, height: 24, borderRadius: '50%', background: `${TH.muted}30`, color: TH.txt, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 800 }}>
-                                  {lg.slots.length}
-                                </div>
-                                <div>
-                                   <div onClick={(e) => { e.stopPropagation(); onOpenCustomerProfile?.(lg.loan.customerId); }} style={{ color: TH.txt, fontWeight: 700, fontSize: 15, cursor: 'pointer', textDecoration: 'underline decoration-transparent', transition: 'text-decoration 0.2s', ':hover': { textDecoration: `underline ${TH.txt}` } }}>
-                                     {lg.loan.customer}
-                                   </div>
-                                   <div style={{ color: TH.accent, fontFamily: TH.mono, fontWeight: 800, fontSize: 11 }}>{lg.loan.id}</div>
-                                </div>
-                             </div>
-                             <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
-                                <div style={{ color: TH.muted, fontSize: 12, transform: isExp ? 'rotate(180deg)' : 'rotate(0deg)', transition: 'transform 0.2s' }}>▼</div>
-                             </div>
-                          </div>
-                          
-                          {isExp && (
-                            <div style={{ padding: '12px 16px', background: TH.bg, borderTop: `1px dashed ${TH.border}`, display: 'flex', flexDirection: 'column', gap: 10 }}>
-                               {lg.slots.map(renderLoanCard)}
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })}
-                    {loanGroups.length > 50 && (
-                      <div style={{ color: TH.muted, fontSize: 13, textAlign: 'center', marginTop: 10, padding: 10, border: `1px dashed ${TH.border}`, borderRadius: 8 }}>
-                         + {loanGroups.length - 50} more loans available. Use search for specific matches.
-                      </div>
-                    )}
-                  </>
-                );
-              })()}
-            </div>
-          </div>
-        ))}
-        {activeGroups.filter(g => g.slots.length > 0).length === 0 && (
+          );
+        })}
+        {activeGroups.length === 0 && (
           <div style={{ textAlign: 'center', padding: 40, color: TH.muted, background: TH.card, borderRadius: 12, border: `1px dashed ${TH.border}` }}>
-            No {mode.toLowerCase()} loans found matching this criteria.
+            No {mode.toLowerCase()} loans found.
           </div>
         )}
       </div>
     );
   };
 
+  // ── Main render ────────────────────────────────────────────────────────────
   return (
     <div style={{ background: TH.bg, padding: 20, fontFamily: TH.sys }}>
-      
-      {/* HEADER TABS & ACTIONS */}
-      <div className="rcc-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 20, flexWrap: 'wrap' }}>
+
+      {/* Header */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 20, flexWrap: 'wrap', gap: 12 }}>
         <div>
           <h1 style={{ color: TH.txt, fontSize: 24, margin: '0 0 4px 0', fontWeight: 800 }}>Repayments Command Center</h1>
-          <p style={{ color: TH.muted, fontSize: 13, margin: 0 }}>Auto-synced scheduler based on live ledger analytics.</p>
+          <p style={{ color: TH.muted, fontSize: 13, margin: 0 }}>
+            Showing <strong style={{ color: TH.accent }}>30-day maturity dates</strong> — one due date per loan.
+          </p>
         </div>
         <div style={{ display: 'flex', gap: 6, background: TH.card, padding: 6, borderRadius: 10, border: `1px solid ${TH.border}` }}>
           {['Calendar', 'Overdue', 'Upcoming', 'Search'].map(t => (
-            <button 
+            <button
               key={t}
               onClick={() => setActiveTab(t)}
               style={{
                 background: activeTab === t ? TH.surface : 'transparent',
-                color: activeTab === t ? TH.accent : TH.muted,
+                color:      activeTab === t ? TH.accent  : TH.muted,
                 border: `1px solid ${activeTab === t ? TH.border : 'transparent'}`,
-                borderRadius: 6,
-                padding: '6px 14px',
-                fontSize: 13,
-                fontWeight: 700,
-                cursor: 'pointer',
-                transition: 'all 0.2s'
+                borderRadius: 6, padding: '6px 14px', fontSize: 13, fontWeight: 700, cursor: 'pointer', transition: 'all 0.2s',
               }}
             >
               {t}
@@ -543,39 +433,39 @@ export default function DueLoansCalendar({ loans = [], payments = [], workers = 
           ))}
         </div>
       </div>
-      
-      {/* SEARCH BAR */}
+
+      {/* Search / date-range bar */}
       <div style={{ background: TH.card, border: `1px solid ${TH.border}`, borderRadius: 12, padding: '16px 20px', marginBottom: 20, display: 'flex', gap: 14, flexWrap: 'wrap', alignItems: 'flex-end' }}>
         <div style={{ flex: 2, minWidth: 200 }}>
           <div style={{ color: TH.muted, fontSize: 11, textTransform: 'uppercase', marginBottom: 6, fontWeight: 700 }}>Search Loan or Customer</div>
-          <input 
-            type="text" 
-            placeholder="Type ID or client name..." 
+          <input
+            type="text"
+            placeholder="Type ID or client name..."
             value={searchQuery}
-            onChange={e => { setSearchQuery(e.target.value); if(e.target.value && activeTab !== 'Search') setActiveTab('Search'); }}
-            style={{ width: '100%', background: TH.surface, border: `1px solid ${TH.border}`, borderRadius: 8, padding: '10px 14px', color: TH.txt, fontSize: 13, outline: 'none' }}
+            onChange={e => { setSearchQuery(e.target.value); if (e.target.value && activeTab !== 'Search') setActiveTab('Search'); }}
+            style={{ width: '100%', background: TH.surface, border: `1px solid ${TH.border}`, borderRadius: 8, padding: '10px 14px', color: TH.txt, fontSize: 13, outline: 'none', boxSizing: 'border-box' }}
           />
         </div>
         <div style={{ flex: 1, minWidth: 140 }}>
-          <div style={{ color: TH.muted, fontSize: 11, textTransform: 'uppercase', marginBottom: 6, fontWeight: 700 }}>Start Date</div>
-          <input 
-            type="date" 
+          <div style={{ color: TH.muted, fontSize: 11, textTransform: 'uppercase', marginBottom: 6, fontWeight: 700 }}>Maturity From</div>
+          <input
+            type="date"
             value={startDate}
-            onChange={e => { setStartDate(e.target.value); if(e.target.value && activeTab !== 'Search') setActiveTab('Search'); }}
-            style={{ width: '100%', background: TH.surface, border: `1px solid ${TH.border}`, borderRadius: 8, padding: '9px 12px', color: TH.txt, fontSize: 13, outline: 'none' }}
+            onChange={e => { setStartDate(e.target.value); if (e.target.value && activeTab !== 'Search') setActiveTab('Search'); }}
+            style={{ width: '100%', background: TH.surface, border: `1px solid ${TH.border}`, borderRadius: 8, padding: '9px 12px', color: TH.txt, fontSize: 13, outline: 'none', boxSizing: 'border-box' }}
           />
         </div>
         <div style={{ flex: 1, minWidth: 140 }}>
-          <div style={{ color: TH.muted, fontSize: 11, textTransform: 'uppercase', marginBottom: 6, fontWeight: 700 }}>End Date</div>
-          <input 
-            type="date" 
+          <div style={{ color: TH.muted, fontSize: 11, textTransform: 'uppercase', marginBottom: 6, fontWeight: 700 }}>Maturity To</div>
+          <input
+            type="date"
             value={endDate}
-            onChange={e => { setEndDate(e.target.value); if(e.target.value && activeTab !== 'Search') setActiveTab('Search'); }}
-            style={{ width: '100%', background: TH.surface, border: `1px solid ${TH.border}`, borderRadius: 8, padding: '9px 12px', color: TH.txt, fontSize: 13, outline: 'none' }}
+            onChange={e => { setEndDate(e.target.value); if (e.target.value && activeTab !== 'Search') setActiveTab('Search'); }}
+            style={{ width: '100%', background: TH.surface, border: `1px solid ${TH.border}`, borderRadius: 8, padding: '9px 12px', color: TH.txt, fontSize: 13, outline: 'none', boxSizing: 'border-box' }}
           />
         </div>
         {(searchQuery || startDate || endDate) && (
-          <button 
+          <button
             onClick={() => { setSearchQuery(''); setStartDate(''); setEndDate(''); setActiveTab('Calendar'); }}
             style={{ padding: '10px 16px', background: `${TH.danger}15`, color: TH.danger, border: `1px solid ${TH.danger}50`, borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: 'pointer' }}
           >
@@ -584,155 +474,135 @@ export default function DueLoansCalendar({ loans = [], payments = [], workers = 
         )}
       </div>
 
-      {/* SUMMARY BAR */}
-      <div className="rcc-summary-bar" style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 12, marginBottom: 20 }}>
+      {/* Summary bar */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 12, marginBottom: 20 }}>
         {[
-          { l: 'Total Overdue', c: TH.danger, u: summaryBox.overdueCt, v: summaryBox.overdueKES, t: 'Overdue' },
-          { l: 'Due Today', c: TH.warn, u: summaryBox.todayCt, v: summaryBox.todayKES, t: 'Upcoming' },
-          { l: 'Due This Week', c: TH.gold, u: summaryBox.weekCt, v: summaryBox.weekKES, t: 'Upcoming' },
-          { l: 'Due This Month', c: TH.blue, u: summaryBox.monthCt, v: summaryBox.monthKES, t: 'Upcoming' },
-          { l: 'Month Recovery %', c: TH.success, u: null, v: null, override: `${collectionRate}%`, t: 'Calendar' },
+          { l: 'Total Overdue',     c: TH.danger,  val: summaryBox.overdueCt, sub: fmtMoney(summaryBox.overdueKES), t: 'Overdue' },
+          { l: 'Due Today',         c: TH.warn,    val: summaryBox.todayCt,   sub: fmtMoney(summaryBox.todayKES),   t: 'Upcoming' },
+          { l: 'Due This Week',     c: TH.gold,    val: summaryBox.weekCt,    sub: fmtMoney(summaryBox.weekKES),    t: 'Upcoming' },
+          { l: 'Due This Month',    c: TH.blue,    val: summaryBox.monthCt,   sub: fmtMoney(summaryBox.monthKES),   t: 'Upcoming' },
+          { l: 'Month Recovery %',  c: TH.success, val: `${collectionRate}%`, sub: 'Settled vs Expected',           t: 'Calendar' },
         ].map(b => (
-          <div 
-            key={b.l} 
-            onClick={() => { if(b.t) setActiveTab(b.t); }}
-            style={{ 
-              background: TH.card, 
-              border: `1px solid ${b.c}30`, 
-              borderRadius: 12, 
-              padding: 16, 
-              cursor: b.t ? 'pointer' : 'default',
-              transition: 'all 0.2s ease',
-              display: 'flex',
-              flexDirection: 'column',
-              justifyContent: 'center'
-            }}
-            onMouseOver={e => { if(b.t) e.currentTarget.style.background = TH.surface; }}
-            onMouseOut={e => { if(b.t) e.currentTarget.style.background = TH.card; }}
+          <div
+            key={b.l}
+            onClick={() => b.t && setActiveTab(b.t)}
+            style={{ background: TH.card, border: `1px solid ${b.c}30`, borderRadius: 12, padding: 16, cursor: b.t ? 'pointer' : 'default', transition: 'all 0.2s ease', display: 'flex', flexDirection: 'column', justifyContent: 'center' }}
+            onMouseOver={e => { if (b.t) e.currentTarget.style.background = TH.surface; }}
+            onMouseOut={e  => { if (b.t) e.currentTarget.style.background = TH.card; }}
           >
-             <div className="summary-title" style={{ color: TH.muted, fontSize: 11, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 6 }}>{b.l}</div>
-             <div className="summary-value" style={{ color: b.c, fontSize: 24, fontWeight: 900, fontFamily: TH.mono }}>
-               {b.override ? b.override : b.u}
-             </div>
-             {!b.override && <div className="summary-sub" style={{ color: TH.txt, fontSize: 11, marginTop: 2, fontWeight: 700 }}>Total Loans</div>}
+            <div style={{ color: TH.muted, fontSize: 11, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 6 }}>{b.l}</div>
+            <div style={{ color: b.c, fontSize: 24, fontWeight: 900, fontFamily: TH.mono }}>{b.val}</div>
+            <div style={{ color: TH.muted, fontSize: 10, marginTop: 4 }}>{b.sub}</div>
           </div>
         ))}
       </div>
 
-      {/* RENDER ACTIVE TAB */}
+      {/* Calendar tab */}
       {activeTab === 'Calendar' && (
         <>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
             <div style={{ display: 'flex', gap: 10 }}>
-              <button 
-                onClick={() => setCurrentDate(new Date(yr, mo - 1, 1))}
-                style={{ background: TH.card, color: TH.txt, border: `1px solid ${TH.border}`, padding: '6px 14px', borderRadius: 8, cursor: 'pointer', fontWeight: 600 }}>
-                &larr; Prev
-              </button>
-              <button 
-                onClick={() => setCurrentDate(new Date())}
-                style={{ background: TH.surface, color: TH.accent, border: `1px solid ${TH.border}`, padding: '6px 14px', borderRadius: 8, cursor: 'pointer', fontWeight: 600 }}>
-                Today
-              </button>
-              <button 
-                onClick={() => setCurrentDate(new Date(yr, mo + 1, 1))}
-                style={{ background: TH.card, color: TH.txt, border: `1px solid ${TH.border}`, padding: '6px 14px', borderRadius: 8, cursor: 'pointer', fontWeight: 600 }}>
-                Next &rarr;
-              </button>
+              <button onClick={() => setCurrentDate(new Date(yr, mo - 1, 1))} style={{ background: TH.card, color: TH.txt, border: `1px solid ${TH.border}`, padding: '6px 14px', borderRadius: 8, cursor: 'pointer', fontWeight: 600 }}>&larr; Prev</button>
+              <button onClick={() => setCurrentDate(new Date())}              style={{ background: TH.surface, color: TH.accent, border: `1px solid ${TH.border}`, padding: '6px 14px', borderRadius: 8, cursor: 'pointer', fontWeight: 600 }}>Today</button>
+              <button onClick={() => setCurrentDate(new Date(yr, mo + 1, 1))} style={{ background: TH.card, color: TH.txt, border: `1px solid ${TH.border}`, padding: '6px 14px', borderRadius: 8, cursor: 'pointer', fontWeight: 600 }}>Next &rarr;</button>
             </div>
             <div style={{ color: TH.txt, fontSize: 18, fontWeight: 800, textTransform: 'uppercase', letterSpacing: 2 }}>
               {currentDate.toLocaleString('default', { month: 'long', year: 'numeric' })}
             </div>
           </div>
-          
-          <div style={{ display: 'flex', gap: 20, position: 'relative' }}>
-            {/* Main Grid */}
-            <div style={{ flex: 1, overflow: 'hidden' }}>
+
+          <div style={{ flex: 1, overflow: 'hidden' }}>
               {renderCalendarTab()}
             </div>
 
-            {/* Slide-in Side Panel equivalent (Right Sidebar) */}
+            {/* Full-screen overlay modal — opens whenever any day is clicked */}
             {selectedDay && (
-              <div className="rcc-side-panel" style={{ width: 360, background: TH.card, border: `1px solid ${TH.accent}`, borderRadius: 12, display: 'flex', flexDirection: 'column', overflow: 'hidden', boxShadow: `-10px 0 30px ${TH.bg}` }}>
-                 <div style={{ padding: '16px 20px', background: TH.surface, borderBottom: `1px solid ${TH.border}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <div style={{ color: TH.txt, fontSize: 16, fontWeight: 800 }}>Date Schedule</div>
-                    <button onClick={() => setSelectedDay(null)} style={{ background: 'transparent', border: 'none', color: TH.muted, cursor: 'pointer', fontSize: 18 }}>✕</button>
-                 </div>
-                 <div style={{ padding: '12px 20px', background: `${TH.accent}15`, color: TH.accent, fontWeight: 800, fontSize: 13, borderBottom: `1px solid ${TH.accent}50` }}>
-                    {new Date(selectedDay.date).toDateString()}
-                 </div>
-                 <div style={{ padding: 20, flex: 1, overflowY: 'auto', maxHeight: 'calc(100vh - 200px)' }}>
-                    {selectedDay.slots.length === 0 ? (
-                      <p style={{ color: TH.muted, fontSize: 13, textAlign: 'center' }}>No installments due on this day.</p>
+              <div
+                onClick={() => setSelectedDay(null)}
+                style={{
+                  position: 'fixed', inset: 0, zIndex: 9999,
+                  background: 'rgba(4,8,16,0.82)',
+                  backdropFilter: 'blur(8px)',
+                  WebkitBackdropFilter: 'blur(8px)',
+                  display: 'flex', alignItems: 'flex-start', justifyContent: 'center',
+                  padding: '24px 16px 40px',
+                  overflowY: 'auto',
+                }}
+              >
+                <div
+                  onClick={e => e.stopPropagation()}
+                  style={{
+                    width: '100%', maxWidth: 860,
+                    background: TH.card,
+                    border: `1px solid ${TH.accent}60`,
+                    borderRadius: 16,
+                    display: 'flex', flexDirection: 'column',
+                    boxShadow: '0 40px 80px #000000D0',
+                    overflow: 'hidden',
+                    flexShrink: 0,
+                  }}
+                >
+                  {/* Modal header */}
+                  <div style={{ padding: '18px 24px', background: TH.surface, borderBottom: `1px solid ${TH.border}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexShrink: 0 }}>
+                    <div>
+                      <div style={{ color: TH.txt, fontSize: 18, fontWeight: 800 }}>Loans Due — {selectedDay.date}</div>
+                      <div style={{ color: TH.muted, fontSize: 12, marginTop: 3 }}>
+                        {selectedDay.records.length === 0
+                          ? 'No loans are scheduled to mature on this date'
+                          : `${selectedDay.records.length} loan${selectedDay.records.length > 1 ? 's' : ''} maturing on this date`}
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => setSelectedDay(null)}
+                      style={{ background: 'rgba(255,255,255,0.08)', border: `1px solid ${TH.border}`, color: TH.muted, borderRadius: 99, width: 32, height: 32, cursor: 'pointer', fontSize: 14, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}
+                    >✕</button>
+                  </div>
+
+                  {/* Modal body */}
+                  <div style={{ padding: 24, overflowY: 'auto' }}>
+                    {selectedDay.records.length === 0 ? (
+                      <div style={{ textAlign: 'center', padding: '60px 20px', color: TH.muted }}
+                      >
+                        <div style={{ fontSize: 48, marginBottom: 16 }}>📅</div>
+                        <div style={{ fontSize: 16, fontWeight: 700, color: TH.txt, marginBottom: 8 }}>No Loans Due</div>
+                        <div style={{ fontSize: 13 }}>There are no loans scheduled to mature on <strong style={{ color: TH.accent }}>{selectedDay.date}</strong>.</div>
+                      </div>
                     ) : (
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-                        {selectedDay.slots.map(renderLoanCard)}
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(360px, 1fr))', gap: 16 }}>
+                        {selectedDay.records.map(renderLoanCard)}
                       </div>
                     )}
-                 </div>
+                  </div>
+                </div>
               </div>
             )}
-          </div>
         </>
       )}
 
-      {activeTab === 'Overdue' && renderListTab('Overdue')}
+      {/* Overdue / Upcoming tabs */}
+      {activeTab === 'Overdue'  && renderListTab('Overdue')}
       {activeTab === 'Upcoming' && renderListTab('Upcoming')}
-      
+
+      {/* Search tab */}
       {activeTab === 'Search' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
           <div style={{ background: TH.card, borderRadius: 12, border: `1px solid ${TH.accent}50`, overflow: 'hidden' }}>
             <div style={{ background: `${TH.accent}10`, padding: '14px 20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: `1px solid ${TH.border}` }}>
               <div style={{ color: TH.accent, fontWeight: 800, fontSize: 15 }}>Search Results</div>
-              <div style={{ display: 'flex', gap: 14 }}>
-                 <div style={{ color: TH.txt, fontSize: 13, fontWeight: 700 }}>{searchResults.length} Loans Found</div>
-              </div>
+              <div style={{ color: TH.txt, fontSize: 13, fontWeight: 700 }}>{searchResults.length} Loans Found</div>
             </div>
             <div style={{ padding: 20 }}>
-               {searchResults.length === 0 && (
-                  <div style={{ textAlign: 'center', padding: 40, color: TH.muted }}>
-                    No loans found matching your criteria. Try adjusting the dates or searching for a different name.
-                  </div>
-               )}
-               {searchResults.slice(0, 50).map(lg => {
-                  const key = `search-${lg.loan.id}`;
-                  const isExp = expandedGroups[key];
-                  
-                  return (
-                    <div key={lg.loan.id} style={{ marginBottom: 12, background: TH.surface, border: `1px solid ${TH.border}`, borderRadius: 10, overflow: 'hidden' }}>
-                      <div 
-                        onClick={() => setExpandedGroups(prev => ({ ...prev, [key]: !prev[key] }))}
-                        style={{ padding: '14px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer', background: isExp ? `${TH.accent}10` : 'transparent', transition: 'background 0.2s' }}
-                      >
-                         <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
-                            <div style={{ width: 24, height: 24, borderRadius: '50%', background: `${TH.muted}30`, color: TH.txt, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 800 }}>
-                              {lg.slots.length}
-                            </div>
-                            <div>
-                               <div onClick={(e) => { e.stopPropagation(); onOpenCustomerProfile?.(lg.loan.customerId); }} style={{ color: TH.txt, fontWeight: 700, fontSize: 15, cursor: 'pointer', textDecoration: 'underline decoration-transparent', transition: 'text-decoration 0.2s', ':hover': { textDecoration: `underline ${TH.txt}` } }}>
-                                 {lg.loan.customer}
-                               </div>
-                               <div style={{ color: TH.accent, fontFamily: TH.mono, fontWeight: 800, fontSize: 11 }}>{lg.loan.id}</div>
-                            </div>
-                         </div>
-                         <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
-                            <div style={{ color: TH.muted, fontSize: 12, transform: isExp ? 'rotate(180deg)' : 'rotate(0deg)', transition: 'transform 0.2s' }}>▼</div>
-                         </div>
-                      </div>
-                      
-                      {isExp && (
-                        <div style={{ padding: '12px 16px', background: TH.bg, borderTop: `1px dashed ${TH.border}`, display: 'flex', flexDirection: 'column', gap: 10 }}>
-                           {lg.slots.map(renderLoanCard)}
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
-               {searchResults.length > 50 && (
-                  <div style={{ color: TH.muted, fontSize: 13, textAlign: 'center', padding: 8, marginTop: 10, border: `1px dashed ${TH.border}`, borderRadius: 8 }}>
-                    Showing top 50 matches for this search. Refine search criteria for more specific results.
-                  </div>
-               )}
+              {searchResults.length === 0 && (
+                <div style={{ textAlign: 'center', padding: 40, color: TH.muted }}>
+                  No loans found matching your criteria.
+                </div>
+              )}
+              {searchResults.slice(0, 50).map(renderLoanCard)}
+              {searchResults.length > 50 && (
+                <div style={{ color: TH.muted, fontSize: 13, textAlign: 'center', padding: 8, marginTop: 10, border: `1px dashed ${TH.border}`, borderRadius: 8 }}>
+                  Showing top 50 matches. Refine search for more specific results.
+                </div>
+              )}
             </div>
           </div>
         </div>
