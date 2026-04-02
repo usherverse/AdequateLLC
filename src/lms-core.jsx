@@ -190,7 +190,7 @@ const AdminPanel = ({onLogout,loans,setLoans,customers,setCustomers,workers,setW
     const entry = { ts: ts(), user: 'admin', action, target, detail };
     setAuditLog(l => [entry, ...l].slice(0, 500));
     sbInsert('audit_log', {
-      ts: entry.ts,
+      ts: new Date().toISOString(),
       user_name: entry.user,
       action: entry.action,
       target_id: String(entry.target),
@@ -371,7 +371,17 @@ const WorkerPortal = ({workers,setWorkers,loans,setLoans,customers,setCustomers,
   const [pw,setPw]=useState('');
   const [err,setErr]=useState('');
   const {toasts,show:showToast}=useToast();
-  const addAudit=(action,target,detail='')=>setAuditLog(l=>[{ts:ts(),user:curr?.name||curr?.email||'Worker',action,target,detail},...l].slice(0,500));
+  const addAudit=(action,target,detail='')=>{
+    const entry={ts:ts(),user:curr?.name||curr?.email||'Worker',action,target,detail};
+    setAuditLog(l=>[entry,...l].slice(0,500));
+    sbInsert('audit_log', {
+      ts: new Date().toISOString(),
+      user_name: entry.user,
+      action: entry.action,
+      target_id: String(entry.target),
+      detail: entry.detail
+    });
+  };
 
   const login=()=>{
     if(!email||!pw){setErr('Enter your email and password.');return;}
@@ -1018,13 +1028,15 @@ export default function App() {
         // Now that auth succeeded, load the protected data immediately.
         // This restores customers/loans/payments that are hidden when unauthenticated.
         loadAllData();
+        const currTs = new Date().toISOString();
         sbInsert('audit_log', {
-          ts: new Date().toISOString(),
+          ts: currTs,
           user_name: email.trim(),
           action: 'Admin Login',
           target_id: 'System',
           detail: 'Login successful via Admin Portal'
         });
+        setAuditLog(l => [{ ts: ts(), user: email.trim(), action: 'Admin Login', target: 'System', detail: 'Login successful via Admin Portal' }, ...l].slice(0, 500));
         supabase.from('workers').select('role').eq('email', email.trim()).single()
           .then(({data,error})=>{
             const role = (!error&&data)?data.role:null;
@@ -1059,10 +1071,10 @@ export default function App() {
           customers={customers} setCustomers={setCustomers}
           workers={workers} setWorkers={setWorkers}
           addAudit={(action, target, detail) => {
-            const entry = { ts: new Date().toISOString(), user: 'admin', action, target, detail };
+            const entry = { ts: ts(), user: 'admin', action, target, detail };
             setAuditLog(l => [entry, ...l].slice(0, 500));
             sbInsert('audit_log', {
-              ts: entry.ts,
+              ts: new Date().toISOString(),
               user_name: entry.user,
               action: entry.action,
               target_id: String(entry.target),
