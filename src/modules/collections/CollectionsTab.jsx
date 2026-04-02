@@ -14,7 +14,7 @@ const PIPELINE_STAGES = [
   {id:'Written Off',label:'Write Off',color:T.muted,icon:'✕',desc:'Loan written off as unrecoverable',actions:['Approve Write-Off','Update Books','Blacklist Customer'],template:'Loan written off after all recovery attempts exhausted.'},
 ];
 
-const CollectionsTab = ({loans,customers,payments,interactions,setInteractions,workers,setLoans,setCustomers,addAudit,scrollTop,currentUser='Admin'}) => {
+const CollectionsTab = ({loans,customers,payments,setPayments,interactions,setInteractions,workers,setLoans,setCustomers,addAudit,scrollTop,currentUser='Admin'}) => {
   const {open:openContact, Popup:ContactPopup} = useContactPopup();
   const [collQ,setCollQ]=useState('');
   const [modalLoan,setModalLoan]=useState(null);

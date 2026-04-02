@@ -38,8 +38,12 @@ eslint-errors.txt
 lint-results*.txt
 
 # Temporary / Dev scripts
+tmp/
 tmp_*
 repair.cjs
 update_imports.cjs
 verify_docs.js
 vite.config.js.timestamp-*
+
+# AI/IDE
+.cursor/
