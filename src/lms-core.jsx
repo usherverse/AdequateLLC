@@ -9,6 +9,9 @@ import LeadsTab from "@/modules/leads/LeadsTab";
 import WorkersTab from "@/modules/workers/WorkersTab";
 import DatabaseTab from "@/modules/database/DatabaseTab";
 import SecuritySettingsTab from "@/modules/security/SecuritySettingsTab";
+import ReportsTab from "@/modules/reports/ReportsTab";
+import AuditTrailTab from "@/modules/audit/AuditTrailTab";
+
 import { useState, useMemo, useEffect, useLayoutEffect, useRef, useCallback, memo } from "react";
 import { _hashPw, _checkPw, SEED_WORKERS, SEED_CUSTOMERS, SEED_LOANS, SEED_PAYMENTS, SEED_LEADS, SEED_INTERACTIONS, SEED_AUDIT } from "@/data/seedData";
 import DueLoansCalendar from "@/modules/calendar/DueLoansCalendar";
@@ -183,7 +186,18 @@ const AdminPanel = ({onLogout,loans,setLoans,customers,setCustomers,workers,setW
   const goBack=()=>{ if(screenHistory.length===0) return; const prev=screenHistory[screenHistory.length-1]; setScreenHistory(h=>h.slice(0,-1)); setScreen(prev); setTimeout(scrollTop,30); };
   const {toasts,show:showToast}=useToast();
   const {reminders,add:addReminder,done:doneReminder,remove:removeReminder,update:updateReminder,firing:firingReminder,dismissFiring}=useReminders();
-  const addAudit=useCallback((action,target,detail='')=>setAuditLog(l=>[{ts:ts(),user:'admin',action,target,detail},...l].slice(0,500)),[setAuditLog]);
+  const addAudit = useCallback((action, target, detail = '') => {
+    const entry = { ts: ts(), user: 'admin', action, target, detail };
+    setAuditLog(l => [entry, ...l].slice(0, 500));
+    sbInsert('audit_log', {
+      ts: entry.ts,
+      user_name: entry.user,
+      action: entry.action,
+      target_id: String(entry.target),
+      detail: entry.detail
+    });
+  }, [setAuditLog]);
+
   const unalloc=useMemo(()=>payments.filter(p=>p.status==='Unallocated').length,[payments]);
   const overdue=useMemo(()=>loans.filter(l=>l.status==='Overdue').length,[loans]);
   const pendingApprovals=useMemo(()=>loans.filter(l=>l.status==='Application submitted'||l.status==='worker-pending').length,[loans]);
@@ -208,7 +222,7 @@ const AdminPanel = ({onLogout,loans,setLoans,customers,setCustomers,workers,setW
   useEffect(()=>{
     // Strict Business Logic: Repayment frequency does not determine loan maturity.
     // A loan is 'due' strictly 30 days from disbursement date calculation.
-    const MAX_RECLASSIFY_DAYS = 180;
+
     const updateLoans=()=>{
       const n=new Date();
       setLoans(ls=>ls.map(l=>{
@@ -218,7 +232,7 @@ const AdminPanel = ({onLogout,loans,setLoans,customers,setCustomers,workers,setW
         const grace=30; // Enforced strict due logic
 
         if(l.status==='Active'){
-          if(diffDays>grace&&diffDays<=MAX_RECLASSIFY_DAYS&&l.balance>0){
+          if(diffDays>grace&&l.balance>0){
             const upd={...l,status:'Overdue',daysOverdue:Math.max(0,diffDays-grace)};
             sbWrite('loans',toSupabaseLoan(upd));
             return upd;
@@ -260,12 +274,15 @@ const AdminPanel = ({onLogout,loans,setLoans,customers,setCustomers,workers,setW
     loans:      ()=><LoansTab loans={loans} setLoans={setLoans} customers={customers} setCustomers={setCustomers} payments={payments} setPayments={setPayments} interactions={interactions} setInteractions={setInteractions} workers={workers} addAudit={addAudit} showToast={showToast} onOpenCustomerProfile={onOpenCustomerProfile}/>,
     customers:  ()=><CustomersTab customers={customers} setCustomers={setCustomers} workers={workers} loans={loans} setLoans={setLoans} payments={payments} setPayments={setPayments} interactions={interactions} setInteractions={setInteractions} addAudit={addAudit} showToast={showToast} onOpenCustomerProfile={onOpenCustomerProfile}/>,
     leads:      ()=><LeadsTab leads={leads} setLeads={setLeads} workers={workers} customers={customers} setCustomers={setCustomers} addAudit={addAudit} showToast={showToast} onOpenCustomerProfile={onOpenCustomerProfile}/>,
-    collections:()=><CollectionsTab loans={loans} setLoans={setLoans} customers={customers} setCustomers={setCustomers} payments={payments} interactions={interactions} setInteractions={setInteractions} workers={workers} addAudit={addAudit} scrollTop={scrollTop} currentUser='Admin' onOpenCustomerProfile={onOpenCustomerProfile}/>,
+    collections:()=><CollectionsTab loans={loans} setLoans={setLoans} customers={customers} setCustomers={setCustomers} payments={payments} setPayments={setPayments} interactions={interactions} setInteractions={setInteractions} workers={workers} addAudit={addAudit} scrollTop={scrollTop} currentUser='Admin' onOpenCustomerProfile={onOpenCustomerProfile}/>,
     payments:   ()=><PaymentsTab payments={payments} setPayments={setPayments} loans={loans} setLoans={setLoans} customers={customers} setCustomers={setCustomers} interactions={interactions} setInteractions={setInteractions} workers={workers} addAudit={addAudit} showToast={showToast} onOpenCustomerProfile={onOpenCustomerProfile}/>,
     workers:    ()=><WorkersTab workers={workers} setWorkers={setWorkers} loans={loans} setLoans={setLoans} payments={payments} customers={customers} setCustomers={setCustomers} leads={leads} setLeads={setLeads} interactions={interactions} setInteractions={setInteractions} allState={allState} addAudit={addAudit} showToast={showToast} onOpenCustomerProfile={onOpenCustomerProfile}/>,
     securitysettings: ()=><SecuritySettingsTab auditLog={auditLog} addAudit={addAudit} showToast={showToast}/>,
     database:   ()=><DatabaseTab allState={allState} setLoans={setLoans} setCustomers={setCustomers} setPayments={setPayments} setWorkers={setWorkers} setLeads={setLeads} setInteractions={setInteractions} setAuditLog={setAuditLog} addAudit={addAudit} showToast={showToast}/>,
+    reports:    ()=><ReportsTab loans={loans} customers={customers} payments={payments} workers={workers} auditLog={auditLog} showToast={showToast} addAudit={addAudit}/>,
+    audit:      ()=><AuditTrailTab allState={allState} />,
   };
+
   // FIX — Bug 1 (Form focus / remounting): S contains plain arrow functions, NOT React
   // component types. Writing <Screen/> (capital S) makes React treat a brand-new function
   // reference as a new component type on every render, causing full unmount+remount which
@@ -1001,6 +1018,13 @@ export default function App() {
         // Now that auth succeeded, load the protected data immediately.
         // This restores customers/loans/payments that are hidden when unauthenticated.
         loadAllData();
+        sbInsert('audit_log', {
+          ts: new Date().toISOString(),
+          user_name: email.trim(),
+          action: 'Admin Login',
+          target_id: 'System',
+          detail: 'Login successful via Admin Portal'
+        });
         supabase.from('workers').select('role').eq('email', email.trim()).single()
           .then(({data,error})=>{
             const role = (!error&&data)?data.role:null;
@@ -1034,8 +1058,19 @@ export default function App() {
           interactions={interactions} setInteractions={setInteractions}
           customers={customers} setCustomers={setCustomers}
           workers={workers} setWorkers={setWorkers}
-          addAudit={(action, target, detail) => setAuditLog(l => [{ ts: new Date().toISOString(), user: 'admin', action, target, detail }, ...l].slice(0, 500))}
+          addAudit={(action, target, detail) => {
+            const entry = { ts: new Date().toISOString(), user: 'admin', action, target, detail };
+            setAuditLog(l => [entry, ...l].slice(0, 500));
+            sbInsert('audit_log', {
+              ts: entry.ts,
+              user_name: entry.user,
+              action: entry.action,
+              target_id: String(entry.target),
+              detail: entry.detail
+            });
+          }}
         />
+
       )}
     </>
   );

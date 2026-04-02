@@ -614,6 +614,204 @@ export const dlCSV = (filename, csvContent) => {
   }
 };
 
+// ── Report Export Utilities ───────────────────────────────────
+
+export const dlReportCSV = (rData) => {
+  const headers = rData.cols.map(c => c.l);
+  const rows = rData.rows.map(r => rData.cols.map(c => {
+    const val = r[c.k];
+    return typeof val === 'number' ? val : (val || '');
+  }));
+  dlCSV(`${rData.title.toLowerCase().replace(/\s+/g, '-')}-${now()}.csv`, toCSV(headers, rows));
+};
+
+export const dlReportPDF = (rData) => {
+  const html = `
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <meta charset="utf-8">
+      <title>${rData.title}</title>
+      <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; color: #111827; padding: 40px; }
+        .header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 30px; border-bottom: 2px solid #3b82f6; padding-bottom: 20px; }
+        .company { font-weight: 900; font-size: 20px; color: #3b82f6; }
+        .title { font-size: 24px; font-weight: 800; margin-top: 5px; }
+        .meta { color: #6b7280; font-size: 13px; text-align: right; }
+        table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+        th { text-align: left; background: #f3f4f6; padding: 12px 15px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: #4b5563; border: 1px solid #e5e7eb; }
+        td { padding: 10px 15px; font-size: 13px; border: 1px solid #e5e7eb; vertical-align: top; }
+        tr:nth-child(even) { background: #f9fafb; }
+        .summary { margin-top: 30px; padding: 20px; background: #f0f9ff; border-radius: 8px; border: 1px solid #bae6fd; display: flex; gap: 40px; }
+        .stat { display: flex; flex-direction: column; }
+        .stat-l { font-size: 10px; text-transform: uppercase; color: #0369a1; font-weight: 700; }
+        .stat-v { font-size: 18px; font-weight: 800; color: #0c4a6e; }
+        @media print { .no-print { display: none; } }
+      </style>
+    </head>
+    <body class="fu">
+      <div class="header">
+        <div>
+          <div class="company">ADEQUATE CAPITAL</div>
+          <div class="title">${rData.title}</div>
+        </div>
+        <div class="meta">
+          <div>Generated on ${new Date().toLocaleString('en-KE')}</div>
+          <div>Total Records: ${rData.rows.length}</div>
+        </div>
+      </div>
+      
+      <table>
+        <thead>
+          <tr>${rData.cols.map(c => `<th>${c.l}</th>`).join('')}</tr>
+        </thead>
+        <tbody>
+          ${rData.rows.map(r => `
+            <tr>
+              ${rData.cols.map(c => {
+                let v = r[c.k];
+                if (c.k === 'amount' || c.k === 'balance' || c.k === 'principal') return `<td>KES ${Number(v).toLocaleString()}</td>`;
+                return `<td>${v || ''}</td>`;
+              }).join('')}
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+
+      <div class="summary">
+        <div class="stat">
+          <span class="stat-l">Report Date</span>
+          <span class="stat-v">${now()}</span>
+        </div>
+        <div class="stat">
+          <span class="stat-l">Record Count</span>
+          <span class="stat-v">${rData.rows.length} Items</span>
+        </div>
+      </div>
+
+      <script>
+        window.onload = () => {
+          setTimeout(() => {
+            window.print();
+          }, 500);
+        };
+      </script>
+    </body>
+    </html>
+  `;
+  const win = window.open('', '_blank');
+  win.document.open();
+  win.document.write(html);
+  win.document.close();
+};
+
+export const dlReportWord = (rData) => {
+  const tableHtml = `
+    <table border="1" style="border-collapse:collapse;width:100%;font-family:Arial,sans-serif;">
+      <tr style="background:#f3f4f6;">
+        ${rData.cols.map(c => `<th style="padding:10px;text-align:left;">${c.l}</th>`).join('')}
+      </tr>
+      ${rData.rows.map(r => `
+        <tr>
+          ${rData.cols.map(c => `<td style="padding:8px;">${r[c.k] || ''}</td>`).join('')}
+        </tr>
+      `).join('')}
+    </table>
+  `;
+  
+  const content = `
+    <html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org/TR/REC-html40'>
+    <head><meta charset='utf-8'><title>${rData.title}</title>
+    <style>
+      body { font-family: Arial, sans-serif; }
+      h1 { color: #3b82f6; font-size: 24pt; margin-bottom: 5pt; }
+      p.meta { color: #666; font-size: 10pt; margin-bottom: 20pt; }
+    </style>
+    </head>
+    <body>
+      <h1>${rData.title}</h1>
+      <p class="meta">Adequate Capital LMS · Generated ${new Date().toLocaleString()}</p>
+      ${tableHtml}
+    </body>
+    </html>
+  `;
+
+  const blob = new Blob(['\ufeff', content], { type: 'application/msword' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `${rData.title.toLowerCase().replace(/\s+/g, '-')}-${now()}.doc`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+};
+
+export const buildReportData = (id, { loans = [], customers = [], payments = [], workers = [], auditLog = [] }, { startDate = null, endDate = null } = {}) => {
+  const commonCols = {
+    loan: [
+      {k:'id', l:'ID'},
+      {k:'customer', l:'Customer'},
+      {k:'amount', l:'Principal'},
+      {k:'balance', l:'Balance'},
+      {k:'status', l:'Status'},
+      {k:'officer', l:'Officer'},
+      {k:'disbursed', l:'Disbursed'}
+    ],
+    payment: [
+      {k:'id', l:'ID'},
+      {k:'customer', l:'Customer'},
+      {k:'amount', l:'Amount'},
+      {k:'mpesa', l:'M-Pesa'},
+      {k:'date', l:'Date'},
+      {k:'status', l:'Status'}
+    ]
+  };
+
+  const isBetween = (d, s, e) => {
+    if (!d) return false;
+    const date = d.split('T')[0];
+    return (!s || date >= s) && (!e || date <= e);
+  };
+  const isUpTo = (d, e) => {
+    if (!d) return false;
+    const date = d.split('T')[0];
+    return !e || date <= e;
+  };
+
+  if (id === 'loan-portfolio') return { title: 'Loan Portfolio', cols: commonCols.loan, rows: loans.filter(l => isUpTo(l.disbursed, endDate)) };
+  if (id === 'active-loans') return { title: 'Active Loans', cols: commonCols.loan, rows: loans.filter(l => l.status === 'Active' && isUpTo(l.disbursed, endDate)) };
+  if (id === 'overdue') return { title: 'Overdue Report', cols: [...commonCols.loan, {k:'daysOverdue', l:'Days Overdue'}], rows: loans.filter(l => l.status === 'Overdue' && isUpTo(l.disbursed, endDate)) };
+  
+  const pRows = payments.filter(p => isBetween(p.date, startDate, endDate));
+  if (id === 'payments-today' || id === 'payments') return { title: 'Payment Records', cols: commonCols.payment, rows: pRows };
+  
+  if (id === 'customers') return { title: 'Customer List', cols: [{k:'id', l:'ID'}, {k:'name', l:'Name'}, {k:'phone', l:'Phone'}, {k:'business', l:'Business'}, {k:'location', l:'Location'}, {k:'risk', l:'Risk'}], rows: customers.filter(c => isUpTo(c.joined, endDate)) };
+  if (id === 'staff') return { title: 'Staff Performance', cols: [{k:'name', l:'Name'}, {k:'role', l:'Role'}, {k:'status', l:'Status'}, {k:'phone', l:'Phone'}], rows: workers.filter(w => isUpTo(w.joined, endDate)) };
+  if (id === 'audit') return { title: 'System Audit Log', cols: [{k:'ts', l:'Timestamp'}, {k:'user', l:'User'}, {k:'action', l:'Action'}, {k:'target', l:'Target'}, {k:'detail', l:'Details'}], rows: auditLog.filter(a => isBetween(a.ts, startDate, endDate)) };
+  
+  if (id === 'due-today') {
+    const todayRows = loans.filter(l => {
+      if (!l.disbursed || l.status === 'Settled' || l.status === 'Rejected') return false;
+      const sched = computeLoanSchedule(l, payments);
+      return sched.slots.some(s => isBetween(s.date, startDate, endDate) && s.status !== 'paid');
+    });
+    return { title: 'Due Within Period', cols: commonCols.loan, rows: todayRows };
+  }
+
+  if (id === 'missed-partial') {
+    const missedRows = loans.filter(l => {
+      if (!l.disbursed || l.status === 'Settled' || l.status === 'Rejected') return false;
+      const sched = computeLoanSchedule(l, payments);
+      return sched.slots.some(s => (s.status === 'missed' || s.status === 'partial') && isBetween(s.date, startDate, endDate));
+    });
+    return { title: 'Missed & Partial (Detailed)', cols: commonCols.loan, rows: missedRows };
+  }
+
+  return { title: 'Report', cols: [], rows: [] };
+};
+
+
 export const buildFullBackup = ({
   loans,
   customers,
@@ -11639,7 +11837,10 @@ export const ADMIN_NAV = [
   { id: "workers", l: "Team", i: "👷" },
   { id: "securitysettings", l: "Security Settings", i: "🛡️" },
   { id: "database", l: "Database", i: "🗄️" },
+  { id: "reports", l: "Reports", i: "📊" },
+  { id: "audit", l: "Audit Trail", i: "🔐" },
 ];
+
 
 export const WORKER_NAV = [
   { id: "overview", l: "Overview", i: "??" },

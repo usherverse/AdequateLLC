@@ -325,8 +325,11 @@ const DatabaseTab = ({allState,setLoans,setCustomers,setPayments,setWorkers,setL
           </div>
         </div>
       </Card>
+      
+      <div style={{marginBottom:16}}/>
 
       {showClear&&(
+
         <Dialog title='🔐 Database Clear — 3-Factor Verification' onClose={()=>setShowClear(false)} width={440}>
           <Alert type='danger'>You are about to wipe all data. Complete 3-factor authentication to proceed.</Alert>
           <div style={{display:'flex',justifyContent:'center',gap:6,marginBottom:18}}>

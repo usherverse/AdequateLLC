@@ -9,52 +9,90 @@ import { T, SC, RC, SFX, Card, CH, KPI, DT, Btn, Badge, Av, Bar, BackBtn, Refres
   toSupabaseLoan, toSupabaseCustomer, toSupabasePayment, toSupabaseInteraction,
   generateLoanAgreementHTML, generateAssetListHTML, downloadLoanDoc,
   getSecConfig,
-  useContactPopup, useToast, useReminders, useModalLock } from '@/lms-common';
+  useContactPopup, useToast, useReminders, useModalLock,
+  dlReportCSV, dlReportPDF, dlReportWord, buildReportData } from '@/lms-common';
 import WorkerPanel from '@/modules/workers/WorkerPanel';
 
-const ReportsTab = ({loans,customers,payments,workers,auditLog,showToast=()=>{}}) => {
-  const [activeMenu,setActiveMenu]=useState(null);
+const ReportsTab = ({loans,customers,payments,workers,auditLog,showToast=()=>{}, addAudit=()=>{}, preSelected=null}) => {
+  const [activeMenu,setActiveMenu]=useState(preSelected);
+  const [startDate, setStartDate] = useState(now().slice(0, 7) + '-01'); // Start of current month
+  const [endDate, setEndDate] = useState(now());
   const data={loans,customers,payments,workers,auditLog};
-  const reports=[
-    {id:'loan-portfolio',label:'Loan Portfolio',icon:'📋',desc:`${loans.length} total loans`},
-    {id:'financial',label:'Financial Summary',icon:'💰',desc:'Disbursed, collected, overdue'},
-    {id:'overdue',label:'Overdue Report',icon:'⚠️',desc:`${loans.filter(l=>l.status==='Overdue').length} overdue loans`},
-    {id:'payments',label:'Payments',icon:'💳',desc:`${payments.length} payment records`},
-    {id:'customers',label:'Customers',icon:'👥',desc:`${customers.length} registered`},
-    {id:'staff',label:'Staff Performance',icon:'👷',desc:`${workers.length} team members`},
-    {id:'audit',label:'Audit Log',icon:'🔐',desc:`${(auditLog||[]).length} events`},
-  ];
+  
+  const reports = useMemo(() => [
+    {id:'active-loans', label:'Active Loans', icon:'📈', desc:`${loans.filter(l=>l.status!=='Settled').length} active disbursements`},
+    {id:'due-today', label:'Scheduled Repayments', icon:'📅', desc:'Installments due within the selected period'},
+    {id:'overdue', label:'Overdue Report', icon:'⚠️', desc:`${loans.filter(l=>l.status==='Overdue').length} past-maturity loans`},
+    {id:'payments-today', label:'Repayment Records', icon:'💳', desc:`All payment entries within the selected period`},
+    {id:'missed-partial', label:'Missed & Partial', icon:'❌', desc:'Outstanding schedule gaps'},
+    {id:'loan-portfolio', label:'Global Portfolio', icon:'📋', desc:`${loans.length} lifetime records`},
+    {id:'customers', label:'Customer Registry', icon:'👥', desc:`${customers.length} total profiles`},
+    {id:'staff', label:'Registry Performance', icon:'👷', desc:`${workers.length} officers`},
+    {id:'audit', label:'System Audit Log', icon:'🔐', desc:`${(auditLog||[]).length} activity events`},
+  ], [loans, payments, customers, workers, auditLog]);
+
+  useEffect(() => {
+    setActiveMenu(preSelected);
+  }, [preSelected]);
+
+  const handleExport = (r, format, dlFn) => {
+    const rData = buildReportData(r.id, data, { startDate, endDate });
+    dlFn(rData);
+    addAudit('Report Downloaded', r.id, `Format: ${format}, Range: ${startDate} to ${endDate}`);
+    showToast(`✅ ${r.label} ${format} downloaded`, 'ok');
+  };
 
   return (
     <div className='fu'>
-      <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:4,flexWrap:'wrap',gap:8}}>
+      <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-end',marginBottom:20,flexWrap:'wrap',gap:16}}>
         <div>
           <div style={{fontFamily:T.head,color:T.txt,fontSize:20,fontWeight:800}}>📊 Reports & Exports</div>
-          <div style={{color:T.muted,fontSize:13,marginTop:2}}>Download reports as PDF, Word (.doc), or CSV</div>
+          <div style={{color:T.muted,fontSize:13,marginTop:2}}>Download high-fidelity reports as PDF, Excel, or Word</div>
+        </div>
+        
+        {/* Date Range Picker */}
+        <div style={{display:'flex', gap:10, alignItems:'center', background:T.card, padding:'10px 14px', borderRadius:12, border:`1px solid ${T.border}`}}>
+          <div style={{display:'flex', flexDirection:'column', gap:4}}>
+            <label style={{fontSize:10, fontWeight:800, color:T.muted, textTransform:'uppercase'}}>From</label>
+            <input type='date' value={startDate} onChange={e=>setStartDate(e.target.value)} 
+              style={{background:T.surface, border:`1px solid ${T.hi}`, borderRadius:6, padding:'4px 8px', color:T.txt, fontSize:12, outline:'none'}} />
+          </div>
+          <div style={{color:T.border, fontSize:20, marginTop:12}}>→</div>
+          <div style={{display:'flex', flexDirection:'column', gap:4}}>
+            <label style={{fontSize:10, fontWeight:800, color:T.muted, textTransform:'uppercase'}}>To</label>
+            <input type='date' value={endDate} onChange={e=>setEndDate(e.target.value)} 
+              style={{background:T.surface, border:`1px solid ${T.hi}`, borderRadius:6, padding:'4px 8px', color:T.txt, fontSize:12, outline:'none'}} />
+          </div>
         </div>
       </div>
-      <div style={{marginBottom:14}}/>
-      <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(220px,1fr))',gap:12}}>
+
+      <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(280px,1fr))',gap:12}}>
         {reports.map(r=>{
           const isOpen=activeMenu===r.id;
-          const rData=buildReportData(r.id,data);
+          const rData=buildReportData(r.id,data, { startDate, endDate });
           return (
-          <Card key={r.id} style={{padding:'16px 18px',position:'relative',border:isOpen?`1px solid ${T.accent}`:undefined}}>
-            <div style={{fontSize:26,marginBottom:8}}>{r.icon}</div>
-            <div style={{color:T.txt,fontWeight:700,fontSize:14,marginBottom:3}}>{r.label}</div>
-            <div style={{color:T.muted,fontSize:11,marginBottom:14}}>{r.desc}</div>
-            <div style={{display:'flex',gap:6,flexWrap:'wrap'}}>
-              <button onClick={()=>{dlReportCSV(rData);showToast(`✅ ${r.label} CSV downloaded`,'ok');}}
-                style={{flex:1,background:T.aLo,border:`1px solid ${T.accent}38`,color:T.accent,borderRadius:7,padding:'6px 8px',fontSize:11,fontWeight:700,cursor:'pointer'}}>
-                ⬇ CSV
+          <Card key={r.id} onClick={()=>setActiveMenu(r.id)} style={{padding:'20px 22px',position:'relative',border:isOpen?`1px solid ${T.accent}`:undefined, transition:'all .2s', cursor:'pointer'}}>
+            <div style={{display:'flex', justifyContent:'space-between', alignItems:'flex-start', marginBottom:12}}>
+              <div style={{fontSize:32}}>{r.icon}</div>
+              <div style={{background:T.surface, border:`1px solid ${T.border}`, borderRadius:6, padding:'2px 8px', fontSize:10, fontFamily:T.mono, color:T.muted}}>{rData.rows.length}</div>
+            </div>
+            <div style={{color:T.txt,fontWeight:800,fontSize:15,marginBottom:4}}>{r.label}</div>
+            <div style={{color:T.muted,fontSize:12,marginBottom:20,lineHeight:1.4,minHeight:34}}>{r.desc}</div>
+            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:8}}>
+              <button onClick={(e)=>{e.stopPropagation(); handleExport(r, 'EXCEL', dlReportCSV);}}
+                className='report-btn'
+                style={{background:T.aLo,border:`1px solid ${T.accent}38`,color:T.accent,borderRadius:8,padding:'8px 4px',fontSize:11,fontWeight:800,cursor:'pointer'}}>
+                EXCEL
               </button>
-              <button onClick={()=>{dlReportPDF(rData);showToast(`✅ ${r.label} HTML/Print file downloaded`,'ok');}}
-                style={{flex:1,background:T.dLo,border:`1px solid ${T.danger}38`,color:T.danger,borderRadius:7,padding:'6px 8px',fontSize:11,fontWeight:700,cursor:'pointer'}}>
-                ⬇ PDF/Print
+              <button onClick={(e)=>{e.stopPropagation(); handleExport(r, 'PDF', dlReportPDF);}}
+                className='report-btn'
+                style={{background:T.dLo,border:`1px solid ${T.danger}38`,color:T.danger,borderRadius:8,padding:'8px 4px',fontSize:11,fontWeight:800,cursor:'pointer'}}>
+                PDF
               </button>
-              <button onClick={()=>{dlReportWord(rData);showToast(`✅ ${r.label} Word doc downloaded`,'ok');}}
-                style={{flex:1,background:T.bLo,border:`1px solid ${T.blue}38`,color:T.blue,borderRadius:7,padding:'6px 8px',fontSize:11,fontWeight:700,cursor:'pointer'}}>
-                ⬇ Word
+              <button onClick={(e)=>{e.stopPropagation(); handleExport(r, 'WORD', dlReportWord);}}
+                className='report-btn'
+                style={{background:T.bLo,border:`1px solid ${T.blue}38`,color:T.blue,borderRadius:8,padding:'8px 4px',fontSize:11,fontWeight:800,cursor:'pointer'}}>
+                WORD
               </button>
             </div>
           </Card>
@@ -65,3 +103,4 @@ const ReportsTab = ({loans,customers,payments,workers,auditLog,showToast=()=>{}}
 };
 
 export default ReportsTab;
+
