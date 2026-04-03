@@ -25,13 +25,21 @@ const LeadsTab = ({leads,setLeads,workers,customers,setCustomers,loans,addAudit,
 
   const filteredLeads = useMemo(() => {
     return leads.filter(l => {
-      // Find customer by phone (robust matching: last 9 digits)
+      // 1. Direct match with a customer record using fromLead link
+      const linkedCust = customers.find(c => c.fromLead === l.id);
+      if (linkedCust && loans.some(loan => loan.customerId === linkedCust.id)) return false;
+
+      // 2. Direct match by loanId/customerId on the lead itself (if present)
+      if (l.loanId || l.loan_id || l.customerId || l.customer_id) return false;
+
+      // 3. Phone match (robust matching: last 9 digits)
       const lp = (l.phone || '').replace(/\D/g, '').slice(-9);
-      if (!lp) return true;
-      const cust = customers.find(c => (c.phone || '').replace(/\D/g, '').slice(-9) === lp);
-      if (!cust) return true;
-      // If customer has any loan at all, consider them "converted" and remove from lead view
-      return !loans.some(loan => loan.customerId === cust.id);
+      if (lp && lp.length >= 9) {
+        const custByPhone = customers.find(c => (c.phone || '').replace(/\D/g, '').slice(-9) === lp);
+        if (custByPhone && loans.some(loan => loan.customerId === custByPhone.id)) return false;
+      }
+      
+      return true;
     });
   }, [leads, customers, loans]);
 
