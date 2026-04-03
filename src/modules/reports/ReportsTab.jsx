@@ -15,8 +15,11 @@ import WorkerPanel from '@/modules/workers/WorkerPanel';
 
 const ReportsTab = ({loans,customers,payments,workers,auditLog,showToast=()=>{}, addAudit=()=>{}, preSelected=null}) => {
   const [activeMenu,setActiveMenu]=useState(preSelected);
-  const [startDate, setStartDate] = useState(now().slice(0, 7) + '-01'); // Start of current month
-  const [endDate, setEndDate] = useState(now());
+  const [pickedStart, setPickedStart] = useState(now().slice(0, 7) + '-01'); // Start of current month
+  const [pickedEnd, setPickedEnd] = useState(now());
+  const [appliedStart, setAppliedStart] = useState(now().slice(0, 7) + '-01');
+  const [appliedEnd, setAppliedEnd] = useState(now());
+
   const data={loans,customers,payments,workers,auditLog};
   
   const reports = useMemo(() => [
@@ -36,10 +39,25 @@ const ReportsTab = ({loans,customers,payments,workers,auditLog,showToast=()=>{},
   }, [preSelected]);
 
   const handleExport = (r, format, dlFn) => {
-    const rData = buildReportData(r.id, data, { startDate, endDate });
+    const rData = buildReportData(r.id, data, { startDate: appliedStart, endDate: appliedEnd });
     dlFn(rData);
-    addAudit('Report Downloaded', r.id, `Format: ${format}, Range: ${startDate} to ${endDate}`);
+    addAudit('Report Downloaded', r.id, `Format: ${format}, Range: ${appliedStart} to ${appliedEnd}`);
     showToast(`✅ ${r.label} ${format} downloaded`, 'ok');
+  };
+
+  const applyFilter = () => {
+    setAppliedStart(pickedStart);
+    setAppliedEnd(pickedEnd);
+    
+    // Calculate total results for feedback
+    let total = 0;
+    reports.forEach(r => {
+      const rData = buildReportData(r.id, data, { startDate: pickedStart, endDate: pickedEnd });
+      total += rData.rows.length;
+    });
+
+    showToast(`🔍 Filter Applied: ${total} results found`, 'info', 3000);
+    try { SFX.save(); } catch(e) {}
   };
 
   return (
@@ -51,25 +69,28 @@ const ReportsTab = ({loans,customers,payments,workers,auditLog,showToast=()=>{},
         </div>
         
         {/* Date Range Picker */}
-        <div style={{display:'flex', gap:10, alignItems:'center', background:T.card, padding:'10px 14px', borderRadius:12, border:`1px solid ${T.border}`}}>
-          <div style={{display:'flex', flexDirection:'column', gap:4}}>
-            <label style={{fontSize:10, fontWeight:800, color:T.muted, textTransform:'uppercase'}}>From</label>
-            <input type='date' value={startDate} onChange={e=>setStartDate(e.target.value)} 
-              style={{background:T.surface, border:`1px solid ${T.hi}`, borderRadius:6, padding:'4px 8px', color:T.txt, fontSize:12, outline:'none'}} />
+        <div style={{display:'flex', gap:10, alignItems:'center', flexWrap:'wrap'}}>
+          <div style={{display:'flex', gap:10, alignItems:'center', background:T.card, padding:'10px 14px', borderRadius:12, border:`1px solid ${T.border}`}}>
+            <div style={{display:'flex', flexDirection:'column', gap:4}}>
+              <label style={{fontSize:10, fontWeight:800, color:T.muted, textTransform:'uppercase'}}>From</label>
+              <input type='date' value={pickedStart} onChange={e=>setPickedStart(e.target.value)} 
+                style={{background:T.surface, border:`1px solid ${T.hi}`, borderRadius:6, padding:'4px 8px', color:T.txt, fontSize:12, outline:'none'}} />
+            </div>
+            <div style={{color:T.border, fontSize:20, marginTop:12}}>→</div>
+            <div style={{display:'flex', flexDirection:'column', gap:4}}>
+              <label style={{fontSize:10, fontWeight:800, color:T.muted, textTransform:'uppercase'}}>To</label>
+              <input type='date' value={pickedEnd} onChange={e=>setPickedEnd(e.target.value)} 
+                style={{background:T.surface, border:`1px solid ${T.hi}`, borderRadius:6, padding:'4px 8px', color:T.txt, fontSize:12, outline:'none'}} />
+            </div>
           </div>
-          <div style={{color:T.border, fontSize:20, marginTop:12}}>→</div>
-          <div style={{display:'flex', flexDirection:'column', gap:4}}>
-            <label style={{fontSize:10, fontWeight:800, color:T.muted, textTransform:'uppercase'}}>To</label>
-            <input type='date' value={endDate} onChange={e=>setEndDate(e.target.value)} 
-              style={{background:T.surface, border:`1px solid ${T.hi}`, borderRadius:6, padding:'4px 8px', color:T.txt, fontSize:12, outline:'none'}} />
-          </div>
+          <Btn onClick={applyFilter} style={{height:46, padding:'0 24px'}}>Search</Btn>
         </div>
       </div>
 
       <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(280px,1fr))',gap:12}}>
         {reports.map(r=>{
           const isOpen=activeMenu===r.id;
-          const rData=buildReportData(r.id,data, { startDate, endDate });
+          const rData=buildReportData(r.id, data, { startDate: appliedStart, endDate: appliedEnd });
           return (
           <Card key={r.id} onClick={()=>setActiveMenu(r.id)} style={{padding:'20px 22px',position:'relative',border:isOpen?`1px solid ${T.accent}`:undefined, transition:'all .2s', cursor:'pointer'}}>
             <div style={{display:'flex', justifyContent:'space-between', alignItems:'flex-start', marginBottom:12}}>

@@ -189,6 +189,7 @@ const WorkerPanel = ({
             workers={allWorkers} 
             customers={customers} 
             setCustomers={setCustomers} 
+            loans={loans} 
             addAudit={addAudit} 
             isWorker={true} 
             currentWorker={worker} 

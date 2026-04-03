@@ -3,14 +3,14 @@ import React, { useState, useMemo } from 'react';
 import {
   T, SC, Card, DT, Btn, Search, Pills, Badge, FI, Alert, Dialog, ConfirmDialog, RefreshBtn,
   LoanModal, LoanForm, fmt, now, uid, ts, generateLoanAgreementHTML, generateAssetListHTML, downloadLoanDoc,
-  sbWrite, sbInsert, toSupabaseLoan, toSupabaseCustomer, toSupabasePayment, useContactPopup, useToast
+  sbWrite, sbInsert, toSupabaseLoan, toSupabaseCustomer, toSupabasePayment, useContactPopup, useToast,
+  ModuleHeader
 } from '@/lms-common';
+import { useModuleFilter } from '@/hooks/useModuleFilter';
 import { initiateB2cDisbursement } from '@/utils/mpesa';
 
 const LoansTab = ({ loans, setLoans, customers, setCustomers, payments, setPayments, interactions, setInteractions, workers, addAudit, showToast = () => { } }) => {
   const { open: openContact, Popup: ContactPopup } = useContactPopup();
-  const [flt, setFlt] = useState('All');
-  const [q, setQ] = useState('');
   const [sel, setSel] = useState(null);
   const [selCust, setSelCust] = useState(null);
   const [showApp, setShowApp] = useState(false);
@@ -19,27 +19,30 @@ const LoansTab = ({ loans, setLoans, customers, setCustomers, payments, setPayme
   const [disbF, setDisbF] = useState({ mpesa: '', phone: '', date: now() });
   const [payF, setPayF] = useState({ amount: '', mpesa: '', date: now(), isRegFee: false });
   const [loading, setLoading] = useState(false);
+  
   const statuses = ['All', 'Active', 'Overdue', 'Approved', 'Application submitted', 'worker-pending', 'Settled', 'Written off'];
-  const rows = useMemo(() => {
-    const lq = q.trim().toLowerCase();
-    return loans.filter(l => {
-      if (flt !== 'All' && l.status !== flt) return false;
-      if (!lq) return true;
-      return (
-        l.id.toLowerCase().includes(lq) ||
-        (l.customer || '').toLowerCase().includes(lq) ||
-        (l.customerId || '').toLowerCase().includes(lq) ||
-        (l.officer || '').toLowerCase().includes(lq) ||
-        (l.mpesa || '').toLowerCase().includes(lq) ||
-        (l.phone || '').toLowerCase().includes(lq) ||
-        (l.repaymentType || '').toLowerCase().includes(lq) ||
-        (l.status || '').toLowerCase().includes(lq) ||
-        (l.disbursed || '').includes(lq) ||
-        String(l.amount || '').includes(lq) ||
-        String(l.balance || '').includes(lq)
-      );
-    });
-  }, [loans, flt, q]);
+
+  const {
+    q, setQ, tab: flt, setTab: setFlt,
+    startDate, setStartDate, endDate, setEndDate, applyFilter,
+    filtered: rows, handleExport
+  } = useModuleFilter({
+    data: loans,
+    initialTab: 'All',
+    dateKey: (l, t) => {
+      if (t === 'Overdue' && l.disbursed) {
+        const d = new Date(l.disbursed);
+        d.setDate(d.getDate() + 30);
+        return d.toISOString().split('T')[0];
+      }
+      return l.disbursed;
+    },
+    searchFields: ['id', 'customer', 'customerId', 'officer', 'mpesa', 'phone', 'repaymentType', 'status'],
+    reportId: 'loans',
+    showToast,
+    addAudit,
+    initialStartDate: '2024-01-01'
+  });
 
   // Check if customer has paid registration fee
   const hasRegFee = (cust) => {
@@ -104,17 +107,33 @@ const LoansTab = ({ loans, setLoans, customers, setCustomers, payments, setPayme
     setPayLoan(null); setSel(null); setPayF({ amount: '', mpesa: '', date: now(), isRegFee: false });
   };
 
+  const [pendColl, setPendColl] = useState(true);
   const [confirmAction, setConfirmAction] = useState(null); // {title,message,onConfirm}
+
   const doWriteoff = l => { const upd = { ...l, status: 'Written off' }; setLoans(ls => ls.map(x => x.id === l.id ? upd : x)); sbWrite('loans', toSupabaseLoan(upd)); addAudit('Loan Written Off', l.id, `Balance: ${fmt(l.balance)}`); showToast(`⚠ Loan ${l.id} written off`, 'warn'); setSel(null); };
+
   const doApprove = l => { const upd = { ...l, status: 'Approved' }; setLoans(ls => ls.map(x => x.id === l.id ? upd : x)); sbWrite('loans', toSupabaseLoan(upd)); addAudit('Loan Approved', l.id, `Amount: ${fmt(l.amount)}`); showToast(`✅ Loan ${l.id} approved — ${fmt(l.amount)}`, 'ok'); setSel(null); };
+
   const doReject = l => { const upd = { ...l, status: 'Rejected', rejectedAt: now() }; setLoans(ls => ls.map(x => x.id === l.id ? upd : x)); sbWrite('loans', toSupabaseLoan(upd)); addAudit('Loan Rejected', l.id, `Amount: ${fmt(l.amount)}`); showToast(`Loan ${l.id} rejected`, 'warn'); setSel(null); };
 
   const pendingWorker = useMemo(() => loans.filter(l => l.status === 'worker-pending' || l.status === 'Application submitted'), [loans]);
-  const loanStats = useMemo(() => ({
-    total: loans.length,
-    overdue: loans.filter(l => l.status === 'Overdue').length,
-    approved: loans.filter(l => l.status === 'Approved').length,
-  }), [loans]);
+  const stats = useMemo(() => {
+    const total = loans.length;
+    const overdue = loans.filter(l => l.status === 'Overdue').length;
+    const approved = loans.filter(l => l.status === 'Approved').length;
+    return `${total} total · ${overdue} overdue · ${approved} pending`;
+  }, [loans]);
+
+  const exportCols = [
+    { k: 'id', l: 'ID' },
+    { k: 'customer', l: 'Customer' },
+    { k: 'amount', l: 'Principal' },
+    { k: 'balance', l: 'Balance' },
+    { k: 'status', l: 'Status' },
+    { k: 'repaymentType', l: 'Type' },
+    { k: 'disbursed', l: 'Disbursed' },
+    { k: 'id', l: 'Due Date', r: (_, r) => { if (!r.disbursed) return '—'; const d = new Date(r.disbursed); d.setDate(d.getDate() + 30); return d.toISOString().split('T')[0]; } }
+  ];
 
   // Repayment schedule calculator
   const calcSchedule = (loan) => {
@@ -136,49 +155,57 @@ const LoansTab = ({ loans, setLoans, customers, setCustomers, payments, setPayme
       {pendingWorker.length > 0 && (
         <div style={{ background: T.gLo, border: `1px solid ${T.gold}38`, borderRadius: 12, marginBottom: 16, overflow: 'hidden' }}>
           {/* Header — always visible */}
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '11px 16px', borderBottom: `1px solid ${T.gold}20` }}>
-            <div style={{ color: T.gold, fontWeight: 800, fontSize: 13 }}>
+          <div 
+            onClick={() => setPendColl(!pendColl)}
+            style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '11px 16px', borderBottom: pendColl ? 'none' : `1px solid ${T.gold}20`, cursor: 'pointer', userSelect: 'none' }}
+          >
+            <div style={{ color: T.gold, fontWeight: 800, fontSize: 13, display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span>{pendColl ? '▶' : '▼'}</span>
               ⏳ {pendingWorker.length} Loan Application{pendingWorker.length > 1 ? 's' : ''} Awaiting Approval
             </div>
-            <span style={{ background: T.gold, color: '#000', borderRadius: 99, padding: '1px 8px', fontSize: 11, fontWeight: 900 }}>{pendingWorker.length}</span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+               <span style={{ color: T.gold, fontSize: 11, fontWeight: 600 }}>{pendColl ? 'Click to expand' : 'Click to collapse'}</span>
+               <span style={{ background: T.gold, color: '#000', borderRadius: 99, padding: '1px 8px', fontSize: 11, fontWeight: 900 }}>{pendingWorker.length}</span>
+            </div>
           </div>
           {/* Pending list — 40vh scroll container */}
-          <div style={{ maxHeight: '40vh', overflowY: 'auto', overflowX: 'hidden' }}>
-            {pendingWorker.map(l => (
-              <div key={l.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 16px', borderBottom: `1px solid ${T.gold}14` }}>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ color: T.txt, fontWeight: 700, fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{l.customer}</div>
-                  <div style={{ color: T.muted, fontSize: 11, fontFamily: T.mono }}>{l.id} · {fmt(l.amount)} · {l.repaymentType} · {l.officer}</div>
-                </div>
-                <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
-                  <Btn sm v='gold' onClick={() => doApprove(l)}>✓ Approve</Btn>
-                  <Btn sm v='danger' onClick={() => doReject(l)}>✕ Reject</Btn>
-                </div>
+          {!pendColl && (
+            <>
+              <div style={{ maxHeight: '40vh', overflowY: 'auto', overflowX: 'hidden' }}>
+                {pendingWorker.map(l => (
+                  <div key={l.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 16px', borderBottom: `1px solid ${T.gold}14` }}>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ color: T.txt, fontWeight: 700, fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{l.customer}</div>
+                      <div style={{ color: T.muted, fontSize: 11, fontFamily: T.mono }}>{l.id} · {fmt(l.amount)} · {l.repaymentType} · {l.officer}</div>
+                    </div>
+                    <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
+                      <Btn sm v='gold' onClick={(e) => { e.stopPropagation(); doApprove(l); }}>✓ Approve</Btn>
+                      <Btn sm v='danger' onClick={(e) => { e.stopPropagation(); doReject(l); }}>✕ Reject</Btn>
+                    </div>
+                  </div>
+                ))}
               </div>
-            ))}
-          </div>
-          {pendingWorker.length > 3 && (
-            <div style={{ textAlign: 'center', padding: '5px', color: T.gold, fontSize: 11, borderTop: `1px solid ${T.gold}15` }}>
-              Scroll to see all {pendingWorker.length} applications
-            </div>
+              {pendingWorker.length > 3 && (
+                <div style={{ textAlign: 'center', padding: '5px', color: T.gold, fontSize: 11, borderTop: `1px solid ${T.gold}15` }}>
+                  Scroll to see all {pendingWorker.length} applications
+                </div>
+              )}
+            </>
           )}
         </div>
       )}
-      <div className='mob-stack' style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 18, gap: 10 }}>
-        <div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 4 }}>
-            <div style={{ fontFamily: T.head, color: T.txt, fontSize: 20, fontWeight: 800 }}>💰 Loan Management</div>
-          </div>
-          <div style={{ color: T.muted, fontSize: 13 }}>{loanStats.total} total · {loanStats.overdue} overdue · {loanStats.approved} pending</div>
-        </div>
-        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-          <RefreshBtn onRefresh={() => { setQ(''); setFlt('All'); setSel(null); }} />
-          <Btn onClick={() => setShowApp(true)}>+ New Application</Btn>
-        </div>
-      </div>
-      <div className='mob-stack' style={{ display: 'flex', gap: 10, marginBottom: 13, flexWrap: 'wrap', alignItems: 'center' }}>
-        <Search value={q} onChange={setQ} placeholder='Search loan or customer…' />
-        <Pills opts={statuses} val={flt} onChange={setFlt} />
+      <ModuleHeader
+        title="💰 Loan Management"
+        stats={stats}
+        refreshProps={{ onRefresh: () => { setQ(''); setFlt('All'); setSel(null); } }}
+        search={{ value: q, onChange: setQ, placeholder: 'Search loan or customer…' }}
+        dateRange={{ start: startDate, end: endDate, onStartChange: setStartDate, onEndChange: setEndDate, onSearch: applyFilter }}
+        exportProps={{ onExport: (fmt) => handleExport(fmt, 'Loan Report', exportCols) }}
+        pillsProps={{ opts: statuses, val: flt, onChange: setFlt }}
+      />
+      
+      <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 12 }}>
+        <Btn onClick={() => setShowApp(true)}>+ New Application</Btn>
       </div>
       <Card>
         <DT

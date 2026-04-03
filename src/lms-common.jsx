@@ -770,8 +770,10 @@ export const buildReportData = (id, { loans = [], customers = [], payments = [],
 
   const isBetween = (d, s, e) => {
     if (!d) return false;
-    const date = d.split('T')[0];
-    return (!s || date >= s) && (!e || date <= e);
+    let dr = String(d);
+    if (dr.includes('T')) dr = dr.split('T')[0];
+    else if (dr.includes(' ')) dr = dr.split(' ')[0];
+    return (!s || dr >= s) && (!e || dr <= e);
   };
   const isUpTo = (d, e) => {
     if (!d) return false;
@@ -3558,12 +3560,6 @@ export const OnboardForm = ({ workers, onSave, onClose, prefill, leadId }) => {
       if (!f.n1n) missing.push("Next of Kin 1 – Name");
       if (!f.n1p) missing.push("Next of Kin 1 – Phone");
       if (!f.n1r) missing.push("Next of Kin 1 – Relationship");
-      if (!f.n2n) missing.push("Next of Kin 2 – Name");
-      if (!f.n2p) missing.push("Next of Kin 2 – Phone");
-      if (!f.n2r) missing.push("Next of Kin 2 – Relationship");
-      if (!f.n3n) missing.push("Next of Kin 3 – Name");
-      if (!f.n3p) missing.push("Next of Kin 3 – Phone");
-      if (!f.n3r) missing.push("Next of Kin 3 – Relationship");
     }
     if (step === 4) {
       const mandatoryKeys = ["id_front", "id_back", "passport"];
@@ -3784,20 +3780,25 @@ export const OnboardForm = ({ workers, onSave, onClose, prefill, leadId }) => {
               onChange={s("businessType")}
               type="select"
               options={[
-                "Retail",
-                "Wholesale",
-                "Manufacturing",
-                "Agriculture",
-                "Transport",
-                "Food & Beverage",
-                "Salon & Beauty",
-                "Tailoring",
-                "Electronics",
-                "Hardware",
-                "Pharmacy",
-                "Education",
-                "Hospitality",
-                "Other",
+                "Butchery", "Carpentry", "Charcoal/firewood seller", "Clothes & Accessories", 
+                "Food kiosk", "Fruits & Vegetables", "General shop", "Juakali artisan", 
+                "Milk ATM", "Rentals/accommodation", "Agrovet", "Autospares", 
+                "Animal feeds", "Bakery", "Boutique", "Salon/Kinyozi", 
+                "Poultry", "Second hand items", "Photo studio", "DSTV/Video show", 
+                "Health centre", "Electrical shop", "Bags", "Bookshop", 
+                "Pharmacy", "Beauty & cosmetics", "Welding", "Wines & spirits", 
+                "Money agent", "Fish seller", "Shoeshiner/repair", "Cereals", 
+                "Malimali", "Movie shop", "Soaps & detergents", "Cyber cafe", 
+                "Events & entertainment", "Gas cylinders", "Poshio mill", "Murtura base", 
+                "Pond table", "School", "Ballar & sand", "Glass", 
+                "Garage", "Computer college", "Dry cleaner", "Carpet seller", 
+                "Car wash", "Timberyard", "Sugarcane", "Tailor", 
+                "Bar & restaurant", "School uniforms", "Brick seller", "Bakery & weaving", 
+                "Egg seller", "Gas shop", "Gym", "Shoe seller", 
+                "Day care", "Security firm", "Curtains", "Ice cream", 
+                "Maize", "Massage spa", "Chemicals", "Curios", 
+                "Detergent supplier", "Electronics", "Loans on item", "Optician", 
+                "Packaging material", "Potato seller", "Other", "Add option"
               ]}
               half
             />
@@ -3832,7 +3833,7 @@ export const OnboardForm = ({ workers, onSave, onClose, prefill, leadId }) => {
               gap: "0 14px",
             }}
           >
-            {renderSH({ title: "Next of Kin — 3 required", icon: "👨‍👩‍👧" })}
+            {renderSH({ title: "Next of Kin — 1 required", icon: "👨‍👩‍👧" })}
             {[
               [1, "n1n", "n1p", "n1r"],
               [2, "n2n", "n2p", "n2r"],
@@ -3930,9 +3931,9 @@ export const OnboardForm = ({ workers, onSave, onClose, prefill, leadId }) => {
                 ["ID No.", f.idNo],
                 ["Phone", f.phone],
                 ["Residence", f.residence],
-                ["Business", f.business],
+                ["Business", f.businessName],
                 ["Business Type", f.businessType],
-                ["Bus. Location", f.businessLoc],
+                ["Bus. Location", f.businessLocation],
                 ["Officer", f.officer],
                 ["NOK 1", `${f.n1n} · ${f.n1p}`],
                 ["NOK 2", `${f.n2n} · ${f.n2p}`],
@@ -5750,30 +5751,48 @@ export const LivePortfolioChart = ({
   // FIX — memoize all expensive filter/reduce derivations so they only recalculate
   // when the underlying data arrays actually change.
   const derived = useMemo(() => {
-    const book = loans
-      .filter((l) => l.status !== "Settled")
-      .reduce((s, l) => s + l.balance, 0);
-    const overdue = loans
-      .filter((l) => l.status === "Overdue")
-      .reduce((s, l) => s + l.balance, 0);
-    const active = loans
-      .filter((l) => l.status === "Active")
-      .reduce((s, l) => s + l.balance, 0);
+    const paidMap = payments.reduce((acc, p) => {
+      if (p.loanId && p.status === "Allocated")
+        acc[p.loanId] = (acc[p.loanId] || 0) + p.amount;
+      return acc;
+    }, {});
+
+    const calcDue = (l) => {
+      const paid = paidMap[l.id] || 0;
+      const baseInt = Math.round((l.amount || 0) * 0.3);
+      const eng = calculateLoanStatus(l);
+      return Math.max(0, (l.amount || 0) + baseInt + eng.interestAccrued + eng.penaltyAccrued - paid);
+    };
+
+    const activeList = loans.filter((l) => l.status === "Active");
+    const overdueList = loans.filter((l) => l.status === "Overdue");
+    const settledList = loans.filter((l) => l.status === "Settled");
+    const writtenList = loans.filter((l) => l.status === "Written off");
+
+    const active = activeList.reduce((s, l) => s + calcDue(l), 0);
+    const overdue = overdueList.reduce((s, l) => s + calcDue(l), 0);
+    const book = active + overdue;
+    
     const approved = loans
       .filter((l) => l.status === "Approved")
-      .reduce((s, l) => s + l.amount, 0);
-    const settled = loans
-      .filter((l) => l.status === "Settled")
-      .reduce((s, l) => s + l.amount, 0);
+      .reduce((s, l) => s + l.amount * 1.3, 0);
+
+    const settledVolume = settledList.reduce((s, l) => s + l.amount * 1.3, 0);
+    const writtenVolume = writtenList.reduce((s, l) => s + calcDue(l), 0);
+
     const coll = payments
       .filter((p) => p.status === "Allocated")
       .reduce((s, p) => s + p.amount, 0);
     const unalloc = payments
       .filter((p) => p.status === "Unallocated")
       .reduce((s, p) => s + p.amount, 0);
-    const totalDisb = loans.reduce((s, l) => s + l.amount, 0);
+
+    const totalDisb = loans.filter(l => !['Rejected', 'Application submitted'].includes(l.status)).reduce((s, l) => s + l.amount, 0);
+    const totalExpectedVolume = totalDisb * 1.3;
+
     const par1 = loans.filter((l) => l.daysOverdue >= 1).length;
-    const parTotal = loans.filter((l) => l.status !== "Settled").length || 1;
+    const parTotal = loans.filter((l) => !["Settled", "Written off", "Rejected", "Application submitted"].includes(l.status)).length || 1;
+    
     const paidLoanIds = new Set(
       payments
         .filter((p) => p.status === "Allocated" && p.loanId)
@@ -5782,26 +5801,21 @@ export const LivePortfolioChart = ({
     const healthyCount = loans.filter(
       (l) => l.status === "Active" && paidLoanIds.has(l.id),
     ).length;
-    const cRisk = customers.filter(
-      (c) => c.risk === "Very High" || c.risk === "High",
-    ).length;
-    const cOk = customers.filter(
-      (c) => c.risk === "Low" || c.risk === "Medium",
-    ).length;
+    
     return {
       book,
       overdue,
       active,
       approved,
-      settled,
+      settledVolume,
+      writtenVolume,
       coll,
       unalloc,
       totalDisb,
+      totalExpectedVolume,
       par1,
       parTotal,
       healthyCount,
-      cRisk,
-      cOk,
     };
   }, [loans, payments, customers]);
   const {
@@ -5809,15 +5823,15 @@ export const LivePortfolioChart = ({
     overdue,
     active,
     approved,
-    settled,
+    settledVolume,
+    writtenVolume,
     coll,
     unalloc,
     totalDisb,
+    totalExpectedVolume,
     par1,
     parTotal,
     healthyCount,
-    cRisk,
-    cOk,
   } = derived;
 
   const fmtK = (v) =>
@@ -5861,7 +5875,7 @@ export const LivePortfolioChart = ({
       label: "Collections",
       sub: `Disbursed: KES ${fmtK(totalDisb)}`,
       centerValue:
-        totalDisb > 0 ? ((coll / totalDisb) * 100).toFixed(0) + "%" : "—",
+        totalExpectedVolume > 0 ? ((coll / totalExpectedVolume) * 100).toFixed(0) + "%" : "—",
       centerLabel: "Rate",
       segments: [
         {
@@ -5873,7 +5887,7 @@ export const LivePortfolioChart = ({
         },
         {
           label: "Outstanding",
-          value: Math.max(0, book - coll),
+          value: book,
           color: T.warn,
           nav: "loans",
           navFilter: "Active",
@@ -5887,7 +5901,7 @@ export const LivePortfolioChart = ({
         },
         {
           label: "Written off/Settled",
-          value: settled,
+          value: settledVolume + writtenVolume,
           color: T.muted,
           nav: "loans",
           navFilter: "Settled",
@@ -8600,20 +8614,25 @@ export const CustomerEditForm = ({ customer, workers, onSave, onClose }) => {
             onChange={s("businessType")}
             type="select"
             options={[
-              "Retail",
-              "Wholesale",
-              "Manufacturing",
-              "Agriculture",
-              "Transport",
-              "Food & Beverage",
-              "Salon & Beauty",
-              "Tailoring",
-              "Electronics",
-              "Hardware",
-              "Pharmacy",
-              "Education",
-              "Hospitality",
-              "Other",
+              "Butchery", "Carpentry", "Charcoal/firewood seller", "Clothes & Accessories", 
+              "Food kiosk", "Fruits & Vegetables", "General shop", "Juakali artisan", 
+              "Milk ATM", "Rentals/accommodation", "Agrovet", "Autospares", 
+              "Animal feeds", "Bakery", "Boutique", "Salon/Kinyozi", 
+              "Poultry", "Second hand items", "Photo studio", "DSTV/Video show", 
+              "Health centre", "Electrical shop", "Bags", "Bookshop", 
+              "Pharmacy", "Beauty & cosmetics", "Welding", "Wines & spirits", 
+              "Money agent", "Fish seller", "Shoeshiner/repair", "Cereals", 
+              "Malimali", "Movie shop", "Soaps & detergents", "Cyber cafe", 
+              "Events & entertainment", "Gas cylinders", "Poshio mill", "Murtura base", 
+              "Pond table", "School", "Ballar & sand", "Glass", 
+              "Garage", "Computer college", "Dry cleaner", "Carpet seller", 
+              "Car wash", "Timberyard", "Sugarcane", "Tailor", 
+              "Bar & restaurant", "School uniforms", "Brick seller", "Bakery & weaving", 
+              "Egg seller", "Gas shop", "Gym", "Shoe seller", 
+              "Day care", "Security firm", "Curtains", "Ice cream", 
+              "Maize", "Massage spa", "Chemicals", "Curios", 
+              "Detergent supplier", "Electronics", "Loans on item", "Optician", 
+              "Packaging material", "Potato seller", "Other", "Add option"
             ]}
             half
           />
@@ -9644,10 +9663,15 @@ export const LoanModal = ({
     const paid = pays.reduce((s, p) => s + p.amount, 0);
     const engine = calculateLoanStatus(loan);
     const penalty = engine.interestAccrued + engine.penaltyAccrued; // total charges (backward compat)
-    const owed = engine.totalAmountDue;
-    return { cust, pays, ints, lastPay, paid, penalty, owed, engine };
+    // Total due = principal + flat 30% base interest + any overdue charges
+    const baseInterest = Math.round((loan.amount || 0) * 0.3);
+    const totalDue = (loan.amount || 0) + baseInterest + engine.interestAccrued + engine.penaltyAccrued;
+    // Remaining balance = what is still owed after all payments
+    const remainingBalance = Math.max(0, totalDue - paid);
+    const owed = totalDue;
+    return { cust, pays, ints, lastPay, paid, penalty, owed, engine, totalDue, remainingBalance, baseInterest };
   }, [loan, customers, payments, interactions]);
-  const { cust, pays, ints, lastPay, paid, penalty, owed, engine } =
+  const { cust, pays, ints, lastPay, paid, penalty, owed, engine, totalDue, remainingBalance, baseInterest } =
     loanDerived;
 
   const schedule = () => {
@@ -9847,7 +9871,7 @@ export const LoanModal = ({
             {[
               ["Principal", fmt(loan.amount), T.txt],
               ["Rate", "30%", T.txt],
-              ["Base Int.", fmt(Math.round((loan.amount || 0) * 0.3)), T.txt],
+              ["Base Int.", fmt(baseInterest), T.txt],
               [
                 "Paid",
                 fmt(paid),
@@ -9855,8 +9879,8 @@ export const LoanModal = ({
               ],
               [
                 "Balance",
-                fmt(loan.balance),
-                loan.status === "Overdue" ? T.danger : T.txt,
+                fmt(remainingBalance),
+                remainingBalance > 0 ? (loan.status === "Overdue" ? T.danger : T.warn) : T.ok,
               ],
               [
                 "Overdue",
@@ -9873,7 +9897,7 @@ export const LoanModal = ({
                 fmt(engine.penaltyAccrued),
                 engine.penaltyAccrued > 0 ? T.danger : T.muted,
               ],
-              ["Total Due", fmt(engine.totalAmountDue), T.accent],
+              ["Total Due", fmt(remainingBalance), T.accent],
             ].map(([k, v, col]) => (
               <div
                 key={k}
@@ -10121,10 +10145,10 @@ export const LoanModal = ({
                     }}
                   >
                     {[
-                      ["Remaining", fmt(loan.balance)],
+                      ["Remaining Balance", fmt(Math.max(0, (loan.amount * 1.3) - paid))],
                       ["Late Int.", fmt(engine.interestAccrued)],
                       ["Penalty", fmt(engine.penaltyAccrued)],
-                      ["Total Due", fmt(engine.totalAmountDue)],
+                      ["Total Due", fmt(Math.max(0, (loan.amount * 1.3) + engine.interestAccrued + engine.penaltyAccrued - paid))],
                       ["Phase", engine.status],
                       [
                         "Progress",
@@ -10291,10 +10315,14 @@ export const CustomerDetail = ({
     const overdueLoans = myLoans.filter((l) => l.status === "Overdue");
     const activeLoans = myLoans.filter((l) => l.status === "Active");
     const settledLoans = myLoans.filter((l) => l.status === "Settled");
-    const totalOwed = overdueLoans.reduce(
-      (s, l) => s + calculateLoanStatus(l).totalAmountDue,
-      0,
-    );
+    const totalOwed = overdueLoans.reduce((s, l) => {
+      const lPays = myPays.filter(p => p.loanId === l.id);
+      const paid = lPays.reduce((acc, p) => acc + p.amount, 0);
+      const baseInterest = Math.round((l.amount || 0) * 0.3);
+      const engine = calculateLoanStatus(l);
+      const trueDue = Math.max(0, (l.amount || 0) + baseInterest + engine.interestAccrued + engine.penaltyAccrued - paid);
+      return s + trueDue;
+    }, 0);
     const totalPaid = myPays.reduce((s, p) => s + p.amount, 0);
     const totalPrincipal = myLoans.reduce((s, l) => s + l.amount, 0);
     const lastPay =
@@ -11021,12 +11049,12 @@ export const CustomerDetail = ({
                           >
                             {[
                               [
-                                "Balance",
-                                fmt(loan.balance),
+                                "Remaining",
+                                fmt(Math.max(0, (loan.amount || 0) + Math.round((loan.amount || 0) * 0.3) - lPaid)),
                                 loan.status === "Overdue" ? T.danger : T.txt,
                               ],
                               [
-                                "Interest",
+                                "Interest+",
                                 fmt(eng.interestAccrued),
                                 eng.interestAccrued > 0 ? T.warn : T.muted,
                               ],
@@ -11035,7 +11063,11 @@ export const CustomerDetail = ({
                                 fmt(eng.penaltyAccrued),
                                 eng.penaltyAccrued > 0 ? T.danger : T.muted,
                               ],
-                              ["Total Due", fmt(eng.totalAmountDue), T.accent],
+                              [
+                                "Total Due", 
+                                fmt(Math.max(0, (loan.amount || 0) + Math.round((loan.amount || 0) * 0.3) + eng.interestAccrued + eng.penaltyAccrued - lPaid)), 
+                                T.accent
+                              ],
                               [
                                 "Overdue",
                                 loan.daysOverdue > 0
@@ -11886,4 +11918,316 @@ export const sbUploadDoc = async (customerId, doc) => {
     console.error("[sbUploadDoc]", e.message);
     throw e;
   }
+};
+
+// ── Export Menu Dropdown ────────────────────────────────────
+export const ExportMenu = ({ onExport }) => {
+  const [open, setOpen] = useState(false);
+  const containerRef = useRef();
+
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e) => {
+      if (containerRef.current && !containerRef.current.contains(e.target)) setOpen(false);
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [open]);
+
+  const items = [
+    { id: "CSV", label: "Spreadsheet (CSV/Excel)", icon: "📊", color: T.ok },
+    { id: "PDF", label: "Document (PDF)", icon: "📄", color: T.danger },
+    { id: "WORD", label: "Word Document (DOCX)", icon: "📝", color: T.blue },
+  ];
+
+  return (
+    <div ref={containerRef} style={{ position: "relative" }}>
+      <Btn v="secondary" onClick={() => setOpen(!open)} style={{ gap: 8 }}>
+        <span>📤 Export</span>
+        <span style={{ fontSize: 10, opacity: 0.6 }}>▾</span>
+      </Btn>
+      {open && (
+        <div
+          style={{
+            position: "absolute",
+            top: "100%",
+            right: 0,
+            marginTop: 6,
+            background: T.card,
+            border: `1px solid ${T.border}`,
+            borderRadius: 12,
+            boxShadow: "0 12px 48px rgba(0,0,0,0.6), 0 0 0 1px rgba(255,255,255,0.05)",
+            zIndex: 9999,
+            minWidth: 220,
+            overflow: "hidden",
+          }}
+        >
+          <div
+            style={{
+              padding: "8px 12px",
+              borderBottom: `1px solid ${T.border}`,
+              fontSize: 10,
+              fontWeight: 800,
+              color: T.muted,
+              textTransform: "uppercase",
+              letterSpacing: 0.5,
+            }}
+          >
+            Select Format
+          </div>
+          {items.map((item) => (
+            <div
+              key={item.id}
+              onClick={() => {
+                onExport(item.id);
+                setOpen(false);
+              }}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 10,
+                padding: "10px 14px",
+                cursor: "pointer",
+                transition: "background .2s",
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.background = T.surface;
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.background = "none";
+              }}
+            >
+              <span style={{ fontSize: 18 }}>{item.icon}</span>
+              <span style={{ color: T.txt, fontSize: 13, fontWeight: 600 }}>
+                {item.label}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};
+
+// ── Date Range Picker ─────────────────────────────────────
+export const DateRangePicker = ({
+  start,
+  end,
+  onStartChange,
+  onEndChange,
+  onSearch,
+}) => (
+  <div
+    style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}
+  >
+    <div
+      style={{
+        display: "flex",
+        gap: 10,
+        alignItems: "center",
+        background: T.card,
+        padding: "6px 12px",
+        borderRadius: 12,
+        border: `1px solid ${T.border}`,
+      }}
+    >
+      <div style={{ display: "flex", flexDirection: "column" }}>
+        <label
+          style={{
+            fontSize: 9,
+            fontWeight: 800,
+            color: T.muted,
+            textTransform: "uppercase",
+          }}
+        >
+          From
+        </label>
+        <input
+          type="date"
+          value={start}
+          onChange={(e) => onStartChange(e.target.value)}
+          style={{
+            background: "transparent",
+            border: "none",
+            color: T.txt,
+            fontSize: 12,
+            outline: "none",
+            maxWidth: 115,
+          }}
+        />
+      </div>
+      <div style={{ color: T.border, fontSize: 16 }}>→</div>
+      <div style={{ display: "flex", flexDirection: "column" }}>
+        <label
+          style={{
+            fontSize: 9,
+            fontWeight: 800,
+            color: T.muted,
+            textTransform: "uppercase",
+          }}
+        >
+          To
+        </label>
+        <input
+          type="date"
+          value={end}
+          onChange={(e) => onEndChange(e.target.value)}
+          style={{
+            background: "transparent",
+            border: "none",
+            color: T.txt,
+            fontSize: 12,
+            outline: "none",
+            maxWidth: 115,
+          }}
+        />
+      </div>
+    </div>
+    <Btn onClick={onSearch} v="primary" sm style={{ height: 38, padding: "0 16px" }}>
+      Search
+    </Btn>
+  </div>
+);
+
+// ── Module Header (Combined Title + Search + Date + Export) ──
+export const ModuleHeader = ({
+  title,
+  sub,
+  stats,
+  search,
+  dateRange,
+  exportProps,
+  refreshProps,
+  pillsProps,
+}) => (
+  <div className="fu" style={{ marginBottom: 20 }}>
+    <div
+      className="mob-stack"
+      style={{
+        display: "flex",
+        justifyContent: "space-between",
+        alignItems: "flex-end",
+        gap: 16,
+        marginBottom: 18,
+        position: "relative",
+        zIndex: 10,
+        overflow: "visible",
+      }}
+    >
+      <div>
+        <div
+          style={{
+            fontFamily: T.head,
+            color: T.txt,
+            fontSize: 22,
+            fontWeight: 900,
+          }}
+        >
+          {title}
+        </div>
+        {sub && (
+          <div style={{ color: T.muted, fontSize: 13, marginTop: 3 }}>{sub}</div>
+        )}
+        {stats && (
+          <div style={{ color: T.muted, fontSize: 12, marginTop: 4 }}>
+            {stats}
+          </div>
+        )}
+      </div>
+      <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+        {refreshProps && <RefreshBtn {...refreshProps} />}
+        {exportProps && <ExportMenu {...exportProps} />}
+      </div>
+    </div>
+
+    <div
+      className="mob-stack"
+      style={{
+        display: "flex",
+        gap: 12,
+        flexWrap: "wrap",
+        alignItems: "center",
+        background: T.surface,
+        padding: "12px 14px",
+        borderRadius: 16,
+        border: `1px solid ${T.border}`,
+      }}
+    >
+      {search && (
+        <div style={{ flex: 1, minWidth: 200 }}>
+          <Search {...search} />
+        </div>
+      )}
+      {dateRange && <DateRangePicker {...dateRange} />}
+      {pillsProps && (
+        <div style={{ borderLeft: `1px solid ${T.border}`, paddingLeft: 12 }}>
+          <Pills {...pillsProps} />
+        </div>
+      )}
+    </div>
+  </div>
+);
+
+/**
+ * Generates official collection letters (Reminder, Demand, Final Notice)
+ * with appropriate tones and customer details.
+ */
+export const generateCollectionLetterHTML = (type, loan, customer, officer, trueDue) => {
+  const today = new Date().toLocaleDateString("en-KE", { day: "2-digit", month: "long", year: "numeric" });
+  const n = (v) => v || "—";
+  const fmtAmt = (v) => "KES " + Number(v || 0).toLocaleString("en-KE");
+
+  let title = "";
+  let body = "";
+  let deadline = "";
+
+  if (type === "Reminder") {
+    title = "LOAN REPAYMENT REMINDER";
+    body = `<p>We are writing to bring to your attention that your loan account <b>${n(loan.id)}</b> is currently <b>${n(loan.daysOverdue)}</b> days overdue. As of today, the total outstanding amount is <b>${fmtAmt(trueDue)}</b>.</p>
+            <p>At Adequate Capital Ltd, we value your business and understand that sometimes temporary challenges arise. We kindly request that you make arrangements to settle this balance as soon as possible to avoid further accrual of interest and potential impact on your credit rating.</p>
+            <p>If you have already made this payment, please disregard this notice and provide us with the transaction details for reconciliation.</p>`;
+  } else if (type === "Demand Letter") {
+    title = "FORMAL DEMAND FOR PAYMENT";
+    deadline = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toLocaleDateString("en-KE", { day: "2-digit", month: "long", year: "numeric" });
+    body = `<p>Despite our previous communications, our records indicate that your loan <b>${n(loan.id)}</b> remains unpaid. This is a <b>FORMAL DEMAND</b> for the immediate payment of the total outstanding sum of <b>${fmtAmt(trueDue)}</b>.</p>
+            <p>Please note that your account is now <b>${n(loan.daysOverdue)}</b> days past due. You are hereby required to settle this amount in full by <b>${deadline}</b>.</p>
+            <p>Failure to comply with this demand within the stipulated time will leave us with no choice but to escalate this matter to the next stage of recovery, which may include engaging debt collection agencies and listing your details with the Credit Reference Bureau (CRB).</p>`;
+  } else if (type === "Final Notice") {
+    title = "FINAL NOTICE BEFORE LEGAL ACTION";
+    body = `<p>This is the <b>FINAL NOTICE</b> regarding your overdue loan <b>${n(loan.id)}</b>. Our records show an outstanding balance of <b>${fmtAmt(trueDue)}</b> which has remained unpaid for <b>${n(loan.daysOverdue)}</b> days.</p>
+            <p>Take note that unless the full amount is received by close of business tomorrow, we will immediately initiate the following actions without further notice to you:</p>
+            <ul>
+              <li>Physical recovery of listed assets and collateral.</li>
+              <li>Handing over the matter to our legal counsel for court proceedings.</li>
+              <li>Permanent blacklisting on all Credit Reference Bureaus.</li>
+            </ul>
+            <p>This is your last opportunity to settle this matter amicably and avoid the additional costs and public embarrassment associated with legal recovery.</p>`;
+  }
+
+  const parts = [
+    "<!DOCTYPE html><html><head><meta charset=UTF-8><title>" + title + "</title>",
+    "<style>body{font-family:Arial,sans-serif;font-size:11pt;padding:28mm 22mm;color:#111;line-height:1.6}",
+    "h1{font-size:16pt;text-align:left;color:#2a3a50;margin-bottom:2px}h2{font-size:12pt;font-weight:bold;margin-bottom:20px;border-bottom:2px solid #2a3a50;padding-bottom:10px}",
+    ".letterhead{display:flex;justify-content:space-between;margin-bottom:40px;border-bottom:3px solid #2a3a50;padding-bottom:15px}",
+    ".company-info{text-align:right;font-size:9.5pt;color:#555}",
+    ".recipient{margin-bottom:30px}.recipient div{margin-bottom:2px}",
+    ".subject{font-weight:bold;text-decoration:underline;margin-bottom:20px;text-transform:uppercase;color:#2a3a50}",
+    ".closing{margin-top:40px}.sig-box{margin-top:50px;font-weight:bold}",
+    "@media print{body{padding:20mm 18mm}}</style></head><body>",
+    "<div class=letterhead><div><h1>Adequate Capital Ltd</h1><p style='margin:0;font-size:10pt;color:#2a3a50;font-weight:bold'>Empowering Your Progress</p></div>",
+    "<div class=company-info>P.O. Box 12345-00100<br>Nairobi, Kenya<br>Tel: +254 700 000 000<br>Email: info@adequatecapital.co.ke</div></div>",
+    "<div style='margin-bottom:20px'>Date: <b>" + today + "</b></div>",
+    "<div class=recipient><div>To: <b>" + n(customer.name) + "</b></div>",
+    "<div>Phone: " + n(customer.phone) + "</div>",
+    "<div>ID No: " + n(customer.idNo) + "</div>",
+    "<div>Residence: " + n(customer.residence) + "</div></div>",
+    "<div class=subject>REF: " + title + " — LOAN ID: " + n(loan.id) + "</div>",
+    "<p>Dear " + n(customer.name) + ",</p>",
+    body,
+    "<p>Please make your payment via our <b>M-Pesa Paybill: 4166191</b> using your National ID or Loan ID as the account number.</p>",
+    "<div class=closing><p>Yours Sincerely,</p><div class=sig-box><div style='border-bottom:1.5px solid #2a3a50;width:200px;margin-bottom:5px'></div>",
+    "<div>" + n(officer || "Collections Manager") + "</div><div>Adequate Capital Ltd</div></div></div>",
+    "</body></html>",
+  ];
+  return parts.join("\n");
 };

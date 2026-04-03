@@ -223,29 +223,48 @@ const AdminPanel = ({onLogout,loans,setLoans,customers,setCustomers,workers,setW
     // Strict Business Logic: Repayment frequency does not determine loan maturity.
     // A loan is 'due' strictly 30 days from disbursement date calculation.
 
-    const updateLoans=()=>{
-      const n=new Date();
-      setLoans(ls=>ls.map(l=>{
-        if(!['Active','Overdue'].includes(l.status)||!l.disbursed) return l;
-        const disbDate=new Date(l.disbursed);
-        const diffDays=Math.floor((n-disbDate)/(1000*60*60*24));
-        const grace=30; // Enforced strict due logic
+    const updateLoans = () => {
+      const n = new Date();
+      setLoans((ls) =>
+        ls.map((l) => {
+          if (!["Active", "Overdue"].includes(l.status) || !l.disbursed)
+            return l;
+          const disbDate = new Date(l.disbursed);
+          const diffDays = Math.floor((n - disbDate) / (1000 * 60 * 60 * 24));
+          const grace = 30; // Enforced strict due logic
+          const od = Math.max(0, diffDays - grace);
 
-        if(l.status==='Active'){
-          if(diffDays>grace&&l.balance>0){
-            const upd={...l,status:'Overdue',daysOverdue:Math.max(0,diffDays-grace)};
-            sbWrite('loans',toSupabaseLoan(upd));
-            return upd;
+          if (l.status === "Active") {
+            if (diffDays > grace && l.balance > 0) {
+              const upd = { ...l, status: "Overdue", daysOverdue: od };
+              sbWrite("loans", toSupabaseLoan(upd));
+              return upd;
+            }
+            return l;
+          }
+          if (l.status === "Overdue") {
+            // Automatic write-off if 91+ days overdue (90+1)
+            if (od >= 91) {
+              const upd = { ...l, status: "Written off", daysOverdue: od };
+              sbWrite("loans", toSupabaseLoan(upd));
+              addAudit(
+                "Auto Write-Off",
+                l.id,
+                `Balance: ${fmt(l.balance)} (Automated after 91d overdue)`
+              );
+              return upd;
+            }
+
+            if (od !== l.daysOverdue) {
+              const upd = { ...l, daysOverdue: od };
+              sbWrite("loans", toSupabaseLoan(upd));
+              return upd;
+            }
+            return l;
           }
           return l;
-        }
-        if(l.status==='Overdue'){
-          const od=Math.max(0,diffDays-grace);
-          if(od!==l.daysOverdue){const upd={...l,daysOverdue:od};sbWrite('loans',toSupabaseLoan(upd));return upd;}
-          return l;
-        }
-        return l;
-      }));
+        })
+      );
     };
     updateLoans();
     const id=setInterval(updateLoans,24*60*60*1000);
@@ -273,7 +292,7 @@ const AdminPanel = ({onLogout,loans,setLoans,customers,setCustomers,workers,setW
     calendar:   ()=><DueLoansCalendar loans={loans} payments={payments} workers={workers} workerContext={{role:'admin',name:'Admin'}} onOpenCustomerProfile={onOpenCustomerProfile} />,
     loans:      ()=><LoansTab loans={loans} setLoans={setLoans} customers={customers} setCustomers={setCustomers} payments={payments} setPayments={setPayments} interactions={interactions} setInteractions={setInteractions} workers={workers} addAudit={addAudit} showToast={showToast} onOpenCustomerProfile={onOpenCustomerProfile}/>,
     customers:  ()=><CustomersTab customers={customers} setCustomers={setCustomers} workers={workers} loans={loans} setLoans={setLoans} payments={payments} setPayments={setPayments} interactions={interactions} setInteractions={setInteractions} addAudit={addAudit} showToast={showToast} onOpenCustomerProfile={onOpenCustomerProfile}/>,
-    leads:      ()=><LeadsTab leads={leads} setLeads={setLeads} workers={workers} customers={customers} setCustomers={setCustomers} addAudit={addAudit} showToast={showToast} onOpenCustomerProfile={onOpenCustomerProfile}/>,
+    leads:      ()=><LeadsTab leads={leads} setLeads={setLeads} workers={workers} customers={customers} setCustomers={setCustomers} loans={loans} addAudit={addAudit} showToast={showToast} onOpenCustomerProfile={onOpenCustomerProfile}/>,
     collections:()=><CollectionsTab loans={loans} setLoans={setLoans} customers={customers} setCustomers={setCustomers} payments={payments} setPayments={setPayments} interactions={interactions} setInteractions={setInteractions} workers={workers} addAudit={addAudit} scrollTop={scrollTop} currentUser='Admin' onOpenCustomerProfile={onOpenCustomerProfile}/>,
     payments:   ()=><PaymentsTab payments={payments} setPayments={setPayments} loans={loans} setLoans={setLoans} customers={customers} setCustomers={setCustomers} interactions={interactions} setInteractions={setInteractions} workers={workers} addAudit={addAudit} showToast={showToast} onOpenCustomerProfile={onOpenCustomerProfile}/>,
     workers:    ()=><WorkersTab workers={workers} setWorkers={setWorkers} loans={loans} setLoans={setLoans} payments={payments} customers={customers} setCustomers={setCustomers} leads={leads} setLeads={setLeads} interactions={interactions} setInteractions={setInteractions} allState={allState} addAudit={addAudit} showToast={showToast} onOpenCustomerProfile={onOpenCustomerProfile}/>,

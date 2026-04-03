@@ -2,37 +2,76 @@ import CustomerProfile from "@/modules/customers/CustomerProfile";
 import React, { useState, useMemo, useRef } from 'react';
 import { T, RC, Card, CH, DT, KPI, Btn, Badge, FI, Alert, Dialog, Search, RefreshBtn,
   LoanModal, fmt, fmtM, uid, now, sbInsert, toSupabaseInteraction,
-  useContactPopup, calculateLoanStatus, SFX } from '@/lms-common';
+  useContactPopup, calculateLoanStatus, SFX, 
+  ModuleHeader, generateCollectionLetterHTML, downloadLoanDoc } from '@/lms-common';
+import { useModuleFilter } from '@/hooks/useModuleFilter';
 import { initiateStkPush } from '@/utils/mpesa';
 
 const PIPELINE_STAGES = [
-  {id:'Reminder',label:'Reminder',color:T.warn,icon:'📱',desc:'First contact — SMS and phone reminders',actions:['Send SMS Reminder','Make Phone Call','Send WhatsApp Message'],template:'Dear [Customer], your loan of [Amount] is now overdue. Please make payment immediately.'},
+  {id:'Reminder',label:'Reminder',color:T.warn,icon:'📱',desc:'First contact — SMS and phone reminders',actions:['Generate Letter','Send SMS Reminder','Make Phone Call','Send WhatsApp Message'],template:'Dear [Customer], your loan of [Amount] is now overdue. Please make payment immediately.'},
   {id:'Field Visit',label:'Field Visit',color:T.blue,icon:'🚗',desc:'Officer physically visits borrower',actions:['Schedule Visit','Mark Visit Complete','Escalate to Supervisor'],template:'Field visit report: Customer [Name] at [Location].'},
   {id:'Demand Letter',label:'Demand Letter',color:T.danger,icon:'📄',desc:'Formal written demand with 7-day deadline',actions:['Generate Letter','Send via Registered Mail','Mark Delivered'],template:'FORMAL DEMAND: Your loan of [Amount] is immediately due.'},
-  {id:'Final Notice',label:'Final Notice',color:T.danger,icon:'⚠️',desc:'Final warning before legal action',actions:['Issue Final Notice','Engage Guarantor','Contact Next of Kin'],template:'FINAL NOTICE: Last opportunity to settle [Amount] before legal action.'},
+  {id:'Final Notice',label:'Final Notice',color:T.danger,icon:'⚠️',desc:'Final warning before legal action',actions:['Generate Letter','Issue Final Notice','Engage Guarantor','Contact Next of Kin'],template:'FINAL NOTICE: Last opportunity to settle [Amount] before legal action.'},
   {id:'Legal',label:'Legal',color:T.purple,icon:'⚖️',desc:'Matter referred to legal team',actions:['File in Court','Engage Debt Collector','Attach Assets'],template:'Legal proceedings initiated.'},
   {id:'Written Off',label:'Write Off',color:T.muted,icon:'✕',desc:'Loan written off as unrecoverable',actions:['Approve Write-Off','Update Books','Blacklist Customer'],template:'Loan written off after all recovery attempts exhausted.'},
 ];
 
-const CollectionsTab = ({loans,customers,payments,setPayments,interactions,setInteractions,workers,setLoans,setCustomers,addAudit,scrollTop,currentUser='Admin'}) => {
+const CollectionsTab = ({loans,customers,payments,setPayments,interactions,setInteractions,workers,setLoans,setCustomers,addAudit,scrollTop,currentUser='Admin', showToast = () => {}}) => {
   const {open:openContact, Popup:ContactPopup} = useContactPopup();
-  const [collQ,setCollQ]=useState('');
-  const [modalLoan,setModalLoan]=useState(null);
-  const [modalCust,setModalCust]=useState(null);
-  const ov=useMemo(()=>loans.filter(l=>l.status==='Overdue'&&(!collQ||l.customer.toLowerCase().includes(collQ.toLowerCase())||l.id.toLowerCase().includes(collQ.toLowerCase()))),[loans,collQ]);
-  // FIX — Bug 9: ov.reduce was called twice inline in JSX (header + KPI). Memoize so
-  // the reduce only runs when ov changes, not on every render triggered by UI interactions.
-  const ovTotal=useMemo(()=>ov.reduce((s,l)=>s+l.balance,0),[ov]);
+  
+  const {
+    q: collQ, setQ: setCollQ, startDate, setStartDate, endDate, setEndDate, applyFilter,
+    filtered: ov, handleExport
+  } = useModuleFilter({
+    data: loans.filter(l => l.status === 'Overdue'),
+    initialTab: 'All',
+    dateKey: (l) => {
+      if (!l.disbursed) return null;
+      const d = new Date(l.disbursed);
+      d.setDate(d.getDate() + 30);
+      return d.toISOString().split('T')[0];
+    },
+    searchFields: ['id', 'customer', 'phone', 'officer'],
+    reportId: 'collections',
+    showToast,
+    addAudit
+  });
+
+  const filteredInteractions = useMemo(() => {
+    return interactions.filter(i => {
+      const d = (i.date || '').split('T')[0];
+      const matchDate = (!startDate || d >= startDate) && (!endDate || d <= endDate);
+      const lq = collQ.toLowerCase().trim();
+      const matchSearch = !lq || i.loanId.toLowerCase().includes(lq) || (i.notes && i.notes.toLowerCase().includes(lq));
+      return matchDate && matchSearch;
+    });
+  }, [interactions, startDate, endDate, collQ]);
+
+  const ovTotal = useMemo(() => {
+    const paidMap = payments.reduce((acc, p) => {
+      if (p.loanId) acc[p.loanId] = (acc[p.loanId] || 0) + p.amount;
+      return acc;
+    }, {});
+    
+    return ov.reduce((s, l) => {
+      const paid = paidMap[l.id] || 0;
+      const baseInterest = Math.round((l.amount || 0) * 0.3);
+      const engine = calculateLoanStatus(l);
+      const trueDue = Math.max(0, (l.amount || 0) + baseInterest + engine.interestAccrued + engine.penaltyAccrued - paid);
+      return s + trueDue;
+    }, 0);
+  }, [ov, payments]);
+
   const [showInt,setShowInt]=useState(null);
-  const [iF,setIF]=useState({type:'Phone Call',notes:'',pAmt:'',pDate:'',officer:''});
+  const [iF,setIF]=useState({type:'Phone Call',notes:'',pAmt:'',pDate:'',officer:currentUser});
   const [pipeStage,setPipeStage]=useState(null);
   const [pipeAction,setPipeAction]=useState(null);
   const [selLoan,setSelLoan]=useState(null);
+  const [modalLoan,setModalLoan]=useState(null);
+  const [modalCust,setModalCust]=useState(null);
   const [kpiDrill,setKpiDrillRaw]=useState(null);
   const [loading,setLoading]=useState(false);
   const setKpiDrill = (d) => { setKpiDrillRaw(d); if(d) setTimeout(()=>{ try{scrollTop?.();}catch(e){} },20); };
-  const overdueAccountsRef=useRef(null);
-  const interactionsRef=useRef(null);
 
   const addInt=(loan)=>{
     if(!iF.notes)return;
@@ -46,8 +85,22 @@ const CollectionsTab = ({loans,customers,payments,setPayments,interactions,setIn
   };
   const doAction=(stage,action)=>{
     if(!selLoan)return;
-    const notes=`${stage.label}: ${action}. ${stage.template.replace('[Customer]',selLoan.customer).replace('[Amount]',fmt(selLoan.balance)).replace('[Name]',selLoan.customer).replace('[Location]','(location)')}`;
     const cust=customers.find(c=>c.name===selLoan.customer);
+    
+    if (action === 'Generate Letter') {
+      const paid = payments.filter(p => p.loanId === selLoan.id).reduce((a, p) => a + p.amount, 0);
+      const e = calculateLoanStatus(selLoan);
+      const baseInterest = Math.round((selLoan.amount || 0) * 0.3);
+      const trueDue = Math.max(0, (selLoan.amount || 0) + baseInterest + e.interestAccrued + e.penaltyAccrued - paid);
+      
+      const html = generateCollectionLetterHTML(stage.id, selLoan, cust, iF.officer || currentUser, trueDue);
+      downloadLoanDoc(html, `${stage.id.toLowerCase().replace(/\s+/g,'-')}-${selLoan.id}.html`);
+      showToast(`✅ ${stage.id} generated for ${selLoan.customer}`, 'ok');
+      setPipeAction(null);
+      return;
+    }
+
+    const notes=`${stage.label}: ${action}. ${stage.template.replace('[Customer]',selLoan.customer).replace('[Amount]',fmt(selLoan.balance)).replace('[Name]',selLoan.customer).replace('[Location]','(location)')}`;
     setInteractions(is=>[{id:uid('INT'),customerId:cust?.id||'',loanId:selLoan.id,type:stage.label,date:now(),officer:iF.officer||'Admin',notes,promiseAmount:null,promiseDate:null,promiseStatus:null},...is]);
     addAudit(`Recovery: ${action}`,selLoan.id,`Stage: ${stage.label}`);
     if(stage.id==='Written Off'&&action.includes('Write-Off'))setLoans(ls=>ls.map(l=>l.id===selLoan.id?{...l,status:'Written off'}:l));
@@ -62,7 +115,6 @@ const CollectionsTab = ({loans,customers,payments,setPayments,interactions,setIn
 
     setLoading(true);
     try {
-      // Use promised amount if present, else full balance
       const amount = iF.pAmt || loan.balance;
       const res = await initiateStkPush({
         amount: Number(amount),
@@ -85,7 +137,27 @@ const CollectionsTab = ({loans,customers,payments,setPayments,interactions,setIn
   return (
     <div className='fu'>
       {ContactPopup}
-      {/* KPI Drill Sheet — anchored top */}
+      
+      <ModuleHeader
+        title="📞 Collections & Recovery"
+        stats={`${ov.length} overdue · ${fmt(ovTotal)} outstanding`}
+        refreshProps={{ onRefresh: () => { setCollQ(''); setShowInt(null); setPipeStage(null); setKpiDrill(null); } }}
+        search={{ value: collQ, onChange: setCollQ, placeholder: 'Search overdue by customer or loan ID…' }}
+        dateRange={{ start: startDate, end: endDate, onStartChange: setStartDate, onEndChange: setEndDate, onSearch: applyFilter }}
+        exportProps={{ 
+          onExport: (fmt) => {
+            const cols = [
+              { k: 'id', l: 'Loan ID' },
+              { k: 'customer', l: 'Customer' },
+              { k: 'balance', l: 'Balance' },
+              { k: 'daysOverdue', l: 'Days' },
+              { k: 'officer', l: 'Officer' }
+            ];
+            handleExport(fmt, 'Overdue Registry', cols);
+          }
+        }}
+      />
+      
       {kpiDrill&&(
         <div className='dialog-backdrop' style={{position:'fixed',top:0,left:0,right:0,bottom:0,zIndex:9900,display:'flex',alignItems:'flex-start',justifyContent:'center',background:'rgba(4,8,16,0.72)',backdropFilter:'blur(4px)',overflow:'hidden'}}>
           <div className='pop' style={{background:T.card,border:`1px solid ${kpiDrill.color}40`,borderBottom:`1px solid ${T.border}`,borderRadius:'0 0 18px 18px',width:'100%',maxWidth:'100%',maxHeight:'75vh',display:'flex',flexDirection:'column',boxShadow:`0 12px 48px rgba(0,0,0,0.7),0 0 0 1px ${kpiDrill.color}20`}}>
@@ -103,9 +175,20 @@ const CollectionsTab = ({loans,customers,payments,setPayments,interactions,setIn
                     cols={[
                       {k:'id',l:'Loan ID',r:v=><span style={{color:T.accent,fontFamily:T.mono,fontWeight:700,fontSize:12}}>{v}</span>},
                       {k:'customer',l:'Customer',r:(v,r)=>{const c=customers.find(x=>x.name===v);return <span onClick={e=>{e.stopPropagation();openContact(v,c?.phone,e);}} style={{color:T.accent,cursor:'pointer',fontWeight:600,borderBottom:`1px dashed ${T.accent}50`}}>{v}</span>;}},
-                      {k:'balance',l:'Balance',r:v=>fmt(v)},
+                      {k:'balance',l:'Remaining',r:(v,r)=>{
+                        const paid = payments.filter(p => p.loanId === r.id).reduce((a, p) => a + p.amount, 0);
+                        const baseInterest = Math.round((r.amount || 0) * 0.3);
+                        const trueBal = Math.max(0, (r.amount || 0) + baseInterest - paid);
+                        return fmt(trueBal);
+                      }},
                       {k:'daysOverdue',l:'Days',r:v=><span style={{color:v>10?T.danger:T.warn,fontWeight:800,fontFamily:T.mono}}>{v}d</span>},
-                      {k:'daysOverdue',l:'Total Due',r:(_,r)=>{const e=calculateLoanStatus(r);return <span style={{color:e.isFrozen?T.muted:T.danger,fontFamily:T.mono}}>{fmt(e.totalAmountDue)}</span>;}},
+                      {k:'daysOverdue',l:'Total Due',r:(_,r)=>{
+                        const paid = payments.filter(p => p.loanId === r.id).reduce((a, p) => a + p.amount, 0);
+                        const e=calculateLoanStatus(r);
+                        const baseInterest = Math.round((r.amount || 0) * 0.3);
+                        const trueDue = Math.max(0, (r.amount || 0) + baseInterest + e.interestAccrued + e.penaltyAccrued - paid);
+                        return <span style={{color:trueDue > 0 ? (e.isFrozen?T.muted:T.danger) : T.ok,fontFamily:T.mono}}>{fmt(trueDue)}</span>;
+                      }},
                       {k:'risk',l:'Risk',r:v=><Badge color={RC[v]}>{v}</Badge>},
                       {k:'officer',l:'Officer'},
                     ]}
@@ -129,14 +212,6 @@ const CollectionsTab = ({loans,customers,payments,setPayments,interactions,setIn
           </div>
         </div>
       )}
-      <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:4,flexWrap:'wrap',gap:8}}>
-        <div>
-          <div style={{fontFamily:T.head,color:T.txt,fontSize:20,fontWeight:800}}>📞 Collections & Recovery</div>
-          <div style={{color:T.muted,fontSize:13,marginTop:2}}>{ov.length} overdue · {fmt(ovTotal)} outstanding</div>
-        </div>
-        <RefreshBtn onRefresh={()=>{ setCollQ(''); setShowInt(null); setPipeStage(null); setKpiDrill(null); }}/>
-      </div>
-      <div style={{marginBottom:10}}><Search value={collQ} onChange={setCollQ} placeholder='Search overdue by customer or loan ID…'/></div>
       <div style={{marginBottom:6}}/>
       <div className='kpi-row' style={{display:'flex',gap:10,marginBottom:16,flexWrap:'wrap'}}>
         <KPI label='Newly Overdue' icon='🔴'
@@ -200,13 +275,23 @@ const CollectionsTab = ({loans,customers,payments,setPayments,interactions,setIn
       </Card>
       <Card style={{marginBottom:13}}>
         <CH title='Overdue Accounts'/>
-        <DT cols={[{k:'id',l:'Loan ID',r:(v,row)=><span onClick={e=>{e.stopPropagation();setModalLoan(row);}} style={{color:T.accent,fontFamily:T.mono,fontWeight:700,fontSize:12,cursor:'pointer',borderBottom:`1px dashed ${T.accent}50`}}>{v}</span>},{k:'customer',l:'Customer',r:(v,r)=>{const c=customers.find(x=>x.name===v);return <span onClick={e=>{e.stopPropagation();if(c)setModalCust(c);else openContact(v,r.phone,e);}} style={{color:T.accent,cursor:'pointer',fontWeight:600,borderBottom:`1px dashed ${T.accent}50`}}>{v}</span>;}},{k:'balance',l:'Balance',r:v=>fmt(v)},{k:'daysOverdue',l:'Days',r:v=><span style={{color:v>10?T.danger:T.warn,fontWeight:800,fontFamily:T.mono}}>{v}d</span>},{k:'daysOverdue',l:'Total Due',r:(_,r)=>{const e=calculateLoanStatus(r);return <span style={{color:e.isFrozen?T.muted:T.danger,fontFamily:T.mono,fontWeight:700}}>{fmt(e.totalAmountDue)}</span>;}},{k:'status',l:'Phase',r:(_,r)=>{const e=calculateLoanStatus(r);return <span style={{fontSize:11,fontWeight:700,color:e.isFrozen?T.muted:e.phase==='penalty'?T.danger:T.warn}}>{e.isFrozen?'❄ Frozen':e.phase==='penalty'?'Penalty':'Interest'}</span>;}},{k:'risk',l:'Risk',r:v=><Badge color={RC[v]}>{v}</Badge>},{k:'officer',l:'Officer'}]}
+        <DT cols={[{k:'id',l:'Loan ID',r:(v,row)=><span onClick={e=>{e.stopPropagation();setModalLoan(row);}} style={{color:T.accent,fontFamily:T.mono,fontWeight:700,fontSize:12,cursor:'pointer',borderBottom:`1px dashed ${T.accent}50`}}>{v}</span>},{k:'customer',l:'Customer',r:(v,r)=>{const c=customers.find(x=>x.name===v);return <span onClick={e=>{e.stopPropagation();if(c)setModalCust(c);else openContact(v,r.phone,e);}} style={{color:T.accent,cursor:'pointer',fontWeight:600,borderBottom:`1px dashed ${T.accent}50`}}>{v}</span>;}},{k:'balance',l:'Remaining',r:(v,r)=>{
+            const paid = payments.filter(p => p.loanId === r.id).reduce((a, p) => a + p.amount, 0);
+            const baseInterest = Math.round((r.amount || 0) * 0.3);
+            return fmt(Math.max(0, (r.amount || 0) + baseInterest - paid));
+          }},{k:'daysOverdue',l:'Days',r:v=><span style={{color:v>10?T.danger:T.warn,fontWeight:800,fontFamily:T.mono}}>{v}d</span>},{k:'daysOverdue',l:'Total Due',r:(_,r)=>{
+            const paid = payments.filter(p => p.loanId === r.id).reduce((a, p) => a + p.amount, 0);
+            const e=calculateLoanStatus(r);
+            const baseInterest = Math.round((r.amount || 0) * 0.3);
+            const trueDue = Math.max(0, (r.amount || 0) + baseInterest + e.interestAccrued + e.penaltyAccrued - paid);
+            return <span style={{color:trueDue > 0 ? (e.isFrozen?T.muted:T.danger) : T.ok,fontFamily:T.mono,fontWeight:700}}>{fmt(trueDue)}</span>;
+          }},{k:'status',l:'Phase',r:(_,r)=>{const e=calculateLoanStatus(r);return <span style={{fontSize:11,fontWeight:700,color:e.isFrozen?T.muted:e.phase==='penalty'?T.danger:T.warn}}>{e.isFrozen?'❄ Frozen':e.phase==='penalty'?'Penalty':'Interest'}</span>;}},{k:'risk',l:'Risk',r:v=><Badge color={RC[v]}>{v}</Badge>},{k:'officer',l:'Officer'}]}
           rows={[...ov].sort((a,b)=>b.daysOverdue-a.daysOverdue)} onRow={r=>{setShowInt(r);setIF(f=>({...f,officer:f.officer||currentUser}));}}/>
       </Card>
       {interactions.length>0&&<Card>
-        <CH title='Interaction History'/>
+        <CH title='Interaction History' sub='Reflecting applied date filter'/>
         <DT cols={[{k:'date',l:'Date'},{k:'loanId',l:'Loan'},{k:'type',l:'Type',r:v=><Badge color={T.accent}>{v}</Badge>},{k:'officer',l:'Officer'},{k:'notes',l:'Notes',r:v=><span style={{color:T.dim,fontSize:12}}>{v?.slice(0,60)}{v?.length>60?'…':''}</span>},{k:'promiseAmount',l:'Promise',r:v=>v?<span style={{color:T.gold,fontFamily:T.mono}}>{fmt(v)}</span>:'—'},{k:'promiseStatus',l:'Status',r:v=>v?<Badge color={v==='Pending'?T.warn:v==='Kept'?T.ok:T.danger}>{v}</Badge>:'—'}]}
-          rows={interactions}/>
+          rows={filteredInteractions}/>
       </Card>}
       {showInt&&(
         <Dialog title={`Log Interaction — ${showInt.customer}`} onClose={()=>{setShowInt(null);setIF({type:'Phone Call',notes:'',pAmt:'',pDate:'',officer:currentUser});}}>

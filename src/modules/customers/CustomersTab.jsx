@@ -9,14 +9,14 @@ import {
   sbWrite, sbInsert,
   toSupabaseLoan, toSupabasePayment, toSupabaseInteraction,
   generateLoanAgreementHTML, generateAssetListHTML, downloadLoanDoc,
-  useContactPopup, useToast, useReminders, useModalLock
+  useContactPopup, useToast, useReminders, useModalLock,
+  ModuleHeader
 } from '@/lms-common';
+import { useModuleFilter } from '@/hooks/useModuleFilter';
 
 
 const CustomersTab = ({ customers, setCustomers, workers, loans, setLoans, payments, setPayments, interactions, setInteractions, addAudit, showToast = () => { }, onOpenCustomerProfile }) => {
   const { open: openContact, Popup: ContactPopup } = useContactPopup();
-  const [q, setQ] = useState('');
-  const [statusFlt, setStatusFlt] = useState('All');
   const [sel, setSel] = useState(null);
   const [selLoan, setSelLoan] = useState(null);
 
@@ -25,38 +25,35 @@ const CustomersTab = ({ customers, setCustomers, workers, loans, setLoans, payme
     new Set(loans.filter(l => l.status === 'Active' || l.status === 'Overdue').map(l => l.customerId).filter(Boolean))
     , [loans]);
 
-  const custStats = useMemo(() => ({
-    total: customers.length,
-    blacklisted: customers.filter(c => c.blacklisted).length,
-    activeBorrowers: customers.filter(c => activeBorrowerIds.has(c.id)).length,
-    noLoans: customers.filter(c => !c.blacklisted && c.loans === 0).length,
-  }), [customers, activeBorrowerIds]);
-
   const STATUS_OPTS = ['All', 'Active Borrowers', 'Blacklisted', 'No Loans'];
 
-  const filtered = useMemo(() => {
-    const lq = q.trim().toLowerCase();
-    return customers.filter(c => {
-      // Status filter
-      if (statusFlt === 'Active Borrowers' && !activeBorrowerIds.has(c.id)) return false;
-      if (statusFlt === 'Blacklisted' && !c.blacklisted) return false;
-      if (statusFlt === 'No Loans' && (c.blacklisted || c.loans > 0)) return false;
-      // Search
-      if (!lq) return true;
-      return (
-        c.id.toLowerCase().includes(lq) ||
-        (c.name || '').toLowerCase().includes(lq) ||
-        (c.phone || '').includes(lq) ||
-        (c.altPhone || '').includes(lq) ||
-        (c.idNo || '').includes(lq) ||
-        (c.business || '').toLowerCase().includes(lq) ||
-        (c.location || '').toLowerCase().includes(lq) ||
-        (c.officer || '').toLowerCase().includes(lq) ||
-        (c.risk || '').toLowerCase().includes(lq) ||
-        (c.residence || '').toLowerCase().includes(lq)
-      );
-    });
-  }, [customers, q, statusFlt, activeBorrowerIds]);
+  const {
+    q, setQ, tab: statusFlt, setTab: setStatusFlt,
+    startDate, setStartDate, endDate, setEndDate, applyFilter,
+    filtered, handleExport
+  } = useModuleFilter({
+    data: customers,
+    initialTab: 'All',
+    dateKey: 'joined',
+    searchFields: ['id', 'name', 'phone', 'altPhone', 'idNo', 'business', 'location', 'officer', 'risk', 'residence'],
+    reportId: 'customers',
+    showToast,
+    addAudit,
+    customFilter: (c, t) => {
+      if (t === 'Active Borrowers' && !activeBorrowerIds.has(c.id)) return false;
+      if (t === 'Blacklisted' && !c.blacklisted) return false;
+      if (t === 'No Loans' && (c.blacklisted || c.loans > 0)) return false;
+      return true;
+    },
+    initialStartDate: '2024-01-01'
+  });
+
+  const stats = useMemo(() => {
+    const total = customers.length;
+    const blacklisted = customers.filter(c => c.blacklisted).length;
+    const activeBorrowers = customers.filter(c => activeBorrowerIds.has(c.id)).length;
+    return `${total} registered · ${activeBorrowers} active borrowers · ${blacklisted} blacklisted`;
+  }, [customers, activeBorrowerIds]);
 
   const blacklist = c => {
     const upd = { ...c, blacklisted: true, blReason: 'Admin action' };
@@ -67,24 +64,33 @@ const CustomersTab = ({ customers, setCustomers, workers, loans, setLoans, payme
     setSel(null);
   };
   const [blConfirm, setBlConfirm] = useState(null);
+
+  const exportCols = [
+    { k: 'id', l: 'ID' },
+    { k: 'name', l: 'Name' },
+    { k: 'phone', l: 'Phone' },
+    { k: 'business', l: 'Business' },
+    { k: 'location', l: 'Location' },
+    { k: 'officer', l: 'Officer' },
+    { k: 'loans', l: 'Loans' },
+    { k: 'risk', l: 'Risk' },
+    { k: 'joined', l: 'Joined' }
+  ];
+
   return (
     <div className='fu'>
       {ContactPopup}
-      <div className='mob-stack' style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14, gap: 10 }}>
-        <div>
-          <div style={{ fontFamily: T.head, color: T.txt, fontSize: 20, fontWeight: 800 }}>👤 Customers</div>
-          <div style={{ color: T.muted, fontSize: 13, marginTop: 3 }}>
-            {custStats.total} registered ·{' '}
-            <span style={{ color: T.ok }}>{custStats.activeBorrowers} active borrowers</span> ·{' '}
-            <span style={{ color: T.danger }}>{custStats.blacklisted} blacklisted</span>
-          </div>
-        </div>
-        <RefreshBtn onRefresh={() => { setQ(''); setStatusFlt('All'); setSel(null); }} />
-      </div>
-      <div className='mob-stack' style={{ display: 'flex', gap: 10, marginBottom: 12, flexWrap: 'wrap', alignItems: 'center' }}>
-        <Search value={q} onChange={setQ} placeholder='Search name, phone or ID…' />
-        <Pills opts={STATUS_OPTS} val={statusFlt} onChange={setStatusFlt} />
-      </div>
+      
+      <ModuleHeader
+        title="👤 Customers"
+        stats={stats}
+        refreshProps={{ onRefresh: () => { setQ(''); setStatusFlt('All'); setSel(null); } }}
+        search={{ value: q, onChange: setQ, placeholder: 'Search name, phone or ID…' }}
+        dateRange={{ start: startDate, end: endDate, onStartChange: setStartDate, onEndChange: setEndDate, onSearch: applyFilter }}
+        exportProps={{ onExport: (fmt) => handleExport(fmt, 'Customer Report', exportCols) }}
+        pillsProps={{ opts: STATUS_OPTS, val: statusFlt, onChange: setStatusFlt }}
+      />
+
       <div style={{ marginTop: 4 }}>
         <Card>
           <DT

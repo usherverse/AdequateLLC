@@ -19,13 +19,23 @@ const DashboardTab = ({loans,setLoans,customers,setCustomers,payments,setPayment
   const [selLoan,setSelLoanRaw]=useState(null);
   const setSelLoan = (l) => { setSelLoanRaw(l); if(l) setTimeout(()=>{ try{scrollTop?.();}catch(e){} },10); };
   const setSelCust = (c) => onOpenCustomerProfile?.(c.id);
-  // FIX — memoize all expensive derived values in ADashboard. Previously these ran on
-  // every render; now they only recalculate when loans/payments/customers/workers change.
-  const dashDerived = useMemo(()=>{
+  const dashDerived = useMemo(() => {
+    const paidMap = payments.reduce((acc, p) => {
+      if (p.loanId) acc[p.loanId] = (acc[p.loanId] || 0) + p.amount;
+      return acc;
+    }, {});
+
+    const calcTrueDue = (l) => {
+      const paid = paidMap[l.id] || 0;
+      const baseInterest = Math.round((l.amount || 0) * 0.3);
+      const engine = calculateLoanStatus(l);
+      return Math.max(0, (l.amount || 0) + baseInterest + engine.interestAccrued + engine.penaltyAccrued - paid);
+    };
+
     const non    = loans.filter(l=>l.status!=="Settled");
-    const book   = non.reduce((s,l)=>s+l.balance,0);
+    const book   = non.reduce((s,l)=>s+calcTrueDue(l),0);
     const ovList = loans.filter(l=>l.status==="Overdue");
-    const ovAmt  = ovList.reduce((s,l)=>s+l.balance,0);
+    const ovAmt  = ovList.reduce((s,l)=>s+calcTrueDue(l),0);
     const coll   = payments.filter(p=>p.status==="Allocated").reduce((s,p)=>s+p.amount,0);
     const todayP = payments.filter(p=>p.date===now()).reduce((s,p)=>s+p.amount,0);
     const nc     = non.length||1;
@@ -39,13 +49,13 @@ const DashboardTab = ({loans,setLoans,customers,setCustomers,payments,setPayment
     const byType=["Daily","Weekly","Biweekly","Monthly","Lump Sum"].map(rt=>{
       const ls=loans.filter(l=>l.repaymentType===rt&&l.status!=="Settled");
       const paid=payments.filter(p=>ls.some(l=>l.id===p.loanId)).reduce((s,p)=>s+p.amount,0);
-      const balance=ls.reduce((s,l)=>s+l.balance,0);
+      const balance=ls.reduce((s,l)=>s+calcTrueDue(l),0);
       return {type:rt,count:ls.length,paid,balance};
     }).filter(x=>x.count>0);
     const todayStr = new Date().toLocaleDateString("en-KE",{weekday:"long",year:"numeric",month:"long",day:"numeric"});
-    return {non,book,ovList,ovAmt,coll,todayP,nc,par,collRate,locs,byType,todayStr};
-  },[loans,payments,customers,workers]);
-  const {non,book,ovList,ovAmt,coll,todayP,nc,par,collRate,locs,byType,todayStr} = dashDerived;
+    return {non,book,ovList,ovAmt,coll,todayP,nc,par,collRate,locs,byType,todayStr,calcTrueDue};
+  }, [loans, payments, customers, workers]);
+  const { non, book, ovList, ovAmt, coll, todayP, nc, par, collRate, locs, byType, todayStr, calcTrueDue } = dashDerived;
 
   // FIX — ClickName was a component defined inside ADashboard's render body.
   // Converted to a plain render function to avoid new-type-on-every-render remounting.
@@ -90,9 +100,9 @@ const DashboardTab = ({loans,setLoans,customers,setCustomers,payments,setPayment
       {/* KPI Row 1 */}
       <div className="kpi-row" style={{display:"flex",gap:10,marginBottom:10,flexWrap:"wrap"}}>
         <KPI label="Loan Book" icon="📈" value={fmtM(book)} color={T.accent} delay={1}
-          onClick={()=>setDrill({title:"All Active Loans",cols:[{k:"id",l:"ID",r:v=><span style={{color:T.accent,fontFamily:T.mono,fontSize:12}}>{v}</span>},{k:"customer",l:"Customer",r:(v,r)=>renderClickName({name:v,phone:custPhone(v)})},{k:"amount",l:"Principal",r:v=>fmt(v)},{k:"balance",l:"Balance",r:v=>fmt(v)},{k:"status",l:"Status",r:v=><Badge color={SC[v]||T.muted}>{v}</Badge>}],rows:non})}/>
+          onClick={()=>setDrill({title:"All Active Loans",cols:[{k:"id",l:"ID",r:v=><span style={{color:T.accent,fontFamily:T.mono,fontSize:12}}>{v}</span>},{k:"customer",l:"Customer",r:(v,r)=>renderClickName({name:v,phone:custPhone(v)})},{k:"amount",l:"Principal",r:v=>fmt(v)},{k:"id",l:"True Due",r:(v,r)=><span style={{color:T.txt,fontWeight:700,fontFamily:T.mono}}>{fmt(calcTrueDue(r))}</span>},{k:"status",l:"Status",r:v=><Badge color={SC[v]||T.muted}>{v}</Badge>}],rows:non})}/>
         <KPI label="Overdue" icon="⚠️" value={fmtM(ovAmt)} color={T.danger} delay={2}
-          onClick={()=>setDrill({title:"Overdue Loans",cols:[{k:"id",l:"ID",r:v=><span style={{color:T.accent,fontFamily:T.mono,fontSize:12}}>{v}</span>},{k:"customer",l:"Customer",r:(v,r)=>renderClickName({name:v,phone:custPhone(v)})},{k:"balance",l:"Balance",r:v=>fmt(v)},{k:"daysOverdue",l:"Days",r:v=><span style={{color:T.danger,fontWeight:800}}>{v}d</span>},{k:"daysOverdue",l:"Total Due",r:(_,r)=>{const e=calculateLoanStatus(r);return <span style={{color:T.danger,fontFamily:T.mono}}>{fmt(e.totalAmountDue)}</span>;}}],rows:ovList})}/>
+          onClick={()=>setDrill({title:"Overdue Loans",cols:[{k:"id",l:"ID",r:v=><span style={{color:T.accent,fontFamily:T.mono,fontSize:12}}>{v}</span>},{k:"customer",l:"Customer",r:(v,r)=>renderClickName({name:v,phone:custPhone(v)})},{k:"id",l:"True Due",r:(v,r)=><span style={{color:T.danger,fontWeight:700,fontFamily:T.mono}}>{fmt(calcTrueDue(r))}</span>},{k:"daysOverdue",l:"Days",r:v=><span style={{color:T.danger,fontWeight:800}}>{v}d</span>},{k:"daysOverdue",l:"Status",r:(_,r)=>{const e=calculateLoanStatus(r);return <span style={{color:e.isFrozen?T.muted:T.danger,fontSize:11,fontWeight:700}}>{e.phase==='frozen'?'❄ Frozen':e.phase==='penalty'?'⚠ Penalty':'Interest'}</span>;}}],rows:ovList})}/>
         <KPI label="Collected Today" icon="✅" value={fmtM(todayP)} color={T.ok} delay={3}
           onClick={()=>setDrill({title:"Today\'s Payments",cols:[{k:"id",l:"Pay ID"},{k:"customer",l:"Customer",r:(v,r)=>renderClickName({name:v,phone:custPhone(v)})},{k:"amount",l:"Amount",r:v=><span style={{color:T.ok,fontFamily:T.mono,fontWeight:700}}>{fmt(v)}</span>},{k:"mpesa",l:"M-Pesa"},{k:"status",l:"Status",r:v=><Badge color={SC[v]||T.muted}>{v}</Badge>}],rows:payments.filter(p=>p.date===now())})}/>
         <KPI label="Collection Rate" icon="📊" value={`${collRate}%`} color={T.ok} delay={4}
@@ -106,9 +116,9 @@ const DashboardTab = ({loans,setLoans,customers,setCustomers,payments,setPayment
         <KPI label="Customers" icon="👤" value={customers.length} delay={2}
           onClick={()=>setDrill({title:"All Customers",cols:[{k:"id",l:"ID",r:v=><span style={{color:T.accent,fontFamily:T.mono,fontSize:12}}>{v}</span>},{k:"name",l:"Name",r:(v,r)=>renderClickName({name:v,phone:r.phone})},{k:"business",l:"Business"},{k:"location",l:"Location"},{k:"risk",l:"Risk",r:v=><Badge color={RC[v]}>{v}</Badge>}],rows:customers})}/>
         <KPI label="PAR 7" icon="⚠️" value={`${par(7)}%`} color={+par(7)>10?T.danger:T.warn} delay={3}
-          onClick={()=>setDrill({title:"Loans Overdue 7+ Days",cols:[{k:"id",l:"ID",r:v=><span style={{color:T.accent,fontFamily:T.mono,fontSize:12}}>{v}</span>},{k:"customer",l:"Customer",r:(v,r)=>renderClickName({name:v,phone:custPhone(v)})},{k:"balance",l:"Balance",r:v=>fmt(v)},{k:"daysOverdue",l:"Days",r:v=><span style={{color:T.danger,fontWeight:800}}>{v}d</span>}],rows:loans.filter(l=>l.daysOverdue>=7)})}/>
+          onClick={()=>setDrill({title:"Loans Overdue 7+ Days",cols:[{k:"id",l:"ID",r:v=><span style={{color:T.accent,fontFamily:T.mono,fontSize:12}}>{v}</span>},{k:"customer",l:"Customer",r:(v,r)=>renderClickName({name:v,phone:custPhone(v)})},{k:"id",l:"True Due",r:(v,r)=>fmt(calcTrueDue(r))},{k:"daysOverdue",l:"Days",r:v=><span style={{color:T.danger,fontWeight:800}}>{v}d</span>}],rows:loans.filter(l=>l.daysOverdue>=7)})}/>
         <KPI label="PAR 30" icon="🔴" value={`${par(30)}%`} color={+par(30)>5?T.danger:T.ok} delay={4}
-          onClick={()=>setDrill({title:"Loans Overdue 30+ Days",cols:[{k:"id",l:"ID",r:v=><span style={{color:T.accent,fontFamily:T.mono,fontSize:12}}>{v}</span>},{k:"customer",l:"Customer",r:(v,r)=>renderClickName({name:v,phone:custPhone(v)})},{k:"balance",l:"Balance",r:v=>fmt(v)},{k:"daysOverdue",l:"Days",r:v=><span style={{color:T.danger,fontWeight:800,fontFamily:T.mono}}>{v}d</span>},{k:"status",l:"Phase",r:(_,r)=>{const e=calculateLoanStatus(r);return <span style={{color:e.isFrozen?T.purple:T.danger,fontSize:11,fontWeight:700}}>{e.phase==='frozen'?'❄ Frozen':e.phase==='penalty'?'⚠ Penalty':'Interest'}</span>;}}],rows:loans.filter(l=>l.daysOverdue>=30)})}/>
+          onClick={()=>setDrill({title:"Loans Overdue 30+ Days",cols:[{k:"id",l:"ID",r:v=><span style={{color:T.accent,fontFamily:T.mono,fontSize:12}}>{v}</span>},{k:"customer",l:"Customer",r:(v,r)=>renderClickName({name:v,phone:custPhone(v)})},{k:"id",l:"True Due",r:(v,r)=>fmt(calcTrueDue(r))},{k:"daysOverdue",l:"Days",r:v=><span style={{color:T.danger,fontWeight:800,fontFamily:T.mono}}>{v}d</span>},{k:"status",l:"Phase",r:(_,r)=>{const e=calculateLoanStatus(r);return <span style={{color:e.isFrozen?T.purple:T.danger,fontSize:11,fontWeight:700}}>{e.phase==='frozen'?'❄ Frozen':e.phase==='penalty'?'⚠ Penalty':'Interest'}</span>;}}],rows:loans.filter(l=>l.daysOverdue>=30)})}/>
       </div>
 
       {/* Live Chart */}

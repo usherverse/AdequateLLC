@@ -9,17 +9,51 @@ import { T, SC, RC, SFX, Card, CH, KPI, DT, Btn, Badge, Av, Bar, BackBtn, Refres
   toSupabaseLoan, toSupabaseCustomer, toSupabasePayment, toSupabaseInteraction, toSupabaseLead,
   sbUploadDoc,
   generateLoanAgreementHTML, generateAssetListHTML, downloadLoanDoc,
-  useContactPopup, useToast, useReminders, useModalLock } from '@/lms-common';
+  useContactPopup, useToast, useReminders, useModalLock,
+  ModuleHeader
+} from '@/lms-common';
+import { useModuleFilter } from '@/hooks/useModuleFilter';
 
 
-const LeadsTab = ({leads,setLeads,workers,customers,setCustomers,addAudit,isWorker,currentWorker,showToast=()=>{}}) => {
+const LeadsTab = ({leads,setLeads,workers,customers,setCustomers,loans,addAudit,isWorker,currentWorker,showToast=()=>{}}) => {
   const [showNew,setShowNew]=useState(false);
-  const [leadQ,setLeadQ]=useState('');
   const [conv,setConv]=useState(null);
   const [f,setF]=useState({name:'',phone:'',business:'',location:'',source:'Referral',officer:currentWorker?.name||''});
   const [showVal,setShowVal]=useState(false);
-  const stages=['New','Contacted','Interested','Onboarded','Not Interested'];
-  const stageC={New:T.muted,Contacted:T.warn,Interested:T.accent,Onboarded:T.ok,'Not Interested':T.danger};
+  const stages=['New','Contacted','Interested','New Customer','Not Interested'];
+  const stageC={New:T.muted,Contacted:T.warn,Interested:T.accent,'New Customer':T.ok,'Not Interested':T.danger};
+
+  const filteredLeads = useMemo(() => {
+    return leads.filter(l => {
+      // Find customer by phone (robust matching: last 9 digits)
+      const lp = (l.phone || '').replace(/\D/g, '').slice(-9);
+      if (!lp) return true;
+      const cust = customers.find(c => (c.phone || '').replace(/\D/g, '').slice(-9) === lp);
+      if (!cust) return true;
+      // If customer has any loan at all, consider them "converted" and remove from lead view
+      return !loans.some(loan => loan.customerId === cust.id);
+    });
+  }, [leads, customers, loans]);
+
+  const {
+    q, setQ, startDate, setStartDate, endDate, setEndDate, applyFilter,
+    filtered, handleExport
+  } = useModuleFilter({
+    data: filteredLeads,
+    initialTab: 'All',
+    dateKey: 'date',
+    searchFields: ['id', 'name', 'phone', 'business', 'location', 'source', 'officer'],
+    reportId: 'leads',
+    showToast,
+    addAudit,
+    initialStartDate: '2024-01-01'
+  });
+
+  const stats = useMemo(() => {
+    const total = filteredLeads.length;
+    const hot = filteredLeads.filter(l => l.status === 'Interested').length;
+    return `${total} leads · ${hot} hot`;
+  }, [filteredLeads]);
 
   const addLead=()=>{
     const missing=[];
@@ -34,7 +68,7 @@ const LeadsTab = ({leads,setLeads,workers,customers,setCustomers,addAudit,isWork
     setShowNew(false);
     setF({name:'',phone:'',business:'',location:'',source:'Referral',officer:currentWorker?.name||''});
   };
-  const VALID_TRANSITIONS={New:['Contacted','Not Interested'],Contacted:['Interested','Not Interested'],Interested:['Onboarded','Not Interested']};
+  const VALID_TRANSITIONS={New:['Contacted','Not Interested'],Contacted:['Interested','Not Interested'],Interested:['New Customer','Not Interested']};
   const mv=(lead,status)=>{
     const allowed=VALID_TRANSITIONS[lead.status]||[];
     if(!allowed.includes(status)){showToast('⚠ Invalid lead stage transition','warn');return;}
@@ -45,7 +79,6 @@ const LeadsTab = ({leads,setLeads,workers,customers,setCustomers,addAudit,isWork
     showToast(`Lead moved to ${status}`,'info');
   };
   const doConvert = async cust => {
-    // ── Duplicate guard ──────────────────────────────────────
     const phoneTaken = customers && customers.some(c=>c.phone&&cust.phone&&c.phone.replace(/\s/g,'')===cust.phone.replace(/\s/g,''));
     const idTaken    = customers && cust.idNo && customers.some(c=>c.idNo&&c.idNo.trim()===cust.idNo.trim());
     if(phoneTaken){
@@ -61,7 +94,6 @@ const LeadsTab = ({leads,setLeads,workers,customers,setCustomers,addAudit,isWork
     setCustomers(cs=>[cust,...cs]);
     sbInsert('customers',toSupabaseCustomer(cust));
 
-    // -- Upload Sync --
     if(cust.docs && cust.docs.length > 0){
       showToast(`📤 Syncing ${cust.docs.length} documents...`,'info');
       for(const d of cust.docs){
@@ -70,7 +102,7 @@ const LeadsTab = ({leads,setLeads,workers,customers,setCustomers,addAudit,isWork
       }
     }
 
-    const convUpd={...conv,status:'Onboarded'};
+    const convUpd={...conv,status:'New Customer'};
     setLeads(ls=>ls.map(l=>l.id===conv.id?convUpd:l));
     sbWrite('leads',toSupabaseLead(convUpd));
     addAudit('Lead Converted',conv.id,`→ Customer ${cust.id}`);
@@ -78,18 +110,40 @@ const LeadsTab = ({leads,setLeads,workers,customers,setCustomers,addAudit,isWork
     setConv(null);
   };
 
+  const exportCols = [
+    { k: 'id', l: 'ID' },
+    { k: 'name', l: 'Name' },
+    { k: 'phone', l: 'Phone' },
+    { k: 'business', l: 'Business' },
+    { k: 'location', l: 'Location' },
+    { k: 'source', l: 'Source' },
+    { k: 'status', l: 'Status' },
+    { k: 'officer', l: 'Officer' },
+    { k: 'date', l: 'Date' }
+  ];
+
   return (
     <div className='fu'>
       {showVal&&<ValidationPopup fields={showVal} onClose={()=>setShowVal(false)}/>}
-      <div className='mob-stack' style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:18,gap:10}}>
-        <div><div style={{fontFamily:T.head,color:T.txt,fontSize:20,fontWeight:800}}>🎯 Lead Pipeline</div><div style={{color:T.muted,fontSize:13,marginTop:3}}>{leads.length} leads · {leads.filter(l=>l.status==='Interested').length} hot</div></div>
-        <div style={{display:'flex',gap:8}}><RefreshBtn onRefresh={()=>{ setLeadQ(''); setConv(null); }}/><Btn onClick={()=>setShowNew(true)}>+ Add Lead</Btn></div>
+      
+      <ModuleHeader
+        title="🎯 Lead Pipeline"
+        stats={stats}
+        refreshProps={{ onRefresh: () => { setQ(''); setConv(null); } }}
+        search={{ value: q, onChange: setQ, placeholder: 'Search leads…' }}
+        dateRange={{ start: startDate, end: endDate, onStartChange: setStartDate, onEndChange: setEndDate, onSearch: applyFilter }}
+        exportProps={{ onExport: (fmt) => handleExport(fmt, 'Lead Report', exportCols) }}
+      />
+      
+      <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 12 }}>
+        <Btn onClick={() => setShowNew(true)}>+ Add Lead</Btn>
       </div>
-      <div style={{marginBottom:10}}><Search value={leadQ} onChange={setLeadQ} placeholder='Search leads…'/></div>
+
       <div style={{display:'flex',gap:9,overflowX:'auto',overflowY:'hidden',paddingBottom:6,marginBottom:18,flexWrap:'nowrap'}}
         className='lead-pipeline'>
         {stages.map(stage=>{
-          const sl=leads.filter(l=>l.status===stage&&(!leadQ||l.name.toLowerCase().includes(leadQ.toLowerCase())||l.phone.includes(leadQ)));
+          let sl = filtered.filter(l => l.status === stage);
+          
           return (
             <div key={stage} style={{minWidth:175,background:T.card,border:`1px solid ${T.border}`,borderRadius:12,padding:11,flexShrink:0}}>
               <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:9}}>
