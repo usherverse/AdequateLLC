@@ -19,11 +19,11 @@ export function AuthProvider({ children }) {
   const loadWorker = useCallback(async (userId, userEmail) => {
     if (!supabase) return;
 
-    // Try auth_user_id first (fast, index-backed), then email fallback
+    // The workers table uses 'id' (UUID) as the primary key and reference to auth.users(id)
     let { data, error } = await supabase
       .from('workers')
       .select('*')
-      .or(`auth_user_id.eq.${userId},email.eq.${userEmail}`)
+      .or(`id.eq.${userId},email.eq.${userEmail}`)
       .single();
 
     if (error) {
@@ -31,19 +31,7 @@ export function AuthProvider({ children }) {
       return;
     }
 
-    // Backfill auth_user_id if the column was empty — makes RLS auth.uid() work
-    if (data && !data.auth_user_id) {
-      supabase
-        .from('workers')
-        .update({ auth_user_id: userId })
-        .eq('id', data.id)
-        .then(({ error: updErr }) => {
-          if (updErr) console.error('[AuthContext] backfill auth_user_id:', updErr.message);
-        });
-      // Optimistically update local copy too
-      data = { ...data, auth_user_id: userId };
-    }
-
+    // Set the worker profile state
     setWorker(data);
   }, []);
 
