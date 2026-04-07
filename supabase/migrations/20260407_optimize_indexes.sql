@@ -1,8 +1,9 @@
 -- LMS Database Performance Optimization (2026-04-07)
 -- Targeted indexing for high-frequency queries and egress-optimized views
+CREATE EXTENSION IF NOT EXISTS pg_trgm;
 
 -- 1. Index for Audit Logs (Ordered by timestamp)
-CREATE INDEX IF NOT EXISTS idx_audit_logs_ts_desc ON public.audit_logs (ts DESC);
+CREATE INDEX IF NOT EXISTS idx_audit_log_ts_desc ON public.audit_log (ts DESC);
 
 -- 2. Composite indexes for Customer searching and listing
 -- This speeds up the .or() filter on ilike fields and the default created_at ordering
@@ -19,9 +20,10 @@ CREATE INDEX IF NOT EXISTS idx_loans_customer_id ON public.loans (customer_id);
 
 -- 4. Payments Hub & Registration Fees
 -- Speed up customer lookups and recent transaction audits
-CREATE INDEX IF NOT EXISTS idx_transactions_customer_id ON public.transactions (customer_id);
+CREATE INDEX IF NOT EXISTS idx_payments_customer_id ON public.payments (customer_id);
 CREATE INDEX IF NOT EXISTS idx_reg_fees_customer_id ON public.registration_fees (customer_id);
 CREATE INDEX IF NOT EXISTS idx_reg_fees_status ON public.registration_fees (status);
 
 -- 5. Workers & Auth
-CREATE INDEX IF NOT EXISTS idx_workers_auth_user_id ON public.workers (auth_user_id);
+-- id is already PK (indexed), but explicit for clarity or secondary joins if needed
+CREATE INDEX IF NOT EXISTS idx_workers_id_uuid ON public.workers (id);
