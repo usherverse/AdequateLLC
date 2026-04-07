@@ -8,6 +8,15 @@ import React, {
   memo,
 } from "react";
 import {
+  Search as SearchIcon, ChevronLeft, RotateCcw, User, ShieldCheck, 
+  AlertCircle, CheckCircle, Info, Clock, MoreHorizontal,
+  ArrowUpRight, ArrowRight, Download, Upload, Send, 
+  CreditCard, LayoutDashboard, Users, UserPlus, 
+  Settings, LogOut, Calendar, BarChart3, HelpCircle, 
+  Phone, Mail, MapPin, Briefcase, FileText, Check, X,
+  Database
+} from "lucide-react";
+import {
   _hashPw,
   _checkPw,
   SEED_WORKERS,
@@ -203,7 +212,7 @@ export const useToast = () => {
 
 export const Styles = () => (
   <style>{`
-    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap');
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=Outfit:wght@400;500;600;700;800;900&display=swap');
     *{box-sizing:border-box;margin:0;padding:0}
     /* v1.7.2 UX — skip link */
     .skip-link{position:absolute;top:-999px;left:8px;background:#00D4AA;color:#060A10;padding:6px 14px;border-radius:0 0 8px 8px;font-weight:700;font-size:13px;z-index:999999;text-decoration:none;}
@@ -215,7 +224,68 @@ export const Styles = () => (
     button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible{outline:2px solid #00D4AA;outline-offset:2px;}
     /* v1.7.2 UX — remove outline only for mouse users */
     :focus:not(:focus-visible){outline:none;}
-    html,body{background:#080C14;font-family:-apple-system,BlinkMacSystemFont,'Inter','SF Pro Display','Helvetica Neue',Arial,sans-serif;min-height:100%;overflow-x:hidden;-webkit-font-smoothing:antialiased;scrollbar-gutter:stable}
+
+    :root {
+      --bg: #F8FAFC;
+      --surface: #F1F5F9;
+      --card: #FFFFFF;
+      --card2: #E2E8F0;
+      --border: #E2E8F0;
+      --hi: #CBD5E1;
+      --accent: #00D4AA;
+      --a-lo: #00D4AA0D;
+      --a-mid: #00D4AA25;
+      --gold: #F5C518;
+      --g-lo: #F5C5180D;
+      --warn: #F59E0B;
+      --w-lo: #F59E0B0D;
+      --danger: #EF4444;
+      --d-lo: #EF44440D;
+      --ok: #10B981;
+      --o-lo: #10B9810D;
+      --blue: #3B82F6;
+      --b-lo: #3B82F60D;
+      --purple: #8B5CF6;
+      --p-lo: #8B5CF60D;
+      --txt: #0F172A;
+      --dim: #475569;
+      --muted: #94A3B8;
+      --glass-bg: rgba(255, 255, 255, 0.72);
+      --glass-border: rgba(226, 232, 240, 0.6);
+      --glass-blur: 10px;
+    }
+
+    [data-theme='dark'] {
+      --bg: #0B0F17;
+      --surface: #121826;
+      --card: #1A2234;
+      --card2: #242D42;
+      --border: #2D3748;
+      --hi: #4A5568;
+      --accent: #00D4AA;
+      --a-lo: #00D4AA15;
+      --a-mid: #00D4AA30;
+      --gold: #F5C518;
+      --g-lo: #F5C51815;
+      --warn: #F59E0B;
+      --w-lo: #F59E0B15;
+      --danger: #EF4444;
+      --d-lo: #EF444415;
+      --ok: #10B981;
+      --o-lo: #10B98115;
+      --blue: #3B82F6;
+      --b-lo: #3B82F615;
+      --purple: #8B5CF6;
+      --p-lo: #8B5CF615;
+      --txt: #F1F5F9;
+      --dim: #94A3B8;
+      --muted: #64748B;
+      --glass-bg: var(--card);
+      --glass-border: var(--border);
+      --glass-blur: 0px;
+    }
+
+    html,body{background:var(--bg);color:var(--txt);font-family:-apple-system,BlinkMacSystemFont,'Inter','SF Pro Display','Helvetica Neue',Arial,sans-serif;min-height:100%;overflow-x:hidden;-webkit-font-smoothing:antialiased;scrollbar-gutter:stable}
     /* v1.7.1 — body scroll lock applied by useModalLock while any overlay is open */
     body.modal-open{overflow:hidden!important;position:fixed;width:100%;}
     /* Lock the inner AdminPanel scroll container when any modal is open */
@@ -227,20 +297,20 @@ export const Styles = () => (
     .dt-shell{overflow-y:auto;overflow-x:auto;-webkit-overflow-scrolling:touch;}
     .dt-shell table{min-width:520px;width:100%;border-collapse:collapse;font-size:13px;}
     /* v1.7.1 — sticky thead inside dt-shell */
-    .dt-shell thead th{position:sticky;top:0;z-index:2;background:#111827;}
-    ::-webkit-scrollbar{width:5px;height:5px}
-    ::-webkit-scrollbar-track{background:#0D1117}
-    ::-webkit-scrollbar-thumb{background:#1E2D45;border-radius:99px}
+    .dt-shell thead th{position:sticky;top:0;z-index:2;background:var(--surface);border-bottom:1px solid var(--border);}
+    ::-webkit-scrollbar{width:6px;height:6px}
+    ::-webkit-scrollbar-track{background:var(--surface)}
+    ::-webkit-scrollbar-thumb{background:var(--hi);border-radius:99px}
     input,select,textarea,button{font-family:-apple-system,BlinkMacSystemFont,'Inter','SF Pro Display','Helvetica Neue',Arial,sans-serif;-webkit-font-smoothing:antialiased}
     input:-webkit-autofill,input:-webkit-autofill:hover,input:-webkit-autofill:focus,input:-webkit-autofill:active{
-      -webkit-box-shadow:0 0 0 1000px #0D1117 inset!important;
-      -webkit-text-fill-color:#E2E8F0!important;
-      box-shadow:0 0 0 1000px #0D1117 inset!important;
-      color:#E2E8F0!important;
-      background-color:#0D1117!important;
-      caret-color:#E2E8F0!important;
+      -webkit-box-shadow:0 0 0 1000px var(--surface) inset!important;
+      -webkit-text-fill-color:var(--txt)!important;
+      box-shadow:0 0 0 1000px var(--surface) inset!important;
+      color:var(--txt)!important;
+      background-color:var(--surface)!important;
+      caret-color:var(--txt)!important;
     }
-    input[type=password]{color:#E2E8F0!important;background:#0D1117!important;-webkit-text-fill-color:#E2E8F0!important;}
+    input[type=password]{color:var(--txt)!important;background:var(--card)!important;-webkit-text-fill-color:var(--txt)!important;}
 
     @keyframes fadeUp{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:translateY(0)}}
     @keyframes fadeIn{from{opacity:0}to{opacity:1}}
@@ -262,35 +332,48 @@ export const Styles = () => (
     .dialog-backdrop{animation:blurIn .2s ease both}
     .toast-enter{animation:slideUp .28s cubic-bezier(.22,1,.36,1) both}
 
-    .nb:hover{background:#00D4AA18!important;color:#00D4AA!important}
-    .row-hover:hover{background:#00D4AA08;transition:background .15s}
+    .nb:hover{background:var(--a-lo)!important;color:var(--accent)!important}
+    .row-hover:hover{background:var(--surface);transition:background .15s}
     .shake{animation:shake .35s ease}
 
-    button{transition:opacity .15s,background .18s,color .15s,border-color .15s,box-shadow .18s}
-    button:not(:disabled):active{transform:scale(.97)}
-    .kpi-btn{cursor:pointer;transition:transform .2s cubic-bezier(.22,1,.36,1),box-shadow .2s}
-    .kpi-btn:hover{transform:translateY(-3px);box-shadow:0 10px 28px #00000055}
-    select option{background:#111827;color:#E2E8F0}
+    button, .btn-modern{transition:all .2s cubic-bezier(0.2, 0.8, 0.2, 1)}
+    button:not(:disabled):active{transform:scale(.96)}
+    .kpi-btn{cursor:pointer;transition:all .25s cubic-bezier(0.2, 0.8, 0.2, 1)}
+    .kpi-btn:hover{transform:translateY(-4px);box-shadow:0 12px 30px rgba(0,0,0,0.06)}
+    
+    input,select,textarea{
+      background: var(--card)!important;
+      border: 1px solid var(--border)!important;
+      color: var(--txt)!important;
+      border-radius: 8px!important;
+      transition: border-color .2s, box-shadow .2s!important;
+    }
+    input:focus,select:focus,textarea:focus{
+      border-color: var(--accent)!important;
+      box-shadow: 0 0 0 3px var(--a-mid)!important;
+      outline: none!important;
+    }
+    select option{background:var(--card);color:var(--txt)}
 
     /* ── Apple-like hover/click animations ── */
     .sfx-card{transition:transform .18s cubic-bezier(.22,1,.36,1),box-shadow .18s,border-color .22s,background .18s}
     .sfx-card:hover{transform:translateY(-2px) scale(1.01);box-shadow:0 8px 28px rgba(0,0,0,0.35)}
     .sfx-card:active{transform:scale(.98)}
     .sec-event{transition:background .15s,border-color .2s,transform .18s cubic-bezier(.22,1,.36,1)}
-    .sec-event:hover{background:#00D4AA0D!important;border-color:#00D4AA40!important;transform:translateX(3px)}
+    .sec-event:hover{background:var(--a-lo)!important;border-color:var(--a-mid)!important;transform:translateX(3px)}
     .sec-event:active{transform:scale(.98)}
     .audit-row{transition:background .12s}
-    .audit-row:hover{background:#00D4AA08!important;cursor:pointer}
+    .audit-row:hover{background:var(--a-lo)!important;cursor:pointer}
     @keyframes expandDown{from{opacity:0;transform:scaleY(0);transform-origin:top}to{opacity:1;transform:scaleY(1);transform-origin:top}}
     @keyframes collapseUp{from{opacity:1;transform:scaleY(1);transform-origin:top}to{opacity:0;transform:scaleY(0);transform-origin:top}}
     .expand-in{animation:expandDown .22s cubic-bezier(.22,1,.36,1) both}
     @keyframes popIn{from{opacity:0;transform:scale(.88) translateY(8px)}to{opacity:1;transform:scale(1) translateY(0)}}
     .pop-in{animation:popIn .24s cubic-bezier(.22,1,.36,1) both}
-    .back-btn{transition:background .15s,color .15s,transform .15s;display:inline-flex;align-items:center;gap:6px;background:transparent;border:1px solid #1A2740;color:#64748B;border-radius:9px;padding:6px 13px;font-size:13px;font-weight:600;cursor:pointer}
-    .back-btn:hover{background:#1A274030;color:#E2E8F0;transform:translateX(-2px)}
+    .back-btn{transition:all .15s;display:inline-flex;align-items:center;gap:6px;background:transparent;border:1px solid var(--border);color:var(--dim);border-radius:9px;padding:6px 13px;font-size:13px;font-weight:600;cursor:pointer}
+    .back-btn:hover{background:var(--surface);color:var(--txt);transform:translateX(-2px)}
     .back-btn:active{transform:scale(.96)}
-    .refresh-btn{transition:background .15s,color .15s,transform .15s;display:inline-flex;align-items:center;gap:6px;background:transparent;border:1px solid #1A2740;color:#64748B;border-radius:9px;padding:6px 13px;font-size:13px;font-weight:600;cursor:pointer}
-    .refresh-btn:hover{background:#00D4AA18;color:#00D4AA;border-color:#00D4AA40}
+    .refresh-btn{transition:all .15s;display:inline-flex;align-items:center;gap:6px;background:transparent;border:1px solid var(--border);color:var(--dim);border-radius:9px;padding:6px 13px;font-size:13px;font-weight:600;cursor:pointer}
+    .refresh-btn:hover{background:var(--a-lo);color:var(--accent);border-color:var(--a-mid)}
     .refresh-btn svg{transition:transform .7s cubic-bezier(.22,1,.36,1)}
 
     @media(max-width:900px){
@@ -313,17 +396,17 @@ export const Styles = () => (
       .lead-pipeline>div{min-width:0!important;width:100%!important}
 
       /* Mobile form fixes — ensure all text/labels are visible */
-      label{color:#94A3B8!important;font-size:11px!important}
+      label{color:var(--muted)!important;font-size:11px!important}
       input,select,textarea{
-        color:#E2E8F0!important;
-        background:#0D1117!important;
-        border-color:#1A2740!important;
+        color:var(--txt)!important;
+        background:var(--card)!important;
+        border-color:var(--border)!important;
         font-size:16px!important;
-        -webkit-text-fill-color:#E2E8F0!important;
+        -webkit-text-fill-color:var(--txt)!important;
         opacity:1!important;
       }
-      input::placeholder{color:#4B5563!important;-webkit-text-fill-color:#4B5563!important}
-      input:focus,select:focus,textarea:focus{border-color:#00D4AA!important;outline:none!important}
+      input::placeholder{color:var(--muted)!important;-webkit-text-fill-color:var(--muted)!important}
+      input:focus,select:focus,textarea:focus{border-color:var(--accent)!important;outline:none!important}
       /* dialog-backdrop already uses flex-start */
       /* Ensure grid form fields go full width on mobile */
       [style*="gridTemplateColumns"]{grid-template-columns:1fr!important}
@@ -392,33 +475,33 @@ export const Styles = () => (
 );
 
 export const T = {
-  bg: "#080C14",
-  surface: "#0D1117",
-  card: "#111827",
-  card2: "#141E2E",
-  border: "#1A2740",
-  hi: "#243550",
-  accent: "#00D4AA",
-  aLo: "#00D4AA12",
-  aMid: "#00D4AA30",
-  gold: "#F5C518",
-  gLo: "#F5C51812",
-  warn: "#F59E0B",
-  wLo: "#F59E0B12",
-  danger: "#EF4444",
-  dLo: "#EF444412",
-  ok: "#10B981",
-  oLo: "#10B98112",
-  blue: "#3B82F6",
-  bLo: "#3B82F612",
-  purple: "#8B5CF6",
-  pLo: "#8B5CF612",
-  txt: "#E2E8F0",
-  dim: "#94A3B8",
-  muted: "#64748B",
+  bg: "var(--bg)",
+  surface: "var(--surface)",
+  card: "var(--card)",
+  card2: "var(--card2)",
+  border: "var(--border)",
+  hi: "var(--hi)",
+  accent: "var(--accent)",
+  aLo: "var(--a-lo)",
+  aMid: "var(--a-mid)",
+  gold: "var(--gold)",
+  gLo: "var(--g-lo)",
+  warn: "var(--warn)",
+  wLo: "var(--w-lo)",
+  danger: "var(--danger)",
+  dLo: "var(--d-lo)",
+  ok: "var(--ok)",
+  oLo: "var(--o-lo)",
+  blue: "var(--blue)",
+  bLo: "var(--b-lo)",
+  purple: "var(--purple)",
+  pLo: "var(--p-lo)",
+  txt: "var(--txt)",
+  dim: "var(--dim)",
+  muted: "var(--muted)",
   mono: "'SF Mono','Fira Code','Fira Mono','Roboto Mono',monospace",
-  head: "-apple-system,BlinkMacSystemFont,'Inter','SF Pro Display','Helvetica Neue',sans-serif",
-  body: "-apple-system,BlinkMacSystemFont,'Inter','SF Pro Text','Helvetica Neue',sans-serif",
+  head: "'Outfit',-apple-system,BlinkMacSystemFont,sans-serif",
+  body: "'Inter',-apple-system,BlinkMacSystemFont,sans-serif",
 };
 export const RC = {
   Low: T.ok,
@@ -581,6 +664,19 @@ export const calculateLoanStatus = (loan, asOfDate, paid) => {
     amountPaid,
     principal: amount
   };
+};
+
+/**
+ * hasRegFee(customer, payments)
+ * ─────────────────────────────
+ * Central logic for checking if a customer is eligible for disbursement.
+ */
+export const hasRegFee = (cust, payments = []) => {
+  if (!cust) return false;
+  // Repeat customers (loans > 0) don't need a new fee
+  if (cust.loans > 0) return true;
+  // Search payments Ledger for isRegFee flag
+  return payments.some(p => p.customerId === cust.id && p.isRegFee);
 };
 export const calcP = (bal, d, amount = 0) => {
   const stub = {
@@ -1046,19 +1142,25 @@ export const checkPwAsync = async (raw, stored) => {
 // ═══════════════════════════════════════════
 //  UI ATOMS
 // ═══════════════════════════════════════════
-export const Badge = ({ children, color = T.muted }) => (
+export const Badge = ({ children, color = T.muted, icon: Icon }) => (
   <span
     style={{
-      background: color + "1E",
+      background: color + "1A", // Reduced opacity for soft light
       color,
-      border: `1px solid ${color}38`,
-      padding: "2px 9px",
+      border: `1px solid ${color}33`,
+      padding: "3px 10px",
       borderRadius: 99,
-      fontSize: 11,
-      fontWeight: 700,
+      fontSize: 10,
+      fontWeight: 800,
+      textTransform: "uppercase",
+      letterSpacing: "0.04em",
       whiteSpace: "nowrap",
+      display: "inline-flex",
+      alignItems: "center",
+      gap: 4,
     }}
   >
+    {Icon && <Icon size={12} strokeWidth={2.5} />}
     {children}
   </span>
 );
@@ -1067,20 +1169,21 @@ export const Av = ({ ini, size = 36, color = T.accent }) => (
     style={{
       width: size,
       height: size,
-      borderRadius: 99,
-      background: color + "20",
-      border: `2px solid ${color}50`,
+      borderRadius: 12, // Modern squircle
+      background: color + "15",
+      border: `1px solid ${color}25`,
       display: "flex",
       alignItems: "center",
       justifyContent: "center",
       color,
-      fontWeight: 900,
-      fontSize: size * 0.35,
+      fontWeight: 800,
+      fontSize: size * 0.4,
       fontFamily: T.head,
       flexShrink: 0,
+      boxShadow: `0 2px 8px ${color}10`,
     }}
   >
-    {ini}
+    {ini || <User size={size * 0.6} />}
   </div>
 );
 export const Bar = ({ value, max = 100, color = T.accent }) => (
@@ -1103,7 +1206,7 @@ export const Bar = ({ value, max = 100, color = T.accent }) => (
     />
   </div>
 );
-export const KPI = ({ label, value, sub, color, delay = 0, onClick, icon }) => {
+export const KPI = ({ label, value, sub, color, delay = 0, onClick, icon: Icon }) => {
   const [hov, setHov] = useState(false);
   const c = color || T.accent;
   return (
@@ -1114,94 +1217,33 @@ export const KPI = ({ label, value, sub, color, delay = 0, onClick, icon }) => {
       onMouseLeave={() => setHov(false)}
       style={{
         flex: 1,
-        minWidth: 130,
+        minWidth: 140,
         position: "relative",
         overflow: "hidden",
-        background: hov ? T.card2 : T.card,
+        background: hov ? "var(--glass-bg)" : "var(--glass-bg)",
+        opacity: hov ? 1 : 0.85,
+        backdropFilter: "var(--glass-blur)",
+        WebkitBackdropFilter: "var(--glass-blur)",
         borderRadius: 16,
-        borderTop: `1px solid ${hov ? c + "55" : T.border}`,
-        borderRight: `1px solid ${hov ? c + "55" : T.border}`,
-        borderBottom: `1px solid ${hov ? c + "55" : T.border}`,
-        borderLeft: `3px solid ${c}`,
-        padding: "18px 16px 14px",
+        border: `1px solid ${hov ? c + "40" : "var(--glass-border)"}`,
+        borderLeft: `4px solid ${c}`,
+        padding: "20px 18px",
         cursor: onClick ? "pointer" : "default",
-        transition:
-          "border-color .2s,background .2s,transform .18s,box-shadow .2s",
-        transform: hov && onClick ? "translateY(-3px)" : "translateY(0)",
-        boxShadow:
-          hov && onClick
-            ? `0 8px 28px ${c}18,0 2px 8px rgba(0,0,0,0.3)`
-            : "0 1px 4px rgba(0,0,0,0.2)",
+        transition: "all .2s cubic-bezier(0.2, 0.8, 0.2, 1)",
+        transform: hov && onClick ? "translateY(-4px)" : "translateY(0)",
+        boxShadow: hov && onClick 
+          ? `0 12px 30px ${c}15, 0 4px 12px rgba(0,0,0,0.03)` 
+          : "0 2px 8px rgba(0,0,0,0.02)",
       }}
     >
-      {/* Background glow */}
-      <div
-        style={{
-          position: "absolute",
-          top: -20,
-          right: -20,
-          width: 80,
-          height: 80,
-          borderRadius: 99,
-          background: c + "0A",
-          pointerEvents: "none",
-          transition: "opacity .2s",
-          opacity: hov ? 1 : 0,
-        }}
-      />
-      {/* Header row */}
-      <div
-        style={{
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "flex-start",
-          marginBottom: 10,
-        }}
-      >
-        <div
-          style={{
-            color: T.muted,
-            fontSize: 10,
-            fontWeight: 700,
-            letterSpacing: 0.9,
-            textTransform: "uppercase",
-            lineHeight: 1.4,
-          }}
-        >
-          {label}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 12 }}>
+        <div style={{ color: T.dim, fontSize: 10.5, fontWeight: 700, letterSpacing: "0.05em", textTransform: "uppercase" }}>{label}</div>
+        <div style={{ color: c, opacity: hov ? 1 : 0.6, transition: "opacity .2s" }}>
+          {Icon ? <Icon size={18} strokeWidth={2.5} /> : (onClick && <ArrowUpRight size={16} strokeWidth={2.5} />)}
         </div>
-        {icon && <div style={{ fontSize: 16, opacity: 0.7 }}>{icon}</div>}
-        {!icon && onClick && (
-          <div
-            style={{
-              color: c,
-              fontSize: 10,
-              opacity: hov ? 1 : 0.4,
-              transition: "opacity .2s",
-              fontWeight: 700,
-            }}
-          >
-            ↗
-          </div>
-        )}
       </div>
-      {/* Value */}
-      <div
-        style={{
-          color: c,
-          fontSize: 22,
-          fontWeight: 900,
-          fontFamily: T.mono,
-          lineHeight: 1,
-          letterSpacing: -0.5,
-          marginBottom: sub ? 6 : 0,
-        }}
-      >
-        {value}
-      </div>
-      {sub && (
-        <div style={{ color: T.muted, fontSize: 11, marginTop: 4 }}>{sub}</div>
-      )}
+      <div style={{ color: T.txt, fontSize: 24, fontWeight: 800, fontFamily: T.head, lineHeight: 1.1, letterSpacing: "-0.02em", marginBottom: sub ? 6 : 0 }}>{value}</div>
+      {sub && <div style={{ color: T.muted, fontSize: 11.5, fontWeight: 500 }}>{sub}</div>}
     </div>
   );
 };
@@ -1209,12 +1251,12 @@ export const Card = ({ children, style: sx, className }) => (
   <div
     className={className}
     style={{
-      background: T.card,
-      borderTop: `1px solid ${T.border}`,
-      borderRight: `1px solid ${T.border}`,
-      borderBottom: `1px solid ${T.border}`,
-      borderLeft: `1px solid ${T.border}`,
-      borderRadius: 13,
+      background: "var(--glass-bg)",
+      backdropFilter: "var(--glass-blur)",
+      WebkitBackdropFilter: "var(--glass-blur)",
+      border: `1px solid var(--glass-border)`,
+      borderRadius: 16,
+      boxShadow: "0 4px 24px -1px rgba(0, 0, 0, 0.04), 0 2px 8px -1px rgba(0, 0, 0, 0.02)",
       ...sx,
     }}
   >
@@ -1227,26 +1269,15 @@ export const CH = ({ title, sub, right }) => (
       display: "flex",
       justifyContent: "space-between",
       alignItems: "center",
-      padding: "14px 18px",
-      borderBottom: `1px solid ${T.border}`,
+      padding: "16px 20px",
+      borderBottom: `1px solid var(--glass-border)`,
       flexWrap: "wrap",
-      gap: 8,
+      gap: 12,
     }}
   >
     <div>
-      <div
-        style={{
-          color: T.txt,
-          fontWeight: 700,
-          fontSize: 14,
-          fontFamily: T.head,
-        }}
-      >
-        {title}
-      </div>
-      {sub && (
-        <div style={{ color: T.muted, fontSize: 12, marginTop: 2 }}>{sub}</div>
-      )}
+      <div style={{ color: T.txt, fontWeight: 800, fontSize: 15, fontFamily: T.head, letterSpacing: "-0.01em" }}>{title}</div>
+      {sub && <div style={{ color: T.dim, fontSize: 12, marginTop: 3, fontWeight: 500 }}>{sub}</div>}
     </div>
     {right}
   </div>
@@ -1256,60 +1287,70 @@ export const Btn = ({
   v = "primary",
   onClick,
   disabled,
+  loading,
   sm,
   full,
+  icon: Icon,
   style: sx = {},
 }) => {
   const base = {
-    border: "none",
-    borderRadius: 9,
-    cursor: disabled ? "not-allowed" : "pointer",
-    fontFamily: T.body,
-    fontWeight: 700,
-    transition: "opacity .15s",
-    padding: sm ? "6px 12px" : "10px 17px",
-    fontSize: sm ? 12 : 14,
-    opacity: disabled ? 0.45 : 1,
+    border: "1px solid transparent",
+    borderRadius: 10,
+    cursor: (disabled || loading) ? "not-allowed" : "pointer",
+    fontFamily: T.head,
+    fontWeight: 600,
+    transition: "all .2s cubic-bezier(0.2, 0.8, 0.2, 1)",
+    padding: sm ? "6px 14px" : "11px 22px",
+    fontSize: sm ? 12 : 13.5,
+    opacity: (disabled || loading) ? 0.5 : 1,
     width: full ? "100%" : "auto",
     display: "inline-flex",
     alignItems: "center",
     justifyContent: "center",
-    gap: 6,
+    gap: 8,
+    letterSpacing: "-0.01em",
+    pointerEvents: (disabled || loading) ? "none" : "auto",
     ...sx,
   };
   const vs = {
-    primary: { background: T.accent, color: "#060A10" },
+    primary: { 
+      background: T.accent, 
+      color: "#FFFFFF",
+      boxShadow: `0 4px 12px ${T.accent}40`,
+    },
     secondary: {
-      background: T.card2,
+      background: "var(--glass-bg)",
       color: T.txt,
-      border: `1px solid ${T.border}`,
+      border: `1px solid var(--glass-border)`,
+      backdropFilter: "var(--glass-blur)",
     },
     danger: {
       background: T.dLo,
       color: T.danger,
-      border: `1px solid ${T.danger}38`,
+      border: `1px solid ${T.danger}25`,
     },
     ghost: {
       background: "transparent",
-      color: T.muted,
-      border: `1px solid ${T.border}`,
+      color: T.dim,
+      border: `1px solid transparent`,
     },
-    ok: { background: T.oLo, color: T.ok, border: `1px solid ${T.ok}38` },
-    gold: { background: T.gLo, color: T.gold, border: `1px solid ${T.gold}38` },
-    warn: { background: T.wLo, color: T.warn, border: `1px solid ${T.warn}38` },
-    blue: { background: T.bLo, color: T.blue, border: `1px solid ${T.blue}38` },
-    purple: {
-      background: T.pLo,
-      color: T.purple,
-      border: `1px solid ${T.purple}38`,
-    },
+    ok: { background: T.oLo, color: T.ok, border: `1px solid ${T.ok}25` },
+    gold: { background: T.gLo, color: T.gold, border: `1px solid ${T.gold}25` },
+    warn: { background: T.wLo, color: T.warn, border: `1px solid ${T.warn}25` },
+    blue: { background: T.bLo, color: T.blue, border: `1px solid ${T.blue}25` },
   };
   return (
     <button
-      onClick={onClick}
-      disabled={disabled}
+      onClick={!loading ? onClick : undefined}
+      disabled={disabled || loading}
       style={{ ...base, ...(vs[v] || vs.secondary) }}
+      className="btn-modern"
     >
+      {loading ? (
+        <div style={{ width: 14, height: 14, border: '2px solid currentColor', borderTopColor: 'transparent', borderRadius: '50%', animation: 'spin .8s linear infinite' }} />
+      ) : (
+        Icon && <Icon size={sm ? 14 : 16} strokeWidth={2.5} />
+      )}
       {children}
     </button>
   );
@@ -1318,7 +1359,7 @@ export const Btn = ({
 // ── Back Button (apple-style) ──────────────────────────────
 export const BackBtn = ({ onClick, label = "Back" }) => (
   <button className="back-btn" onClick={onClick}>
-    <span style={{ fontSize: 14, lineHeight: 1 }}>‹</span>
+    <ChevronLeft size={16} strokeWidth={2.5} />
     <span>{label}</span>
   </button>
 );
@@ -1334,7 +1375,6 @@ export const RefreshBtn = ({ onRefresh }) => {
     setSpinning(true);
     setDone(false);
     SFX.notify();
-    // Execute the real refresh action immediately (data is local-state, instant)
     try {
       onRefresh();
     } catch (e) {}
@@ -1350,29 +1390,19 @@ export const RefreshBtn = ({ onRefresh }) => {
       onClick={doRefresh}
       title="Refresh data"
       style={{
-        color: done ? "#00D4AA" : undefined,
-        borderColor: done ? "#00D4AA40" : undefined,
+        color: done ? T.accent : undefined,
+        borderColor: done ? T.accent + "40" : undefined,
       }}
     >
-      <svg
-        width="13"
-        height="13"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="2.5"
-        strokeLinecap="round"
-        strokeLinejoin="round"
+      <RotateCcw 
+        size={14} 
+        strokeWidth={2.5}
         style={{
           transition: "transform .7s cubic-bezier(.22,1,.36,1)",
           transform: spinning ? "rotate(360deg)" : "rotate(0deg)",
           flexShrink: 0,
         }}
-      >
-        <polyline points="23 4 23 10 17 10" />
-        <polyline points="1 20 1 14 7 14" />
-        <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" />
-      </svg>
+      />
       <span>{done ? "✓ Done" : "Refresh"}</span>
     </button>
   );
@@ -2010,8 +2040,8 @@ export const Dialog = ({
         alignItems: "flex-start",
         justifyContent: "center",
         padding: `${MODAL_TOP_OFFSET}px 8px ${MODAL_BOT_PAD}px`,
-        backdropFilter: "blur(6px)",
-        WebkitBackdropFilter: "blur(6px)",
+        backdropFilter: "var(--glass-blur)",
+        WebkitBackdropFilter: "var(--glass-blur)",
         background: "rgba(4,8,16,0.72)",
         overflowY: "auto",
         overflowX: "hidden",
@@ -2187,8 +2217,8 @@ const Panel = ({
           position: "absolute",
           inset: 0,
           background: "rgba(4,8,16,0.45)",
-          backdropFilter: "blur(3px)",
-          WebkitBackdropFilter: "blur(3px)",
+          backdropFilter: "var(--glass-blur)",
+          WebkitBackdropFilter: "var(--glass-blur)",
         }}
       />
       <div
@@ -2353,8 +2383,8 @@ const DTSmall = ({ cols, rows, onRow, emptyMsg }) => (
           <tr>
             <td colSpan={cols.length}>
               <div style={{ padding: "32px 16px", textAlign: "center" }}>
-                <div style={{ fontSize: 28, marginBottom: 8, opacity: 0.35 }}>
-                  📋
+                <div style={{ display:'flex', justifyContent:'center', marginBottom: 8, opacity: 0.35 }}>
+                  <FileText size={32} />
                 </div>
                 <div style={{ color: T.muted, fontSize: 13, fontWeight: 500 }}>
                   {emptyMsg}
@@ -2406,10 +2436,8 @@ const DTPaged = ({ cols, rows, onRow, emptyMsg }) => {
               <tr>
                 <td colSpan={cols.length}>
                   <div style={{ padding: "32px 16px", textAlign: "center" }}>
-                    <div
-                      style={{ fontSize: 28, marginBottom: 8, opacity: 0.35 }}
-                    >
-                      📋
+                    <div style={{ display:'flex', justifyContent:'center', marginBottom: 8, opacity: 0.35 }}>
+                      <FileText size={32} />
                     </div>
                     <div
                       style={{ color: T.muted, fontSize: 13, fontWeight: 500 }}
@@ -2675,14 +2703,16 @@ export const Search = ({ value, onChange, placeholder, debounceMs = 180 }) => {
         aria-hidden="true"
         style={{
           position: "absolute",
-          left: 10,
+          left: 11,
           top: "50%",
           transform: "translateY(-50%)",
           color: T.muted,
           pointerEvents: "none",
+          display: "flex",
+          alignItems: "center"
         }}
       >
-        ⌕
+        <SearchIcon size={15} strokeWidth={2.5} />
       </span>
       <label className="sr-only" htmlFor={`search-${placeholder || "q"}`}>
         {placeholder || "Search"}
@@ -4700,7 +4730,7 @@ export const ReminderAlertModal = ({ reminder, onDismiss, onDone }) => (
       paddingLeft: 20,
       paddingRight: 20,
       background: "rgba(4,8,16,0.8)",
-      backdropFilter: "blur(8px)",
+      backdropFilter: "var(--glass-blur)",
       overflow: "hidden",
     }}
   >
@@ -5059,7 +5089,7 @@ export const RemindersPanel = ({
             paddingLeft: 20,
             paddingRight: 20,
             background: "rgba(4,8,16,0.7)",
-            backdropFilter: "blur(6px)",
+            backdropFilter: "var(--glass-blur)",
             overflow: "hidden",
           }}
         >
@@ -5308,7 +5338,7 @@ const CustomerContactPopup = ({ name, phone, onClose, anchorX, anchorY }) => {
           padding: "16px 16px 14px",
           width: POPW,
           boxShadow: "0 16px 48px rgba(0,0,0,0.6)",
-          backdropFilter: "blur(8px)",
+          backdropFilter: "var(--glass-blur)",
         }}
       >
         {/* Header */}
@@ -6815,7 +6845,7 @@ const LoanDetail = ({
         paddingLeft: 12,
         paddingRight: 12,
         paddingBottom: 40,
-        backdropFilter: "blur(10px)",
+        backdropFilter: "var(--glass-blur)",
         overflow: "hidden",
       }}
     >
@@ -7630,7 +7660,7 @@ export const RepayTracker = ({ loans, payments }) => {
           paddingTop: MODAL_TOP_OFFSET + 16,
           paddingLeft: 16,
           paddingRight: 16,
-          backdropFilter: "blur(6px)",
+          backdropFilter: "var(--glass-blur)",
           overflow: "hidden",
         }}
         onClick={function () {
@@ -9815,8 +9845,8 @@ export const LoanModal = ({
         display: "flex",
         alignItems: "flex-start",
         justifyContent: "flex-end",
-        backdropFilter: "blur(4px)",
-        WebkitBackdropFilter: "blur(4px)",
+        backdropFilter: "var(--glass-blur)",
+        WebkitBackdropFilter: "var(--glass-blur)",
         background: "rgba(4,8,16,0.55)",
         overflow: "hidden",
       }}
@@ -10453,8 +10483,8 @@ export const CustomerDetail = ({
         display: "flex",
         alignItems: "flex-start",
         justifyContent: "flex-end",
-        backdropFilter: "blur(4px)",
-        WebkitBackdropFilter: "blur(4px)",
+        backdropFilter: "var(--glass-blur)",
+        WebkitBackdropFilter: "var(--glass-blur)",
         background: "rgba(4,8,16,0.55)",
         overflow: "hidden",
       }}
@@ -11859,44 +11889,64 @@ const _sbErr = (op, table, msg) => {
     window._sbErrors.push({ ts: new Date().toISOString(), entry });
 };
 export const sbWrite = (table, row) => {
-  import("@/config/supabaseClient")
+  return import("@/config/supabaseClient")
     .then(({ supabase, DEMO_MODE }) => {
-      if (DEMO_MODE || !supabase) return;
-      supabase
+      if (DEMO_MODE || !supabase) return Promise.resolve({ data: row, error: null });
+      return supabase
         .from(table)
         .upsert([row], { onConflict: "id" })
-        .then(({ error }) => {
-          if (error) _sbErr("upsert", table, error.message);
+        .then(({ data, error }) => {
+          if (error) {
+            _sbErr("upsert", table, error.message);
+            throw error;
+          }
+          return { data, error };
         });
     })
-    .catch((e) => _sbErr("import", "sbWrite", e.message));
+    .catch((e) => {
+      _sbErr("import", "sbWrite", e.message);
+      throw e;
+    });
 };
 export const sbDelete = (table, id) => {
-  import("@/config/supabaseClient")
+  return import("@/config/supabaseClient")
     .then(({ supabase, DEMO_MODE }) => {
-      if (DEMO_MODE || !supabase) return;
-      supabase
+      if (DEMO_MODE || !supabase) return Promise.resolve();
+      return supabase
         .from(table)
         .delete()
         .eq("id", id)
         .then(({ error }) => {
-          if (error) _sbErr("delete", table, error.message);
+          if (error) {
+            _sbErr("delete", table, error.message);
+            throw error;
+          }
         });
     })
-    .catch((e) => _sbErr("import", "sbDelete", e.message));
+    .catch((e) => {
+      _sbErr("import", "sbDelete", e.message);
+      throw e;
+    });
 };
 export const sbInsert = (table, row) => {
-  import("@/config/supabaseClient")
+  return import("@/config/supabaseClient")
     .then(({ supabase, DEMO_MODE }) => {
-      if (DEMO_MODE || !supabase) return;
-      supabase
+      if (DEMO_MODE || !supabase) return Promise.resolve({ data: row, error: null });
+      return supabase
         .from(table)
         .insert([row])
-        .then(({ error }) => {
-          if (error) _sbErr("insert", table, error.message);
+        .then(({ data, error }) => {
+          if (error) {
+            _sbErr("insert", table, error.message);
+            throw error;
+          }
+          return { data, error };
         });
     })
-    .catch((e) => _sbErr("import", "sbInsert", e.message));
+    .catch((e) => {
+      _sbErr("import", "sbInsert", e.message);
+      throw e;
+    });
 };
 
 export const sbAuditInsert = async (row) => {
@@ -11939,28 +11989,27 @@ export const saveSecConfig = (cfg) => {
 
 // -- Navigation Constants ------------------------------------------
 export const ADMIN_NAV = [
-  { id: "dashboard", l: "Dashboard", i: "🏠" },
-  { id: "calendar", l: "Calendar", i: "📅" },
-  { id: "loans", l: "Loans", i: "💰" },
-  { id: "customers", l: "Customers", i: "👤" },
-  { id: "leads", l: "Leads", i: "🎯" },
-  { id: "collections", l: "Collections", i: "📞" },
-  { id: "payments", l: "Payments", i: "💳" },
-  { id: "paymentshub", l: "Payments Hub", i: "🏦" }, // MODIFIED: Added Payments Hub
-  { id: "workers", l: "Team", i: "👷" },
-  { id: "securitysettings", l: "Security Settings", i: "🛡️" },
-  { id: "database", l: "Database", i: "🗄️" },
-  { id: "reports", l: "Reports", i: "📊" },
-  { id: "audit", l: "Audit Trail", i: "🔐" },
+  { id: "dashboard", l: "Dashboard", i: LayoutDashboard },
+  { id: "calendar", l: "Calendar", i: Calendar },
+  { id: "loans", l: "Loans", i: CreditCard },
+  { id: "customers", l: "Customers", i: Users },
+  { id: "leads", l: "Leads", i: UserPlus },
+  { id: "collections", l: "Collections", i: Phone },
+  { id: "payments", l: "Payments", i: CheckCircle },
+  { id: "paymentshub", l: "Payments Hub", i: ShieldCheck },
+  { id: "workers", l: "Team", i: Users },
+  { id: "securitysettings", l: "Security Settings", i: Settings },
+  { id: "database", l: "Database", i: Database },
+  { id: "reports", l: "Reports", i: BarChart3 },
+  { id: "audit", l: "Audit Trail", i: FileText },
 ];
 
-
 export const WORKER_NAV = [
-  { id: "overview", l: "Overview", i: "??" },
-  { id: "loans", l: "Loans", i: "??" },
-  { id: "customers", l: "Customers", i: "??" },
-  { id: "leads", l: "Leads", i: "??" },
-  { id: "documents", l: "Documents", i: "??" },
+  { id: "overview", l: "Overview", i: LayoutDashboard },
+  { id: "loans", l: "Loans", i: CreditCard },
+  { id: "customers", l: "Users", i: Users },
+  { id: "leads", l: "Leads", i: UserPlus },
+  { id: "documents", l: "Documents", i: FileText },
 ];
 
 export const dataUrlToBlob = (dataUrl) => {
@@ -12016,16 +12065,15 @@ export const ExportMenu = ({ onExport }) => {
   }, [open]);
 
   const items = [
-    { id: "CSV", label: "Spreadsheet (CSV/Excel)", icon: "📊", color: T.ok },
-    { id: "PDF", label: "Document (PDF)", icon: "📄", color: T.danger },
-    { id: "WORD", label: "Word Document (DOCX)", icon: "📝", color: T.blue },
+    { id: "CSV", label: "Spreadsheet (CSV/Excel)", icon: Download, color: T.ok },
+    { id: "PDF", label: "Document (PDF)", icon: FileText, color: T.danger },
+    { id: "WORD", label: "Word Document (DOCX)", icon: FileText, color: T.blue },
   ];
 
   return (
     <div ref={containerRef} style={{ position: "relative" }}>
-      <Btn v="secondary" onClick={() => setOpen(!open)} style={{ gap: 8 }}>
-        <span>📤 Export</span>
-        <span style={{ fontSize: 10, opacity: 0.6 }}>▾</span>
+      <Btn v="secondary" onClick={() => setOpen(!open)} icon={Upload} sm>
+        Export
       </Btn>
       {open && (
         <div
@@ -12078,7 +12126,9 @@ export const ExportMenu = ({ onExport }) => {
                 e.currentTarget.style.background = "none";
               }}
             >
-              <span style={{ fontSize: 18 }}>{item.icon}</span>
+              <span style={{ display: "flex", alignItems: "center", color: item.color }}>
+                <item.icon size={18} strokeWidth={2.5} />
+              </span>
               <span style={{ color: T.txt, fontSize: 13, fontWeight: 600 }}>
                 {item.label}
               </span>

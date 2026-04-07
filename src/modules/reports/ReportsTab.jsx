@@ -1,5 +1,6 @@
 import CustomerProfile from "@/modules/customers/CustomerProfile";
 import React, { useState, useMemo, useEffect, useRef, useCallback, memo } from 'react';
+import { TrendingUp, Calendar, AlertTriangle, CreditCard, XCircle, ClipboardList, Users, UserCog, Lock, BarChart } from 'lucide-react';
 import { T, SC, RC, SFX, Card, CH, KPI, DT, Btn, Badge, Av, Bar, BackBtn, RefreshBtn,
   FI, PhoneInput, NumericInput, Search, Pills, Alert, Dialog, ConfirmDialog, ToastContainer,
   LoanModal, LoanForm, RepayTracker,
@@ -23,15 +24,15 @@ const ReportsTab = ({loans,customers,payments,workers,auditLog,showToast=()=>{},
   const data={loans,customers,payments,workers,auditLog};
   
   const reports = useMemo(() => [
-    {id:'active-loans', label:'Active Loans', icon:'📈', desc:`${loans.filter(l=>l.status!=='Settled').length} active disbursements`},
-    {id:'due-today', label:'Scheduled Repayments', icon:'📅', desc:'Installments due within the selected period'},
-    {id:'overdue', label:'Overdue Report', icon:'⚠️', desc:`${loans.filter(l=>l.status==='Overdue').length} past-maturity loans`},
-    {id:'payments-today', label:'Repayment Records', icon:'💳', desc:`All payment entries within the selected period`},
-    {id:'missed-partial', label:'Missed & Partial', icon:'❌', desc:'Outstanding schedule gaps'},
-    {id:'loan-portfolio', label:'Global Portfolio', icon:'📋', desc:`${loans.length} lifetime records`},
-    {id:'customers', label:'Customer Registry', icon:'👥', desc:`${customers.length} total profiles`},
-    {id:'staff', label:'Registry Performance', icon:'👷', desc:`${workers.length} officers`},
-    {id:'audit', label:'System Audit Log', icon:'🔐', desc:`${(auditLog||[]).length} activity events`},
+    {id:'active-loans', label:'Active Loans', icon:<TrendingUp size={24} />, desc:`${loans.filter(l=>l.status!=='Settled').length} active disbursements`},
+    {id:'due-today', label:'Scheduled Repayments', icon:<Calendar size={24} />, desc:'Installments due within the selected period'},
+    {id:'overdue', label:'Overdue Report', icon:<AlertTriangle size={24} />, desc:`${loans.filter(l=>l.status==='Overdue').length} past-maturity loans`},
+    {id:'payments-today', label:'Repayment Records', icon:<CreditCard size={24} />, desc:`All payment entries within the selected period`},
+    {id:'missed-partial', label:'Missed & Partial', icon:<XCircle size={24} />, desc:'Outstanding schedule gaps'},
+    {id:'loan-portfolio', label:'Global Portfolio', icon:<ClipboardList size={24} />, desc:`${loans.length} lifetime records`},
+    {id:'customers', label:'Customer Registry', icon:<Users size={24} />, desc:`${customers.length} total profiles`},
+    {id:'staff', label:'Registry Performance', icon:<UserCog size={24} />, desc:`${workers.length} officers`},
+    {id:'audit', label:'System Audit Log', icon:<Lock size={24} />, desc:`${(auditLog||[]).length} activity events`},
   ], [loans, payments, customers, workers, auditLog]);
 
   useEffect(() => {
@@ -64,7 +65,7 @@ const ReportsTab = ({loans,customers,payments,workers,auditLog,showToast=()=>{},
     <div className='fu'>
       <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-end',marginBottom:20,flexWrap:'wrap',gap:16}}>
         <div>
-          <div style={{fontFamily:T.head,color:T.txt,fontSize:20,fontWeight:800}}>📊 Reports & Exports</div>
+          <div style={{fontFamily:T.head,color:T.txt,fontSize:20,fontWeight:800,display:'flex',alignItems:'center',gap:8}}><BarChart size={20}/> Reports & Exports</div>
           <div style={{color:T.muted,fontSize:13,marginTop:2}}>Download high-fidelity reports as PDF, Excel, or Word</div>
         </div>
         
@@ -94,7 +95,7 @@ const ReportsTab = ({loans,customers,payments,workers,auditLog,showToast=()=>{},
           return (
           <Card key={r.id} onClick={()=>setActiveMenu(r.id)} style={{padding:'20px 22px',position:'relative',border:isOpen?`1px solid ${T.accent}`:undefined, transition:'all .2s', cursor:'pointer'}}>
             <div style={{display:'flex', justifyContent:'space-between', alignItems:'flex-start', marginBottom:12}}>
-              <div style={{fontSize:32}}>{r.icon}</div>
+              <div style={{fontSize:32,display:'flex'}}>{r.icon}</div>
               <div style={{background:T.surface, border:`1px solid ${T.border}`, borderRadius:6, padding:'2px 8px', fontSize:10, fontFamily:T.mono, color:T.muted}}>{rData.rows.length}</div>
             </div>
             <div style={{color:T.txt,fontWeight:800,fontSize:15,marginBottom:4}}>{r.label}</div>

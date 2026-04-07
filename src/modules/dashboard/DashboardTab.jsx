@@ -1,4 +1,5 @@
 import { useState, useMemo } from 'react';
+import { Home, TrendingUp, AlertTriangle, CheckCircle, BarChart, HardHat, User } from 'lucide-react';
 import { T, SC, RC, SFX, Card, CH, KPI, DT, Btn, Badge, Av, Bar, BackBtn, RefreshBtn,
   FI, PhoneInput, NumericInput, Search, Pills, Alert, Dialog, ConfirmDialog, ToastContainer,
   LoanModal, LoanForm, RepayTracker, LivePortfolioChart, WeeklyCollectionsChart,
@@ -140,8 +141,8 @@ const DashboardTab = ({loans,setLoans,customers,setCustomers,payments,setPayment
             alignItems: "flex-start",
             justifyContent: "center",
             padding: 0,
-            backdropFilter: "blur(4px)",
-            WebkitBackdropFilter: "blur(4px)",
+            backdropFilter: "var(--glass-blur)",
+            WebkitBackdropFilter: "var(--glass-blur)",
             background: "rgba(4,8,16,0.75)",
             overflow: "hidden",
           }}
@@ -254,7 +255,7 @@ const DashboardTab = ({loans,setLoans,customers,setCustomers,payments,setPayment
               fontWeight: 800,
             }}
           >
-            🏠 Dashboard
+            <div style={{display:'flex', alignItems:'center', gap:8}}><Home size={22}/> Dashboard</div>
           </div>
           <div style={{ color: T.muted, fontSize: 13, marginTop: 3 }}>
             {todayStr}
@@ -270,7 +271,7 @@ const DashboardTab = ({loans,setLoans,customers,setCustomers,payments,setPayment
       >
         <KPI
           label="Loan Book"
-          icon="📈"
+          icon={TrendingUp}
           value={fmtM(book)}
           color={T.accent}
           delay={1}
@@ -354,7 +355,7 @@ const DashboardTab = ({loans,setLoans,customers,setCustomers,payments,setPayment
         />
         <KPI
           label="Overdue"
-          icon="⚠️"
+          icon={AlertTriangle}
           value={fmtM(ovAmt)}
           color={T.danger}
           delay={2}
@@ -437,7 +438,7 @@ const DashboardTab = ({loans,setLoans,customers,setCustomers,payments,setPayment
         />
         <KPI
           label="Collected Today"
-          icon="✅"
+          icon={CheckCircle}
           value={fmtM(todayP)}
           color={T.ok}
           delay={3}
@@ -479,7 +480,7 @@ const DashboardTab = ({loans,setLoans,customers,setCustomers,payments,setPayment
         />
         <KPI
           label="Collection Rate"
-          icon="📊"
+          icon={BarChart}
           value={`${collRate}%`}
           color={T.ok}
           delay={4}
@@ -549,7 +550,7 @@ const DashboardTab = ({loans,setLoans,customers,setCustomers,payments,setPayment
       >
         <KPI
           label="Active Workers"
-          icon="👷"
+          icon={HardHat}
           value={workers.filter((w) => w.status === "Active").length}
           delay={1}
           onClick={() =>
@@ -566,7 +567,7 @@ const DashboardTab = ({loans,setLoans,customers,setCustomers,payments,setPayment
         />
         <KPI
           label="Customers"
-          icon="👤"
+          icon={User}
           value={customers.length}
           delay={2}
           onClick={() =>
@@ -599,7 +600,7 @@ const DashboardTab = ({loans,setLoans,customers,setCustomers,payments,setPayment
         />
         <KPI
           label="PAR 7"
-          icon="⚠️"
+          icon={AlertTriangle}
           value={`${par(7)}%`}
           color={+par(7) > 10 ? T.danger : T.warn}
           delay={3}
@@ -654,7 +655,7 @@ const DashboardTab = ({loans,setLoans,customers,setCustomers,payments,setPayment
         />
         <KPI
           label="PAR 30"
-          icon="🔴"
+          icon={AlertTriangle}
           value={`${par(30)}%`}
           color={+par(30) > 5 ? T.danger : T.ok}
           delay={4}

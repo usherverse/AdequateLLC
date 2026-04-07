@@ -1,5 +1,6 @@
 import CustomerProfile from "@/modules/customers/CustomerProfile";
 import React, { useState, useMemo, useEffect, useRef, useCallback, memo } from 'react';
+import { Database, Download, Upload, Trash2, Lock, Check } from 'lucide-react';
 import { T, SC, RC, SFX, Card, CH, KPI, DT, Btn, Badge, Av, Bar, BackBtn, RefreshBtn,
   FI, PhoneInput, NumericInput, Search, Pills, Alert, Dialog, ConfirmDialog, ToastContainer,
   LoanModal, LoanForm, RepayTracker,
@@ -302,7 +303,7 @@ const DatabaseTab = ({allState,setLoans,setCustomers,setPayments,setWorkers,setL
     <div className='fu'>
       <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:4,flexWrap:'wrap',gap:8}}>
         <div>
-          <div style={{fontFamily:T.head,color:T.txt,fontSize:20,fontWeight:800}}>🗄️ Database Management</div>
+          <div style={{fontFamily:T.head,color:T.txt,fontSize:20,fontWeight:800,display:'flex',alignItems:'center',gap:8}}><Database size={20}/> Database Management</div>
           <div style={{color:T.muted,fontSize:13,marginTop:2}}>Backup, restore, and manage system data</div>
         </div>
       </div>
@@ -310,7 +311,7 @@ const DatabaseTab = ({allState,setLoans,setCustomers,setPayments,setWorkers,setL
 
       {/* Financial Sync Tool */}
       <Card style={{marginBottom:12, border:`1px solid ${T.accent}38`}}>
-        <CH title='🔍 Financial Integrity & Synchronization' sub='Audit and correct loan statuses across the entire database'/>
+        <CH title={<div style={{display:'flex',alignItems:'center',gap:8}}><Search size={18}/> Financial Integrity & Synchronization</div>} sub='Audit and correct loan statuses across the entire database'/>
         <div style={{padding:'16px 18px'}}>
           <div style={{color:T.dim,fontSize:13,marginBottom:14,lineHeight:1.6}}>
             This tool audits all loans against the latest financial engine rules. It will:
@@ -326,7 +327,7 @@ const DatabaseTab = ({allState,setLoans,setCustomers,setPayments,setWorkers,setL
 
       {/* Download backup */}
       <Card style={{marginBottom:12}}>
-        <CH title='📥 Download Backup' sub='Export all data as a single CSV file'/>
+        <CH title={<div style={{display:'flex',alignItems:'center',gap:8}}><Download size={18}/> Download Backup</div>} sub='Export all data as a single CSV file'/>
         <div style={{padding:'16px 18px'}}>
           <div style={{color:T.dim,fontSize:13,marginBottom:14,lineHeight:1.6}}>
             Downloads a complete backup of all customers, loans, payments, leads, interactions, workers, and audit logs into a single CSV file.
@@ -346,12 +347,12 @@ const DatabaseTab = ({allState,setLoans,setCustomers,setPayments,setWorkers,setL
 
       {/* Restore */}
       <Card style={{marginBottom:12}}>
-        <CH title='📤 Restore from Backup' sub='Re-import data from a previous CSV backup'/>
+        <CH title={<div style={{display:'flex',alignItems:'center',gap:8}}><Upload size={18}/> Restore from Backup</div>} sub='Re-import data from a previous CSV backup'/>
         <div style={{padding:'16px 18px'}}>
           <div style={{color:T.dim,fontSize:13,marginBottom:12}}>Upload a previously downloaded backup CSV file to restore all data.</div>
           {!restorePreview&&(
             <label style={{cursor:'pointer',display:'inline-flex',alignItems:'center',gap:8,background:T.bLo,border:`1px solid ${T.blue}38`,color:T.blue,borderRadius:9,padding:'10px 18px',fontSize:13,fontWeight:700}}>
-              📤 Choose Backup File (.csv)
+              <span style={{display:'flex',alignItems:'center',gap:6}}><Upload size={16}/> Choose Backup File (.csv)</span>
               <input key={uploadKey} ref={fileRef} type='file' accept='.csv,.CSV' style={{display:'none'}} onChange={handleRestore}/>
             </label>
           )}
@@ -379,7 +380,7 @@ const DatabaseTab = ({allState,setLoans,setCustomers,setPayments,setWorkers,setL
               </div>
               <Alert type='danger'>⚠ This will overwrite ALL current data in the system. This cannot be undone.</Alert>
               <div style={{display:'flex',gap:9,marginTop:4}}>
-                <Btn v='danger' full onClick={doConfirmRestore}>✓ Restore Database</Btn>
+                <Btn v='danger' full onClick={doConfirmRestore}><span style={{display:'flex',alignItems:'center',justifyContent:'center',gap:6}}><Check size={16}/> Restore Database</span></Btn>
                 <Btn v='secondary' onClick={()=>{setRestorePreview(null);setUploadProgress(0);setUploadKey(k=>k+1);}}>Cancel</Btn>
               </div>
             </div>
@@ -396,7 +397,7 @@ const DatabaseTab = ({allState,setLoans,setCustomers,setPayments,setWorkers,setL
 
       {/* Clear/Seed database — 3FA protected */}
       <Card style={{border:`1px solid ${T.danger}38`}}>
-        <CH title='🗑 Data Operations' sub='Wipe or reset system data — requires 3-factor authentication'/>
+        <CH title={<div style={{display:'flex',alignItems:'center',gap:8}}><Trash2 size={18}/> Data Operations</div>} sub='Wipe or reset system data — requires 3-factor authentication'/>
         <div style={{padding:'16px 18px'}}>
           <div style={{display:'flex',gap:12,flexWrap:'wrap'}}>
             <div style={{flex:1,minWidth:240}}>
@@ -418,7 +419,7 @@ const DatabaseTab = ({allState,setLoans,setCustomers,setPayments,setWorkers,setL
 
       {showClear&&(
 
-        <Dialog title='🔐 Database Clear — 3-Factor Verification' onClose={()=>setShowClear(false)} width={440}>
+        <Dialog title={<div style={{display:'flex',alignItems:'center',gap:8}}><Lock size={18}/> Database Clear — 3-Factor Verification</div>} onClose={()=>setShowClear(false)} width={440}>
           <Alert type='danger'>You are about to wipe all data. Complete 3-factor authentication to proceed.</Alert>
           <div style={{display:'flex',justifyContent:'center',gap:6,marginBottom:18}}>
             {['Password','Biometric','TOTP'].map((s,i)=>(
@@ -437,7 +438,7 @@ const DatabaseTab = ({allState,setLoans,setCustomers,setPayments,setWorkers,setL
             <Btn onClick={stepPw} full>Continue →</Btn>
           </div>}
           {step===2&&<div style={{textAlign:'center'}}>
-            <div style={{fontSize:40,margin:'10px 0'}}>🔐</div>
+            <div style={{fontSize:40,margin:'10px 0',display:'flex',justifyContent:'center'}}><Lock size={40}/></div>
             <div style={{color:T.txt,fontWeight:700,marginBottom:14}}>Biometric Verification</div>
             <Btn onClick={stepBio} full>Authenticate →</Btn>
           </div>}

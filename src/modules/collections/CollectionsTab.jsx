@@ -1,5 +1,6 @@
 import CustomerProfile from "@/modules/customers/CustomerProfile";
 import React, { useState, useMemo, useRef } from 'react';
+import { Smartphone, Car, FileText, Scale, XCircle, AlertOctagon, AlertTriangle, HeartCrack, PhoneCall, Check } from 'lucide-react';
 import { T, RC, Card, CH, DT, KPI, Btn, Badge, FI, Alert, Dialog, Search, RefreshBtn,
   LoanModal, fmt, fmtM, uid, now, sbInsert, toSupabaseInteraction,
   useContactPopup, calculateLoanStatus, SFX, 
@@ -8,12 +9,12 @@ import { useModuleFilter } from '@/hooks/useModuleFilter';
 import { initiateStkPush } from '@/utils/mpesa';
 
 const PIPELINE_STAGES = [
-  {id:'Reminder',label:'Reminder',color:T.warn,icon:'📱',desc:'First contact — SMS and phone reminders',actions:['Generate Letter','Send SMS Reminder','Make Phone Call','Send WhatsApp Message'],template:'Dear [Customer], your loan of [Amount] is now overdue. Please make payment immediately.'},
-  {id:'Field Visit',label:'Field Visit',color:T.blue,icon:'🚗',desc:'Officer physically visits borrower',actions:['Schedule Visit','Mark Visit Complete','Escalate to Supervisor'],template:'Field visit report: Customer [Name] at [Location].'},
-  {id:'Demand Letter',label:'Demand Letter',color:T.danger,icon:'📄',desc:'Formal written demand with 7-day deadline',actions:['Generate Letter','Send via Registered Mail','Mark Delivered'],template:'FORMAL DEMAND: Your loan of [Amount] is immediately due.'},
-  {id:'Final Notice',label:'Final Notice',color:T.danger,icon:'⚠️',desc:'Final warning before legal action',actions:['Generate Letter','Issue Final Notice','Engage Guarantor','Contact Next of Kin'],template:'FINAL NOTICE: Last opportunity to settle [Amount] before legal action.'},
-  {id:'Legal',label:'Legal',color:T.purple,icon:'⚖️',desc:'Matter referred to legal team',actions:['File in Court','Engage Debt Collector','Attach Assets'],template:'Legal proceedings initiated.'},
-  {id:'Written Off',label:'Write Off',color:T.muted,icon:'✕',desc:'Loan written off as unrecoverable',actions:['Approve Write-Off','Update Books','Blacklist Customer'],template:'Loan written off after all recovery attempts exhausted.'},
+  {id:'Reminder',label:'Reminder',color:T.warn,icon:<Smartphone size={24}/>,desc:'First contact — SMS and phone reminders',actions:['Generate Letter','Send SMS Reminder','Make Phone Call','Send WhatsApp Message'],template:'Dear [Customer], your loan of [Amount] is now overdue. Please make payment immediately.'},
+  {id:'Field Visit',label:'Field Visit',color:T.blue,icon:<Car size={24}/>,desc:'Officer physically visits borrower',actions:['Schedule Visit','Mark Visit Complete','Escalate to Supervisor'],template:'Field visit report: Customer [Name] at [Location].'},
+  {id:'Demand Letter',label:'Demand Letter',color:T.danger,icon:<FileText size={24}/>,desc:'Formal written demand with 7-day deadline',actions:['Generate Letter','Send via Registered Mail','Mark Delivered'],template:'FORMAL DEMAND: Your loan of [Amount] is immediately due.'},
+  {id:'Final Notice',label:'Final Notice',color:T.danger,icon:<AlertTriangle size={24}/>,desc:'Final warning before legal action',actions:['Generate Letter','Issue Final Notice','Engage Guarantor','Contact Next of Kin'],template:'FINAL NOTICE: Last opportunity to settle [Amount] before legal action.'},
+  {id:'Legal',label:'Legal',color:T.purple,icon:<Scale size={24}/>,desc:'Matter referred to legal team',actions:['File in Court','Engage Debt Collector','Attach Assets'],template:'Legal proceedings initiated.'},
+  {id:'Written Off',label:'Write Off',color:T.muted,icon:<XCircle size={24}/>,desc:'Loan written off as unrecoverable',actions:['Approve Write-Off','Update Books','Blacklist Customer'],template:'Loan written off after all recovery attempts exhausted.'},
 ];
 
 const CollectionsTab = ({loans,customers,payments,setPayments,interactions,setInteractions,workers,setLoans,setCustomers,addAudit,scrollTop,currentUser='Admin', showToast = () => {}}) => {
@@ -161,7 +162,7 @@ const CollectionsTab = ({loans,customers,payments,setPayments,interactions,setIn
       />
       
       {kpiDrill&&(
-        <div className='dialog-backdrop' style={{position:'fixed',top:0,left:0,right:0,bottom:0,zIndex:9900,display:'flex',alignItems:'flex-start',justifyContent:'center',background:'rgba(4,8,16,0.72)',backdropFilter:'blur(4px)',overflow:'hidden'}}>
+        <div className='dialog-backdrop' style={{position:'fixed',top:0,left:0,right:0,bottom:0,zIndex:9900,display:'flex',alignItems:'flex-start',justifyContent:'center',background:'rgba(4,8,16,0.72)',backdropFilter:'var(--glass-blur)',WebkitBackdropFilter:'var(--glass-blur)',overflow:'hidden'}}>
           <div className='pop' style={{background:T.card,border:`1px solid ${kpiDrill.color}40`,borderBottom:`1px solid ${T.border}`,borderRadius:'0 0 18px 18px',width:'100%',maxWidth:'100%',maxHeight:'75vh',display:'flex',flexDirection:'column',boxShadow:`0 12px 48px rgba(0,0,0,0.7),0 0 0 1px ${kpiDrill.color}20`}}>
             <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'14px 18px',borderBottom:`1px solid ${T.border}`,flexShrink:0}}>
               <div style={{display:'flex',alignItems:'center',gap:10}}>
@@ -213,28 +214,28 @@ const CollectionsTab = ({loans,customers,payments,setPayments,interactions,setIn
       )}
       <div style={{marginBottom:6}}/>
       <div className='kpi-row' style={{display:'flex',gap:10,marginBottom:16,flexWrap:'wrap'}}>
-        <KPI label='Newly Overdue' icon='🔴'
+        <KPI label='Newly Overdue' icon={AlertOctagon}
           value={ov.filter(l=>l.daysOverdue >= 1 && l.daysOverdue < 2).length} color={T.danger} delay={1}
           onClick={()=>{
             const rows=ov.filter(l=>l.daysOverdue >= 1 && l.daysOverdue < 2).sort((a,b)=>b.daysOverdue-a.daysOverdue);
             setKpiDrill({title:'Newly Overdue Loans (1 day)',color:T.danger,rows,type:'loans'});
             try{SFX.notify();}catch(e){}
           }}/>
-        <KPI label='Total Overdue' icon='⚠️'
+        <KPI label='Total Overdue' icon={AlertTriangle}
           value={fmtM(ovTotal)} color={T.danger} delay={2}
           onClick={()=>{
             const rows=[...ov].sort((a,b)=>b.daysOverdue-a.daysOverdue);
             setKpiDrill({title:'All Overdue Loans',color:T.danger,rows,type:'loans'});
             try{SFX.notify();}catch(e){}
           }}/>
-        <KPI label='Broken Promises' icon='💔'
+        <KPI label='Broken Promises' icon={HeartCrack}
           value={interactions.filter(i=>i.promiseStatus==='Broken').length} color={T.warn} delay={3}
           onClick={()=>{
             const rows=interactions.filter(i=>i.promiseStatus==='Broken');
             setKpiDrill({title:'Broken Promise Interactions',color:T.warn,rows,type:'interactions'});
             try{SFX.notify();}catch(e){}
           }}/>
-        <KPI label='Interactions' icon='📞'
+        <KPI label='Interactions' icon={PhoneCall}
           value={interactions.length} color={T.accent} delay={4}
           onClick={()=>{
             setKpiDrill({title:'All Interactions',color:T.accent,rows:interactions,type:'interactions'});
@@ -319,7 +320,7 @@ const CollectionsTab = ({loans,customers,payments,setPayments,interactions,setIn
       {pipeAction&&(
         <Dialog title={`Confirm: ${pipeAction.action}`} onClose={()=>setPipeAction(null)}>
           <Alert type='warn'><b>{pipeAction.action}</b> on loan <b>{pipeAction.loan.id}</b> for <b>{pipeAction.loan.customer}</b></Alert>
-          <div style={{display:'flex',gap:9}}><Btn onClick={()=>doAction(pipeAction.stage,pipeAction.action)} full>✓ Confirm & Log</Btn><Btn v='secondary' onClick={()=>setPipeAction(null)}>Cancel</Btn></div>
+          <div style={{display:'flex',gap:9}}><Btn onClick={()=>doAction(pipeAction.stage,pipeAction.action)} full><span style={{display:'flex',alignItems:'center',gap:4}}><Check size={16}/> Confirm & Log</span></Btn><Btn v='secondary' onClick={()=>setPipeAction(null)}>Cancel</Btn></div>
         </Dialog>
       )}
       {modalLoan&&<LoanModal loan={modalLoan} customers={customers} payments={payments} interactions={interactions||[]} onClose={()=>setModalLoan(null)} onViewCustomer={cust=>{setModalLoan(null);setModalCust(cust);}}/>}

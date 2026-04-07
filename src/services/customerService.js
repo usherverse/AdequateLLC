@@ -3,7 +3,7 @@ import { SEED_CUSTOMERS } from '@/data/seedData';
 
 // ── READ ─────────────────────────────────────────────────────────────────────
 
-export async function getCustomers({ search = '', limit = 500, offset = 0 } = {}) {
+export async function getCustomers({ search = '', limit = 50, offset = 0 } = {}) {
   if (DEMO_MODE) {
     let rows = SEED_CUSTOMERS;
     if (search) {
@@ -19,7 +19,7 @@ export async function getCustomers({ search = '', limit = 500, offset = 0 } = {}
     return { data: rows.slice(offset, offset + limit), count: rows.length, error: null };
   }
 
-  let query = supabase.from('customers').select('*', { count: 'exact' });
+  let query = supabase.from('customers').select('id, name, phone, email, id_no, business, location, status, created_at, residence, officer', { count: 'exact' });
   if (search) {
     query = query.or(
       `name.ilike.%${search}%,phone.ilike.%${search}%,id_no.ilike.%${search}%,business.ilike.%${search}%,location.ilike.%${search}%`

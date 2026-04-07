@@ -1,22 +1,21 @@
 import CustomerProfile from "@/modules/customers/CustomerProfile";
 import React, { useState, useMemo } from 'react';
+import { Banknote, Hourglass, Check, X, CreditCard, FileText, PackageOpen } from 'lucide-react';
 import {
   T, SC, Card, DT, Btn, Search, Pills, Badge, FI, Alert, Dialog, ConfirmDialog, RefreshBtn,
   LoanModal, LoanForm, fmt, now, uid, ts, generateLoanAgreementHTML, generateAssetListHTML, downloadLoanDoc,
   sbWrite, sbInsert, toSupabaseLoan, toSupabaseCustomer, toSupabasePayment, useContactPopup, useToast,
-  ModuleHeader, calculateLoanStatus
+  ModuleHeader, calculateLoanStatus, hasRegFee
 } from '@/lms-common';
 import { useModuleFilter } from '@/hooks/useModuleFilter';
 import { initiateB2cDisbursement } from '@/utils/mpesa';
 
-const LoansTab = ({ loans, setLoans, customers, setCustomers, payments, setPayments, interactions, setInteractions, workers, addAudit, showToast = () => { } }) => {
+const LoansTab = ({ loans, setLoans, customers, setCustomers, payments, setPayments, interactions, setInteractions, workers, addAudit, showToast = () => { }, onNav }) => {
   const { open: openContact, Popup: ContactPopup } = useContactPopup();
   const [sel, setSel] = useState(null);
   const [selCust, setSelCust] = useState(null);
   const [showApp, setShowApp] = useState(false);
-  const [disbLoan, setDisbLoan] = useState(null);
   const [payLoan, setPayLoan] = useState(null);
-  const [disbF, setDisbF] = useState({ mpesa: '', phone: '', date: now() });
   const [payF, setPayF] = useState({ amount: '', mpesa: '', date: now(), isRegFee: false });
   const [loading, setLoading] = useState(false);
   
@@ -55,47 +54,9 @@ const LoansTab = ({ loans, setLoans, customers, setCustomers, payments, setPayme
     },
   });
 
-  // Check if customer has paid registration fee
-  const hasRegFee = (cust) => {
-    if (!cust) return false;
-    if (cust.loans > 0) return true; // repeat customer, no fee needed
-    // Check if a registration fee payment exists
-    return payments && payments.some(p => p.customerId === cust.id && p.isRegFee);
-  };
+  // Centralized hasRegFee imported from lms-common
 
-  const doDisburse = () => {
-    if (!disbF.mpesa || !disbF.phone) return;
-    const currentLoan = loans.find(l => l.id === disbLoan.id);
-    if (!currentLoan || currentLoan.status === 'Active') { showToast('⚠ This loan is already active or no longer exists', 'warn'); setDisbLoan(null); return; }
-    const cust = customers.find(c => c.id === disbLoan.customerId);
-    if (cust && cust.loans === 0 && !hasRegFee(cust)) { showToast('⚠ Registration fee not paid. Cannot disburse loan until KES 500 registration fee is confirmed.', 'warn'); return; }
-    const disbUpd = { ...disbLoan, status: 'Active', disbursed: disbF.date, mpesa: disbF.mpesa, phone: disbF.phone };
-    setLoans(ls => ls.map(l => l.id === disbLoan.id ? disbUpd : l));
-    sbWrite('loans', toSupabaseLoan(disbUpd));
-    addAudit('Loan Disbursed', disbLoan.id, `${fmt(disbLoan.amount)} via ${disbF.mpesa}`);
-    showToast(`✅ Loan ${disbLoan.id} disbursed — ${fmt(disbLoan.amount)}`, 'ok');
-    setDisbLoan(null); setSel(null); setDisbF({ mpesa: '', phone: '', date: now() });
-  };
-
-  const doMpesaDisburse = async () => {
-    if (!disbLoan) return;
-    setLoading(true);
-    try {
-      const res = await initiateB2cDisbursement(disbLoan.id);
-      if (res.success) {
-        showToast('🚀 Disbursement initiated via M-Pesa. Status will update once Safaricom confirms.', 'info');
-        // We don't mark as Active yet — we wait for the callback asynchronously.
-        addAudit('M-Pesa Disbursement Initiated', disbLoan.id, `${fmt(disbLoan.amount)} requested via Daraja`);
-      } else {
-        throw new Error(res.error || 'Failed to initiate');
-      }
-    } catch (err) {
-      showToast('❌ M-Pesa Error: ' + err.message, 'danger');
-    } finally {
-      setLoading(false);
-      setDisbLoan(null);
-    }
-  };
+  // Legacy disbursement functions removed
 
   const doRecordPay = () => {
     const paid = payments
@@ -135,7 +96,15 @@ const LoansTab = ({ loans, setLoans, customers, setCustomers, payments, setPayme
 
   const doWriteoff = l => { const upd = { ...l, status: 'Written off' }; setLoans(ls => ls.map(x => x.id === l.id ? upd : x)); sbWrite('loans', toSupabaseLoan(upd)); addAudit('Loan Written Off', l.id, `Balance: ${fmt(l.balance)}`); showToast(`⚠ Loan ${l.id} written off`, 'warn'); setSel(null); };
 
-  const doApprove = l => { const upd = { ...l, status: 'Approved' }; setLoans(ls => ls.map(x => x.id === l.id ? upd : x)); sbWrite('loans', toSupabaseLoan(upd)); addAudit('Loan Approved', l.id, `Amount: ${fmt(l.amount)}`); showToast(`✅ Loan ${l.id} approved — ${fmt(l.amount)}`, 'ok'); setSel(null); };
+  const doApprove = l => { 
+    const upd = { ...l, status: 'Approved' }; 
+    setLoans(ls => ls.map(x => x.id === l.id ? upd : x)); 
+    sbWrite('loans', toSupabaseLoan(upd)); 
+    addAudit('Loan Approved', l.id, `Amount: ${fmt(l.amount)}`); 
+    showToast(`✅ Loan ${l.id} approved! Proceed to Payments Hub to disburse.`, 'ok'); 
+    setSel(null);
+    if (onNav) setTimeout(() => onNav('paymentshub'), 1500); // Auto-nav after 1.5s
+  };
 
   const doReject = l => { const upd = { ...l, status: 'Rejected', rejectedAt: now() }; setLoans(ls => ls.map(x => x.id === l.id ? upd : x)); sbWrite('loans', toSupabaseLoan(upd)); addAudit('Loan Rejected', l.id, `Amount: ${fmt(l.amount)}`); showToast(`Loan ${l.id} rejected`, 'warn'); setSel(null); };
 
@@ -202,7 +171,7 @@ const LoansTab = ({ loans, setLoans, customers, setCustomers, payments, setPayme
           >
             <div style={{ color: T.gold, fontWeight: 800, fontSize: 13, display: 'flex', alignItems: 'center', gap: 8 }}>
               <span>{pendColl ? '▶' : '▼'}</span>
-              ⏳ {pendingWorker.length} Loan Application{pendingWorker.length > 1 ? 's' : ''} Awaiting Approval
+              <Hourglass size={16} style={{marginRight:2}}/> {pendingWorker.length} Loan Application{pendingWorker.length > 1 ? 's' : ''} Awaiting Approval
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                <span style={{ color: T.gold, fontSize: 11, fontWeight: 600 }}>{pendColl ? 'Click to expand' : 'Click to collapse'}</span>
@@ -220,8 +189,8 @@ const LoansTab = ({ loans, setLoans, customers, setCustomers, payments, setPayme
                       <div style={{ color: T.muted, fontSize: 11, fontFamily: T.mono }}>{l.id} · {fmt(l.amount)} · {l.repaymentType} · {l.officer}</div>
                     </div>
                     <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
-                      <Btn sm v='gold' onClick={(e) => { e.stopPropagation(); doApprove(l); }}>✓ Approve</Btn>
-                      <Btn sm v='danger' onClick={(e) => { e.stopPropagation(); doReject(l); }}>✕ Reject</Btn>
+                      <Btn sm v='gold' onClick={(e) => { e.stopPropagation(); doApprove(l); }}><span style={{display:'flex', alignItems:'center', gap:4}}><Check size={14}/> Approve</span></Btn>
+                      <Btn sm v='danger' onClick={(e) => { e.stopPropagation(); doReject(l); }}><span style={{display:'flex', alignItems:'center', gap:4}}><X size={14}/> Reject</span></Btn>
                     </div>
                   </div>
                 ))}
@@ -236,7 +205,7 @@ const LoansTab = ({ loans, setLoans, customers, setCustomers, payments, setPayme
         </div>
       )}
       <ModuleHeader
-        title="💰 Loan Management"
+        title={<div style={{display:'flex', alignItems:'center', gap:8}}><Banknote size={20}/> Loan Management</div>}
         stats={stats}
         refreshProps={{ onRefresh: () => { setQ(''); setFlt('All'); setSel(null); } }}
         search={{ value: q, onChange: setQ, placeholder: 'Search loan or customer…' }}
@@ -341,15 +310,15 @@ const LoansTab = ({ loans, setLoans, customers, setCustomers, payments, setPayme
           onViewCustomer={cust => { setSel(null); setSelCust(cust); }}
           actions={(
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-              {(sel.status === 'Application submitted' || sel.status === 'worker-pending') && <Btn v='gold' onClick={() => { doApprove(sel); setSel(null); }}>✓ Approve</Btn>}
-              {(sel.status === 'Application submitted' || sel.status === 'worker-pending') && <Btn v='danger' onClick={() => setConfirmAction({ title: 'Reject Application', message: `Reject loan application ${sel.id} for ${sel.customer} (${fmt(sel.amount)})? The customer will need to re-apply.`, onConfirm: () => { doReject(sel); setConfirmAction(null); } })}>✕ Reject</Btn>}
-              {sel.status === 'Approved' && <Btn onClick={() => { setDisbLoan(sel); setSel(null); }}>💸 Disburse</Btn>}
-              {['Active', 'Overdue'].includes(sel.status) && <Btn v='ok' onClick={() => { setPayLoan(sel); setSel(null); }}>💳 Record Payment</Btn>}
-              {!['Written off', 'Settled', 'Rejected'].includes(sel.status) && <Btn v='danger' onClick={() => setConfirmAction({ title: 'Write Off Loan', message: `Write off loan ${sel.id} for ${sel.customer}? Balance of ${fmt(sel.balance)} will be marked as a loss. This cannot be undone.`, onConfirm: () => { doWriteoff(sel); setConfirmAction(null); } })}>✕ Write Off</Btn>}
+              {(sel.status === 'Application submitted' || sel.status === 'worker-pending') && <Btn v='gold' onClick={() => { doApprove(sel); setSel(null); }}><span style={{display:'flex',alignItems:'center',gap:4}}><Check size={14}/> Approve</span></Btn>}
+              {(sel.status === 'Application submitted' || sel.status === 'worker-pending') && <Btn v='danger' onClick={() => setConfirmAction({ title: 'Reject Application', message: `Reject loan application ${sel.id} for ${sel.customer} (${fmt(sel.amount)})? The customer will need to re-apply.`, onConfirm: () => { doReject(sel); setConfirmAction(null); } })}><span style={{display:'flex',alignItems:'center',gap:4}}><X size={14}/> Reject</span></Btn>}
+              {sel.status === 'Approved' && <Btn v='primary' onClick={() => { if (onNav) onNav('paymentshub'); setSel(null); }}><span style={{display:'flex',alignItems:'center',gap:6}}><Banknote size={16}/> Central Disbursement</span></Btn>}
+              {['Active', 'Overdue'].includes(sel.status) && <Btn v='ok' onClick={() => { setPayLoan(sel); setSel(null); }}><span style={{display:'flex',alignItems:'center',gap:6}}><CreditCard size={16}/> Record Payment</span></Btn>}
+              {!['Written off', 'Settled', 'Rejected'].includes(sel.status) && <Btn v='danger' onClick={() => setConfirmAction({ title: 'Write Off Loan', message: `Write off loan ${sel.id} for ${sel.customer}? Balance of ${fmt(sel.balance)} will be marked as a loss. This cannot be undone.`, onConfirm: () => { doWriteoff(sel); setConfirmAction(null); } })}><span style={{display:'flex',alignItems:'center',gap:4}}><X size={14}/> Write Off</span></Btn>}
               {['Active', 'Overdue', 'Approved'].includes(sel.status) && (() => {
                 const sc = customers.find(c => c.id === sel.customerId); return (<>
-                  <Btn v='blue' onClick={() => downloadLoanDoc(generateLoanAgreementHTML(sel, sc || { name: sel.customer }, sel.officer), 'loan-agreement-' + sel.id + '.html')}>📋 Agreement</Btn>
-                  <Btn v='secondary' onClick={() => downloadLoanDoc(generateAssetListHTML(sel, sc || { name: sel.customer }, sel.officer), 'asset-list-' + sel.id + '.html')}>📦 Assets</Btn>
+                  <Btn v='blue' onClick={() => downloadLoanDoc(generateLoanAgreementHTML(sel, sc || { name: sel.customer }, sel.officer), 'loan-agreement-' + sel.id + '.html')}><span style={{display:'flex',alignItems:'center',gap:4}}><FileText size={14}/> Agreement</span></Btn>
+                  <Btn v='secondary' onClick={() => downloadLoanDoc(generateAssetListHTML(sel, sc || { name: sel.customer }, sel.officer), 'asset-list-' + sel.id + '.html')}><span style={{display:'flex',alignItems:'center',gap:4}}><PackageOpen size={14}/> Assets</span></Btn>
                 </>);
               })()}
               <Btn v='ghost' onClick={() => setSel(null)}>Close</Btn>
@@ -402,7 +371,7 @@ const LoansTab = ({ loans, setLoans, customers, setCustomers, payments, setPayme
             if (cust && cust.loans === 0) {
               const hasFee = payments.some(p => p.customerId === cust.id && p.isRegFee);
               if (!hasFee) {
-                showToast('🛑 Eligibility Denied: Registration fee must be confirmed in the Payments Hub first.', 'danger', 6000);
+                showToast('Eligibility Denied: Registration fee must be confirmed in the Payments Hub first.', 'danger', 6000);
                 return;
               }
             }
@@ -422,36 +391,7 @@ const LoansTab = ({ loans, setLoans, customers, setCustomers, payments, setPayme
           }} onClose={() => setShowApp(false)} />
         </Dialog>
       )}
-      {disbLoan && (() => {
-        const cust = customers.find(c => c.id === disbLoan.customerId);
-        const regFeeOk = !cust || cust.loans > 0 || hasRegFee(cust);
-        return (
-          <Dialog title={`Disburse · ${disbLoan.id}`} onClose={() => setDisbLoan(null)} width={580}>
-            <Alert type='info'>Disbursing <b>{fmt(disbLoan.amount)}</b> to <b>{disbLoan.customer}</b></Alert>
-            {!regFeeOk && <Alert type='danger'>⛔ Registration fee (KES 500) has NOT been paid. You cannot disburse until this is confirmed.</Alert>}
-            {regFeeOk && <Alert type='ok'>✓ Registration fee verified. Proceed with disbursement.</Alert>}
-            <FI label='M-Pesa Transaction Code' value={disbF.mpesa} onChange={v => setDisbF(f => ({ ...f, mpesa: v }))} required placeholder='e.g. QAB123456' />
-            <FI label='Disbursement Phone' value={disbF.phone} onChange={v => setDisbF(f => ({ ...f, phone: v }))} required />
-            <FI label='Date' type='date' value={disbF.date} onChange={v => setDisbF(f => ({ ...f, date: v }))} />
-            <div style={{ display: 'flex', gap: 9, marginBottom: 12 }}><Btn onClick={doDisburse} full disabled={!regFeeOk || loading}>✓ Confirm Manual Disbursement</Btn></div>
-            <div style={{ display: 'flex', gap: 9, paddingTop: 12, borderTop: `1px dashed ${T.border}` }}><Btn v='gold' onClick={doMpesaDisburse} full disabled={!regFeeOk || loading}>🚀 Disburse via M-Pesa (B2C)</Btn><Btn v='secondary' onClick={() => setDisbLoan(null)} full>Cancel</Btn></div>
-            {/* PDF Documents — available before and after disbursement */}
-            <div style={{ marginTop: 16, paddingTop: 14, borderTop: `1px solid ${T.border}` }}>
-              <div style={{ color: T.txt, fontWeight: 700, fontSize: 13, marginBottom: 3 }}>📄 Loan Documents</div>
-              <div style={{ color: T.muted, fontSize: 12, marginBottom: 10 }}>Download for signing before or after disbursement. Opens as printable HTML.</div>
-              <div style={{ display: 'flex', gap: 9, flexWrap: 'wrap' }}>
-                <Btn v='blue' onClick={() => {
-                  const loanForDoc = { ...disbLoan, mpesa: disbF.mpesa || disbLoan.mpesa, disbursed: disbF.date || disbLoan.disbursed };
-                  downloadLoanDoc(generateLoanAgreementHTML(loanForDoc, cust || { name: disbLoan.customer }, disbLoan.officer), 'loan-agreement-' + disbLoan.id + '.html');
-                }}>📋 Loan Agreement</Btn>
-                <Btn v='secondary' onClick={() => {
-                  downloadLoanDoc(generateAssetListHTML(disbLoan, cust || { name: disbLoan.customer }, disbLoan.officer), 'asset-list-' + disbLoan.id + '.html');
-                }}>📦 Asset Declaration</Btn>
-              </div>
-            </div>
-          </Dialog>
-        );
-      })()}
+      {/* Legacy disbursement dialog removed */}
       {payLoan && (() => {
         const payLoanCust = customers.find(c => c.id === payLoan.customerId || c.name === payLoan.customer);
         const isNewForFee = payLoanCust && payLoanCust.loans <= 1 && !hasRegFee(payLoanCust);
@@ -473,7 +413,7 @@ const LoansTab = ({ loans, setLoans, customers, setCustomers, payments, setPayme
             <FI label='Payment Amount (KES)' type='number' value={payF.amount} onChange={v => setPayF(f => ({ ...f, amount: v }))} required placeholder='Amount received' />
             <FI label='M-Pesa Code (optional)' value={payF.mpesa} onChange={v => setPayF(f => ({ ...f, mpesa: v }))} placeholder='e.g. QAB123456' />
             <FI label='Payment Date' type='date' value={payF.date || now()} onChange={v => setPayF(f => ({ ...f, date: v }))} />
-            <div style={{ display: 'flex', gap: 9 }}><Btn onClick={doRecordPay} full>✓ Save Payment</Btn><Btn v='secondary' onClick={() => { setPayLoan(null); setPayF({ amount: '', mpesa: '', date: now(), isRegFee: false }); }}>Cancel</Btn></div>
+            <div style={{ display: 'flex', gap: 9 }}><Btn onClick={doRecordPay} full><span style={{display:'flex',alignItems:'center',justifyContent:'center',gap:6}}><Check size={16}/> Save Payment</span></Btn><Btn v='secondary' onClick={() => { setPayLoan(null); setPayF({ amount: '', mpesa: '', date: now(), isRegFee: false }); }}>Cancel</Btn></div>
           </Dialog>
         );
       })()}

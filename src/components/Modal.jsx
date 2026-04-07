@@ -33,7 +33,8 @@ export default function Modal({ title, children, onClose, width = 520 }) {
       style={{
         position: 'fixed', inset: 0, zIndex: ZINDEX,
         background: 'rgba(4,8,16,0.75)',
-        backdropFilter: 'blur(4px)',
+        backdropFilter: 'var(--glass-blur)',
+        WebkitBackdropFilter: 'var(--glass-blur)',
         display: 'flex', alignItems: 'flex-start', justifyContent: 'center',
         padding: '16px 8px', overflow: 'hidden',
       }}

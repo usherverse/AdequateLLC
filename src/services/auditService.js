@@ -20,11 +20,11 @@ export async function addAuditLog({ userId, userLabel, action, target, detail = 
 /**
  * Fetch recent audit log entries (admin only — enforced by RLS).
  */
-export async function getAuditLogs({ limit = 200, offset = 0 } = {}) {
+export async function getAuditLogs({ limit = 100, offset = 0 } = {}) {
   if (DEMO_MODE || !supabase) return { data: [], error: null };
   const { data, error } = await supabase
     .from('audit_logs')
-    .select('*')
+    .select('id, ts, user_label, action, target, detail')
     .order('ts', { ascending: false })
     .range(offset, offset + limit - 1);
   return { data: data ?? [], error };

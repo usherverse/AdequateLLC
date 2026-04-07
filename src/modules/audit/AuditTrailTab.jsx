@@ -1,11 +1,12 @@
-import React, { useState, useMemo, useCallback } from 'react';
+import React, { useState, useMemo, useCallback, useEffect } from 'react';
+import { Smartphone, Tablet, Monitor, Lock, Hourglass, RefreshCw, Globe } from 'lucide-react';
 import { T, Card, CH, DT, Badge, Search, Pills, RefreshBtn, useToast } from '@/lms-common';
 
 const DeviceIcon = ({ type }) => {
-  if (type === 'mobile') return <span title="Mobile" style={{fontSize: 16}}>📱</span>;
-  if (type === 'tablet') return <span title="Tablet" style={{fontSize: 16}}>📳</span>;
-  if (type === 'desktop') return <span title="Desktop" style={{fontSize: 16}}>💻</span>;
-  return <span title="Unknown Device" style={{fontSize: 16, opacity: 0.5}}>🖥️</span>;
+  if (type === 'mobile') return <span title="Mobile" style={{display:'flex'}}><Smartphone size={16}/></span>;
+  if (type === 'tablet') return <span title="Tablet" style={{display:'flex'}}><Tablet size={16}/></span>;
+  if (type === 'desktop') return <span title="Desktop" style={{display:'flex'}}><Monitor size={16}/></span>;
+  return <span title="Unknown Device" style={{display:'flex', opacity: 0.5}}><Monitor size={16}/></span>;
 };
 
 // Pastel colors based on session/user IP to make rows distinct
@@ -26,6 +27,7 @@ const AuditTrailTab = ({ allState, setAuditLog }) => {
   const [actionFilter, setActionFilter] = useState('All');
   const [deviceFilter, setDeviceFilter] = useState('All');
   const [loading, setLoading] = useState(false);
+  const [lastSync, setLastSync] = useState(null);
 
   const refreshAudit = useCallback(async () => {
     setLoading(true);
@@ -56,13 +58,21 @@ const AuditTrailTab = ({ allState, setAuditLog }) => {
           country: r.country,
           city: r.city
         })));
-        showToast('Audit trail refreshed from server', 'ok');
+        setLastSync(new Date());
+        showToast(`Audit trail synced — ${data.length} records loaded`, 'ok');
       }
     } catch (e) {
       showToast('Failed to refresh audit trail: ' + e.message, 'error');
     }
     setLoading(false);
   }, [setAuditLog, showToast]);
+
+  // Auto-fetch from Supabase on mount so cross-device logs are always visible
+  // even if React state was empty when the session was first restored.
+  useEffect(() => {
+    refreshAudit();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const filteredAudit = useMemo(() => {
     return auditLog.filter(a => {
@@ -89,7 +99,7 @@ const AuditTrailTab = ({ allState, setAuditLog }) => {
     <div className='fu'>
       <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:4,flexWrap:'wrap',gap:8}}>
         <div>
-          <div style={{fontFamily:T.head,color:T.txt,fontSize:20,fontWeight:800}}>🔐 System Audit Trail</div>
+          <div style={{fontFamily:T.head,color:T.txt,fontSize:20,fontWeight:800,display:'flex',alignItems:'center',gap:8}}><Lock size={20}/> System Audit Trail</div>
           <div style={{color:T.muted,fontSize:13,marginTop:2}}>Comprehensive log of all user activities and system events</div>
         </div>
       </div>
@@ -115,7 +125,7 @@ const AuditTrailTab = ({ allState, setAuditLog }) => {
                     alignItems: 'center',
                     gap: 6
                   }}>
-                  {loading ? '⏳ Refreshing...' : '🔄 Live Fetch'}
+                  {loading ? <><Hourglass size={14}/> Refreshing...</> : <><RefreshCw size={14}/> Live Fetch</>}
                 </button>
               </div>
             }/>
@@ -156,7 +166,7 @@ const AuditTrailTab = ({ allState, setAuditLog }) => {
               {k:'location', l:'Location', r: (_, row) => (
                 <div style={{display: 'flex', flexDirection: 'column'}}>
                   <span style={{fontSize: 11, color: T.txt, fontWeight: 600}}>
-                    {row.city ? `${row.city}, ` : ''}{row.country ? `🌍 ${row.country}` : '—'}
+                    {row.city ? `${row.city}, ` : ''}{row.country ? <span style={{display:'inline-flex',alignItems:'center',gap:4}}><Globe size={12}/> {row.country}</span> : '—'}
                   </span>
                   <span style={{fontSize: 9, color: T.muted, fontFamily: T.mono}} title="IP Address">{row.ip_address || ''}</span>
                 </div>

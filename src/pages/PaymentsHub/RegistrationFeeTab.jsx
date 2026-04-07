@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
+import { Rocket, Smartphone } from 'lucide-react';
 import { supabase } from '@/config/supabaseClient';
 import { T, Badge, Btn, fmt, FI } from '@/lms-common';
 import { useRegistrationFee } from './hooks/useRegistrationFee';
@@ -126,7 +127,15 @@ const RegistrationFeeTab = () => {
             full
             style={{ padding: '16px 24px', fontSize: 18, height: 'auto' }}
           >
-            {loading || loadingLocal ? '🚀 Initiating Push...' : '📲 Trigger KES 500 STK Push'}
+            {loading || loadingLocal ? (
+              <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
+                <Rocket size={18} /> Initiating Push...
+              </span>
+            ) : (
+              <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
+                <Smartphone size={18} /> Trigger KES 500 STK Push
+              </span>
+            )}
           </Btn>
           
           <p style={{ textAlign: 'center', fontSize: 12, color: T.muted, margin: 0 }}>

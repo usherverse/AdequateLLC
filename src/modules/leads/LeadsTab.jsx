@@ -1,5 +1,6 @@
 import CustomerProfile from "@/modules/customers/CustomerProfile";
 import React, { useState, useMemo, useEffect, useRef, useCallback, memo } from 'react';
+import { Target, Check } from 'lucide-react';
 import { T, SC, RC, SFX, Card, CH, KPI, DT, Btn, Badge, Av, Bar, BackBtn, RefreshBtn,
   FI, PhoneInput, NumericInput, Search, Pills, Alert, Dialog, ConfirmDialog, ToastContainer,
   LoanModal, LoanForm, RepayTracker, ValidationPopup, OnboardForm,
@@ -143,7 +144,7 @@ const LeadsTab = ({leads,setLeads,workers,customers,setCustomers,loans,addAudit,
       {showVal&&<ValidationPopup fields={showVal} onClose={()=>setShowVal(false)}/>}
       
       <ModuleHeader
-        title="🎯 Lead Pipeline"
+        title={<div style={{display:'flex', alignItems:'center', gap:8}}><Target size={20}/> Lead Pipeline</div>}
         stats={stats}
         refreshProps={{ onRefresh: () => { setQ(''); setConv(null); } }}
         search={{ value: q, onChange: setQ, placeholder: 'Search leads…' }}
@@ -173,7 +174,7 @@ const LeadsTab = ({leads,setLeads,workers,customers,setCustomers,loans,addAudit,
                   <div style={{color:T.muted,fontSize:12,marginTop:2}}>{l.business||'—'} · {l.location||'—'}</div>
                   <div style={{color:T.muted,fontSize:11,marginTop:2}}>{l.source} · {l.officer&&<span style={{color:T.accent}}>{l.officer}</span>}</div>
                   {stage==='New'&&<button onClick={()=>mv(l,'Contacted')} style={{marginTop:7,background:T.wLo,color:T.warn,border:`1px solid ${T.warn}38`,borderRadius:7,padding:'4px 9px',fontSize:11,fontWeight:700,cursor:'pointer',width:'100%'}}>Mark Contacted</button>}
-                  {stage==='Contacted'&&<button onClick={()=>mv(l,'Interested')} style={{marginTop:7,background:T.oLo,color:T.ok,border:`1px solid ${T.ok}38`,borderRadius:7,padding:'4px 9px',fontSize:11,fontWeight:700,cursor:'pointer',width:'100%'}}>Mark Interested ✓</button>}
+                  {stage==='Contacted'&&<button onClick={()=>mv(l,'Interested')} style={{marginTop:7,background:T.oLo,color:T.ok,border:`1px solid ${T.ok}38`,borderRadius:7,padding:'4px 9px',fontSize:11,fontWeight:700,cursor:'pointer',width:'100%'}}><span style={{display:'flex',alignItems:'center',justifyContent:'center',gap:4}}>Mark Interested <Check size={14} /></span></button>}
                   {stage==='Interested'&&<button onClick={()=>setConv(l)} style={{marginTop:7,background:T.accent,color:'#060A10',border:'none',borderRadius:7,padding:'5px 9px',fontSize:11,fontWeight:800,cursor:'pointer',width:'100%'}}>Convert to Customer →</button>}
                 </div>
               ))}

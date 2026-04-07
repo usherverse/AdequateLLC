@@ -1,4 +1,5 @@
 import React, { useState, useMemo, useEffect, useRef, useCallback, memo } from 'react';
+import { KeyRound, Lock, Fingerprint, Ban, CheckCircle, Hourglass, Smartphone, ShieldAlert, Check, AlertTriangle, EyeOff, Eye } from 'lucide-react';
 import { T, SC, RC, SFX, Card, CH, KPI, DT, Btn, Badge, Av, Bar, BackBtn, RefreshBtn,
   FI, PhoneInput, NumericInput, Search, Pills, Alert, Dialog, ConfirmDialog, ToastContainer,
   LoanModal, LoanForm, RepayTracker,
@@ -104,21 +105,21 @@ const SecuritySettingsTab = ({auditLog, addAudit, showToast}) => {
   };
 
   const features = [
-    {key:'passwordEnabled', icon:'🔑', label:'Password Login', desc:'Require admin password to log in. Cannot be disabled while biometric is off.', canDisable: cfg.biometricEnabled},
+    {key:'passwordEnabled', icon:<KeyRound size={28} />, label:'Password Login', desc:'Require admin password to log in. Cannot be disabled while biometric is off.', canDisable: cfg.biometricEnabled},
     // SMS OTP disabled — uncomment once SMS provider (Vonage/Twilio) is configured in Supabase:
     // {key:'otpEnabled', icon:'📱', label:'SMS OTP', desc:'Send a one-time code to the registered phone number as an additional login step.', canDisable: true},
   ];
 
   return (
     <div className='fu'>
-      <div style={{fontFamily:T.head,color:T.txt,fontSize:20,fontWeight:800,marginBottom:4}}>🔐 Security Settings</div>
+      <div style={{fontFamily:T.head,color:T.txt,fontSize:20,fontWeight:800,marginBottom:4,display:'flex',alignItems:'center',gap:8}}><Lock size={20}/> Security Settings</div>
       <div style={{color:T.muted,fontSize:13,marginBottom:20}}>Configure authentication methods for admin login.</div>
 
       {/* Password verification gate */}
       {!verified&&(
         <Card style={{marginBottom:16,border:`1px solid ${T.warn}30`}}>
           <div style={{padding:'16px 18px'}}>
-            <div style={{color:T.warn,fontWeight:700,fontSize:14,marginBottom:6}}>🔒 Verify your identity to make changes</div>
+            <div style={{color:T.warn,fontWeight:700,fontSize:14,marginBottom:6,display:'flex',alignItems:'center',gap:6}}><Lock size={14}/> Verify your identity to make changes</div>
             <div style={{color:T.muted,fontSize:12,marginBottom:14}}>Enter your current admin password to unlock security settings.</div>
             <div style={{display:'flex',gap:9,alignItems:'flex-end',flexWrap:'wrap'}}>
               <div style={{flex:1,minWidth:180}}>
@@ -172,7 +173,7 @@ const SecuritySettingsTab = ({auditLog, addAudit, showToast}) => {
       {verified&&(
         <>
         <Card style={{marginBottom:12}}>
-          <CH title='🔑 Change Admin Password'/>
+          <CH title={<div style={{display:'flex',alignItems:'center',gap:8}}><KeyRound size={18}/> Change Admin Password</div>}/>
           <div style={{padding:'14px 16px'}}>
             {!showChangePw
               ?<Btn onClick={()=>setShowChangePw(true)}>Change Password →</Btn>
@@ -183,8 +184,8 @@ const SecuritySettingsTab = ({auditLog, addAudit, showToast}) => {
                   <input type={showCurPw?'text':'password'} value={curPw} onChange={e=>{setCurPw(e.target.value);setCurPwErr('');}} placeholder='Enter current password' autoComplete='current-password'
                     style={{width:'100%',background:T.surface,border:`1px solid ${curPwErr?T.danger:T.border}`,borderRadius:8,padding:'10px 40px 10px 12px',color:T.txt,fontSize:14,outline:'none',fontFamily:T.body,boxSizing:'border-box'}}/>
                   <button onClick={()=>setShowCurPw(v=>!v)} tabIndex={-1}
-                    style={{position:'absolute',right:10,top:'50%',transform:'translateY(-50%)',background:'none',border:'none',cursor:'pointer',color:T.muted,fontSize:16,padding:'0 2px',lineHeight:1}}>
-                    {showCurPw?'🙈':'👁️'}
+                    style={{position:'absolute',right:10,top:'50%',transform:'translateY(-50%)',background:'none',border:'none',cursor:'pointer',color:T.muted,lineHeight:0,padding:'4px',display:'flex',alignItems:'center',justifyContent:'center'}}>
+                    {showCurPw?<EyeOff size={16}/>:<Eye size={16}/>}
                   </button>
                 </div>
                 {curPwErr&&<div style={{color:T.danger,fontSize:12,marginBottom:8}}>⚠ {curPwErr}</div>}
@@ -195,8 +196,8 @@ const SecuritySettingsTab = ({auditLog, addAudit, showToast}) => {
                   <input type={showNewPw?'text':'password'} value={newPw} onChange={e=>setNewPw(e.target.value)} placeholder='Minimum 6 characters' autoComplete='new-password'
                     style={{width:'100%',background:T.surface,border:`1px solid ${T.border}`,borderRadius:8,padding:'10px 40px 10px 12px',color:T.txt,fontSize:14,outline:'none',fontFamily:T.body,boxSizing:'border-box'}}/>
                   <button onClick={()=>setShowNewPw(v=>!v)} tabIndex={-1}
-                    style={{position:'absolute',right:10,top:'50%',transform:'translateY(-50%)',background:'none',border:'none',cursor:'pointer',color:T.muted,fontSize:16,padding:'0 2px',lineHeight:1}}>
-                    {showNewPw?'🙈':'👁️'}
+                    style={{position:'absolute',right:10,top:'50%',transform:'translateY(-50%)',background:'none',border:'none',cursor:'pointer',color:T.muted,lineHeight:0,padding:'4px',display:'flex',alignItems:'center',justifyContent:'center'}}>
+                    {showNewPw?<EyeOff size={16}/>:<Eye size={16}/>}
                   </button>
                 </div>
 
@@ -206,15 +207,15 @@ const SecuritySettingsTab = ({auditLog, addAudit, showToast}) => {
                   <input type={showNewPw2?'text':'password'} value={newPw2} onChange={e=>setNewPw2(e.target.value)} onKeyDown={e=>e.key==='Enter'&&doChangePw()} placeholder='Repeat new password' autoComplete='new-password'
                     style={{width:'100%',background:T.surface,border:`1px solid ${newPw&&newPw2&&newPw!==newPw2?T.danger:T.border}`,borderRadius:8,padding:'10px 40px 10px 12px',color:T.txt,fontSize:14,outline:'none',fontFamily:T.body,boxSizing:'border-box'}}/>
                   <button onClick={()=>setShowNewPw2(v=>!v)} tabIndex={-1}
-                    style={{position:'absolute',right:10,top:'50%',transform:'translateY(-50%)',background:'none',border:'none',cursor:'pointer',color:T.muted,fontSize:16,padding:'0 2px',lineHeight:1}}>
-                    {showNewPw2?'🙈':'👁️'}
+                    style={{position:'absolute',right:10,top:'50%',transform:'translateY(-50%)',background:'none',border:'none',cursor:'pointer',color:T.muted,lineHeight:0,padding:'4px',display:'flex',alignItems:'center',justifyContent:'center'}}>
+                    {showNewPw2?<EyeOff size={16}/>:<Eye size={16}/>}
                   </button>
                 </div>
                 {newPw&&newPw2&&newPw!==newPw2&&<div style={{color:T.danger,fontSize:12,marginBottom:6}}>⚠ Passwords do not match</div>}
                 {newPw&&newPw.length>0&&newPw.length<6&&<div style={{color:T.warn,fontSize:12,marginBottom:6}}>⚠ At least 6 characters required</div>}
                 {pwErr&&<div style={{color:T.danger,fontSize:12,marginBottom:8}}>⚠ {pwErr}</div>}
                 <div style={{display:'flex',gap:8}}>
-                  <Btn onClick={doChangePw} full>✓ Save New Password</Btn>
+                  <Btn onClick={doChangePw} full><span style={{display:'flex',alignItems:'center',justifyContent:'center',gap:6}}><Check size={16}/> Save New Password</span></Btn>
                   <Btn v='secondary' onClick={()=>{setShowChangePw(false);setPwErr('');setCurPwErr('');setCurPw('');setNewPw('');setNewPw2('');}}>Cancel</Btn>
                 </div>
               </div>
@@ -257,12 +258,12 @@ const SecuritySettingsTab = ({auditLog, addAudit, showToast}) => {
           const doRemove=()=>{saveCfg({biometricEnabled:false,bioCredId:null});setBioStatus('idle');setBioMsg('');addAudit('Biometric Removed','Admin','Fingerprint removed');showToast('Fingerprint removed','warn');};
           return(
             <Card style={{marginBottom:12,border:`1px solid ${bioStatus==='ok'?T.ok+'40':bioStatus==='unsupported'?T.border:T.accent+'30'}`}}>
-              <CH title='🪬 Fingerprint / Face ID Login'/>
+              <CH title={<div style={{display:'flex',alignItems:'center',gap:8}}><Fingerprint size={18}/> Fingerprint / Face ID Login</div>}/>
               <div style={{padding:'14px 16px'}}>
-                {bioStatus==='unsupported'&&(<div style={{display:'flex',gap:12,alignItems:'flex-start'}}><div style={{fontSize:28}}>🚫</div><div><div style={{color:T.warn,fontWeight:700,fontSize:13,marginBottom:4}}>Not supported on this device</div><div style={{color:T.muted,fontSize:12,lineHeight:1.6}}>{bioMsg||'Requires a device with fingerprint/Face ID on Chrome, Edge, or Safari over HTTPS.'}</div></div></div>)}
-                {bioStatus!=='unsupported'&&(<div style={{display:'flex',gap:14,alignItems:'flex-start'}}><div style={{fontSize:32,flexShrink:0,marginTop:2}}>{bioStatus==='ok'?'✅':bioStatus==='registering'?'⏳':'🫆'}</div><div style={{flex:1}}>
+                {bioStatus==='unsupported'&&(<div style={{display:'flex',gap:12,alignItems:'flex-start'}}><div style={{display:'flex'}}><Ban size={28} color={T.muted}/></div><div><div style={{color:T.warn,fontWeight:700,fontSize:13,marginBottom:4}}>Not supported on this device</div><div style={{color:T.muted,fontSize:12,lineHeight:1.6}}>{bioMsg||'Requires a device with fingerprint/Face ID on Chrome, Edge, or Safari over HTTPS.'}</div></div></div>)}
+                {bioStatus!=='unsupported'&&(<div style={{display:'flex',gap:14,alignItems:'flex-start'}}><div style={{flexShrink:0,marginTop:2,display:'flex'}}>{bioStatus==='ok'?<CheckCircle size={32} color={T.ok}/>:bioStatus==='registering'?<Hourglass size={32} color={T.accent}/>:<Fingerprint size={32} color={T.muted}/>}</div><div style={{flex:1}}>
                   {bioStatus==='ok'&&(<><div style={{color:T.ok,fontWeight:700,fontSize:14,marginBottom:4}}>Fingerprint registered on this device</div><div style={{color:T.muted,fontSize:12,marginBottom:14,lineHeight:1.6}}>Biometric login is active as a second factor on this device.</div><div style={{display:'flex',gap:8}}><Btn onClick={doRegister} v='secondary' sm>↺ Re-register</Btn><Btn onClick={doRemove} v='danger' sm>✕ Remove</Btn></div></>)}
-                  {(bioStatus==='idle'||bioStatus==='error')&&(<><div style={{color:T.txt,fontWeight:700,fontSize:14,marginBottom:4}}>Register your fingerprint</div><div style={{color:T.muted,fontSize:12,marginBottom:10,lineHeight:1.6}}>Use your device fingerprint reader or Face ID as a second login factor.</div>{bioStatus==='error'&&<Alert type='danger' style={{marginBottom:10}}>{bioMsg}</Alert>}{bioStatus==='idle'&&bioMsg&&<div style={{color:T.muted,fontSize:12,marginBottom:8}}>{bioMsg}</div>}<Btn onClick={doRegister} full>🫆 Register Fingerprint / Face ID</Btn></>)}
+                  {(bioStatus==='idle'||bioStatus==='error')&&(<><div style={{color:T.txt,fontWeight:700,fontSize:14,marginBottom:4}}>Register your fingerprint</div><div style={{color:T.muted,fontSize:12,marginBottom:10,lineHeight:1.6}}>Use your device fingerprint reader or Face ID as a second login factor.</div>{bioStatus==='error'&&<Alert type='danger' style={{marginBottom:10}}>{bioMsg}</Alert>}{bioStatus==='idle'&&bioMsg&&<div style={{color:T.muted,fontSize:12,marginBottom:8}}>{bioMsg}</div>}<Btn onClick={doRegister} full><span style={{display:'flex',alignItems:'center',justifyContent:'center',gap:6}}><Fingerprint size={16}/> Register Fingerprint / Face ID</span></Btn></>)}
                   {bioStatus==='registering'&&(<div style={{display:'flex',gap:10,alignItems:'center'}}><div style={{width:18,height:18,border:`2px solid ${T.border}`,borderTop:`2px solid ${T.accent}`,borderRadius:'50%',animation:'spin .8s linear infinite',flexShrink:0}}/><div style={{color:T.accent,fontSize:13,fontWeight:600}}>Waiting for fingerprint… touch the sensor now</div></div>)}
                 </div></div>)}
               </div>
@@ -271,28 +272,28 @@ const SecuritySettingsTab = ({auditLog, addAudit, showToast}) => {
         })()}
                 {/* OTP phone setup */}
         <Card style={{marginBottom:12}}>
-          <CH title='📱 OTP Phone Number'/>
+          <CH title={<div style={{display:'flex',alignItems:'center',gap:8}}><Smartphone size={18}/> OTP Phone Number</div>}/>
           <div style={{padding:'14px 16px'}}>
             <div style={{color:T.muted,fontSize:12,marginBottom:12}}>When OTP is enabled, a 6-digit code will be shown here and you enter it to complete login. In production, this will be sent as an SMS.</div>
             <div style={{display:'flex',gap:9,alignItems:'flex-end',flexWrap:'wrap'}}>
               <div style={{flex:1,minWidth:180}}><PhoneInput label='Admin Phone for OTP' value={otpPhone} onChange={setOtpPhone}/></div>
               <Btn onClick={doSaveOtpPhone} style={{marginBottom:12}}>Save & Enable OTP</Btn>
             </div>
-            {cfg.adminPhone&&<div style={{color:T.ok,fontSize:12,marginTop:4}}>✓ OTP will go to: <b>{cfg.adminPhone}</b></div>}
+            {cfg.adminPhone&&<div style={{color:T.ok,fontSize:12,marginTop:4,display:'flex',alignItems:'center',gap:4}}><Check size={12}/> OTP will go to: <b>{cfg.adminPhone}</b></div>}
           </div>
         </Card>
 
         {/* Recovery contact setup */}
         <Card style={{marginBottom:12,border:`1px solid ${T.warn}30`}}>
-          <CH title='🆘 Account Recovery Contacts' sub='Used to unlock your account after a lockout'/>
+          <CH title={<div style={{display:'flex',alignItems:'center',gap:8}}><ShieldAlert size={18}/> Account Recovery Contacts</div>} sub='Used to unlock your account after a lockout'/>
           <div style={{padding:'14px 16px'}}>
             <Alert type='warn' style={{marginBottom:12}}>Set at least one recovery method. Without this, a lockout can only be cleared by waiting 15 minutes.</Alert>
             <FI label='Recovery Email' type='email' value={cfg.adminEmail||''} onChange={v=>saveCfg({adminEmail:v})} placeholder='admin@adequatecapital.co.ke'/>
             <PhoneInput label='Recovery Phone (SMS)' value={cfg.adminRecoveryPhone||''} onChange={v=>saveCfg({adminRecoveryPhone:v})}/>
             <div style={{color:T.ok,fontSize:12,marginTop:4}}>
               {(cfg.adminEmail||cfg.adminRecoveryPhone)
-                ? `✓ Recovery available via: ${[cfg.adminEmail&&'Email',cfg.adminRecoveryPhone&&'SMS'].filter(Boolean).join(' & ')}`
-                : <span style={{color:T.danger}}>⚠ No recovery contacts set</span>}
+                ? <span style={{display:'flex',alignItems:'center',gap:4}}><Check size={12}/> Recovery available via: {[cfg.adminEmail&&'Email',cfg.adminRecoveryPhone&&'SMS'].filter(Boolean).join(' & ')}</span>
+                : <span style={{color:T.danger,display:'flex',alignItems:'center',gap:4}}><AlertTriangle size={12}/> No recovery contacts set</span>}
             </div>
           </div>
         </Card>

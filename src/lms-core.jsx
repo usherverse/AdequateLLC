@@ -1,4 +1,5 @@
 // ADEQUATE CAPITAL LMS — App Shell (Modularized)
+import { Lock, ShieldAlert, Mail, Smartphone, Check } from 'lucide-react';
 import LoansTab from "@/modules/loans/LoansTab";
 import PaymentsTab from "@/modules/payments/PaymentsTab";
 import CollectionsTab from "@/modules/collections/CollectionsTab";
@@ -175,8 +176,10 @@ export {
 };
 
 import { useSearchParams } from "react-router-dom"; // MODIFIED: Support parameterized redirects
+import { useTheme } from "@/context/ThemeContext";
 
 const AdminPanel = ({onLogout,loans,setLoans,customers,setCustomers,workers,setWorkers,payments,setPayments,leads,setLeads,interactions,setInteractions,auditLog,setAuditLog,onOpenCustomerProfile}) => {
+  const { theme, toggleTheme } = useTheme();
   const [screen,setScreen]=useState('dashboard');
   const [searchParams, setSearchParams] = useSearchParams(); // MODIFIED
   const [screenHistory,setScreenHistory]=useState([]);
@@ -303,7 +306,9 @@ const AdminPanel = ({onLogout,loans,setLoans,customers,setCustomers,workers,setW
   const navItem=useCallback((item)=>(
     <button key={item.id} onClick={()=>navTo(item.id)} className='nb'
       style={{display:'flex',alignItems:'center',gap:10,width:'100%',padding:'10px 12px',borderRadius:9,border:'none',background:screen===item.id?T.aLo:'none',color:screen===item.id?T.accent:T.muted,cursor:'pointer',fontSize:13,fontWeight:screen===item.id?700:500,marginBottom:2,textAlign:'left',transition:'background .18s,color .18s',flexShrink:0,position:'relative'}}>
-      <span style={{fontSize:15,flexShrink:0,width:22,textAlign:'center'}}>{item.i}</span>
+      <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, width: 22 }}>
+        <item.i size={16} strokeWidth={screen === item.id ? 2.5 : 2} />
+      </span>
       <span style={{flex:1,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{item.l}</span>
       {item.id==='payments'&&unalloc>0&&<span style={{background:T.danger,color:'#fff',borderRadius:99,padding:'1px 6px',fontSize:10,fontWeight:800}}>{unalloc}</span>}
       {item.id==='collections'&&overdue>0&&<span style={{background:T.dLo,color:T.danger,borderRadius:99,padding:'1px 6px',fontSize:10,fontWeight:800,border:`1px solid ${T.danger}38`}}>{overdue}</span>}
@@ -314,7 +319,7 @@ const AdminPanel = ({onLogout,loans,setLoans,customers,setCustomers,workers,setW
   const S={
     dashboard:  ()=><DashboardTab loans={loans} setLoans={setLoans} customers={customers} setCustomers={setCustomers} payments={payments} setPayments={setPayments} workers={workers} interactions={interactions} setInteractions={setInteractions} addAudit={addAudit} onNav={navTo} scrollTop={scrollTop} onOpenCustomerProfile={onOpenCustomerProfile}/>,
     calendar:   ()=><DueLoansCalendar loans={loans} payments={payments} workers={workers} workerContext={{role:'admin',name:'Admin'}} onOpenCustomerProfile={onOpenCustomerProfile} />,
-    loans:      ()=><LoansTab loans={loans} setLoans={setLoans} customers={customers} setCustomers={setCustomers} payments={payments} setPayments={setPayments} interactions={interactions} setInteractions={setInteractions} workers={workers} addAudit={addAudit} showToast={showToast} onOpenCustomerProfile={onOpenCustomerProfile}/>,
+    loans:      ()=><LoansTab loans={loans} setLoans={setLoans} customers={customers} setCustomers={setCustomers} payments={payments} setPayments={setPayments} interactions={interactions} setInteractions={setInteractions} workers={workers} addAudit={addAudit} showToast={showToast} onOpenCustomerProfile={onOpenCustomerProfile} onNav={navTo}/>,
     customers:  ()=><CustomersTab customers={customers} setCustomers={setCustomers} workers={workers} loans={loans} setLoans={setLoans} payments={payments} setPayments={setPayments} interactions={interactions} setInteractions={setInteractions} addAudit={addAudit} showToast={showToast} onOpenCustomerProfile={onOpenCustomerProfile}/>,
     leads:      ()=><LeadsTab leads={leads} setLeads={setLeads} workers={workers} customers={customers} setCustomers={setCustomers} loans={loans} addAudit={addAudit} showToast={showToast} onOpenCustomerProfile={onOpenCustomerProfile} onNav={navTo}/>, // MODIFIED: Added onNav
     collections:()=><CollectionsTab loans={loans} setLoans={setLoans} customers={customers} setCustomers={setCustomers} payments={payments} setPayments={setPayments} interactions={interactions} setInteractions={setInteractions} workers={workers} addAudit={addAudit} scrollTop={scrollTop} currentUser='Admin' onOpenCustomerProfile={onOpenCustomerProfile}/>,
@@ -324,7 +329,7 @@ const AdminPanel = ({onLogout,loans,setLoans,customers,setCustomers,workers,setW
     database:   ()=><DatabaseTab allState={allState} setLoans={setLoans} setCustomers={setCustomers} setPayments={setPayments} setWorkers={setWorkers} setLeads={setLeads} setInteractions={setInteractions} setAuditLog={setAuditLog} addAudit={addAudit} showToast={showToast}/>,
     reports:    ()=><ReportsTab loans={loans} customers={customers} payments={payments} workers={workers} auditLog={auditLog} showToast={showToast} addAudit={addAudit}/>,
     audit:      ()=><AuditTrailTab allState={allState} setAuditLog={setAuditLog} />,
-    paymentshub: ()=><PaymentsHub customers={customers} loans={loans} payments={payments} addAudit={addAudit} showToast={showToast} />, // MODIFIED: Added Payments Hub
+    paymentshub: ()=><PaymentsHub customers={customers} loans={loans} payments={payments} setLoans={setLoans} setPayments={setPayments} addAudit={addAudit} showToast={showToast} />, // MODIFIED: Added Payments Hub
   };
 
   // FIX — Bug 1 (Form focus / remounting): S contains plain arrow functions, NOT React
@@ -339,18 +344,22 @@ const AdminPanel = ({onLogout,loans,setLoans,customers,setCustomers,workers,setW
       <a href="#main-content" className="skip-link">Skip to main content</a>
 
       {/* Backdrop — dims page, closes sidebar on tap */}
-      {sb&&(
-        <div onClick={()=>setSb(false)}
-          style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.55)',zIndex:199,backdropFilter:'blur(2px)',WebkitBackdropFilter:'blur(2px)'}}/>
-      )}
+      <div onClick={()=>setSb(false)}
+        style={{
+          position:'fixed',inset:0,background:'rgba(0,0,0,0.55)',zIndex:199,
+          backdropFilter:'var(--glass-blur)',WebkitBackdropFilter:'var(--glass-blur)',
+          opacity: sb ? 1 : 0, pointerEvents: sb ? 'auto' : 'none',
+          transition: 'opacity 0.3s cubic-bezier(0.16, 1, 0.3, 1)'
+        }}/>
 
-      {/* Sidebar — slides in from left as overlay, hidden until toggled */}
-      <div style={{
-        position:'fixed',top:0,bottom:0,left:sb?0:-280,width:260,
+      {/* Sidebar — slides in from left as overlay */}
+      <div className="main-sidebar" style={{
+        position:'fixed',top:0,bottom:0,left:0,width:260,
         background:T.surface,borderRight:`1px solid ${T.border}`,
         display:'flex',flexDirection:'column',zIndex:200,
-        transition:'left .25s cubic-bezier(.22,1,.36,1)',
-        boxShadow:sb?'6px 0 40px #00000080':'none',
+        transform: `translateX(${sb ? '0%' : '-100%'})`,
+        transition:'transform 0.4s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.4s ease',
+        boxShadow:sb?'6px 0 40px rgba(0,0,0,0.5)':'none',
       }}>
         <div style={{padding:'15px 14px 12px',borderBottom:`1px solid ${T.border}`,display:'flex',alignItems:'center',justifyContent:'space-between',minHeight:56,flexShrink:0}}>
           <div style={{fontFamily:T.head,color:T.accent,fontWeight:900,fontSize:13,letterSpacing:-.2,lineHeight:1.3}}>Adequate<br/>Capital</div>
@@ -383,6 +392,11 @@ const AdminPanel = ({onLogout,loans,setLoans,customers,setCustomers,workers,setW
             {pendingApprovals>0&&<button onClick={()=>navTo('loans')} style={{background:T.gLo,border:`1px solid ${T.gold}38`,borderRadius:8,padding:'4px 9px',color:T.gold,fontSize:12,fontWeight:700,cursor:'pointer'}}>⏳ {pendingApprovals}</button>}
             {overdue>0&&<button onClick={()=>navTo('collections')} style={{background:T.dLo,border:`1px solid ${T.danger}38`,borderRadius:8,padding:'4px 9px',color:T.danger,fontSize:12,fontWeight:700,cursor:'pointer'}}>{overdue} Overdue</button>}
             {unalloc>0&&<button onClick={()=>navTo('payments')} style={{background:T.wLo,border:`1px solid ${T.warn}38`,borderRadius:8,padding:'4px 9px',color:T.warn,fontSize:12,fontWeight:700,cursor:'pointer'}}>{unalloc} Unalloc</button>}
+            
+            <button onClick={toggleTheme} aria-label="Toggle Theme" style={{background:T.card2,border:`1px solid ${T.border}`,color:T.muted,borderRadius:9,padding:'5px 10px',fontSize:14,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',width:36,height:34}}>
+              {theme === 'dark' ? '🌙' : theme === 'system' ? '🌓' : '☀️'}
+            </button>
+
             <button onClick={()=>{setShowReminders(s=>!s);SFX.notify();}} aria-label={'Reminders'+(activeReminderCount>0?' — '+activeReminderCount+' active':'')} aria-expanded={showReminders} aria-haspopup="dialog" style={{background:showReminders?T.aLo:T.card2,border:`1px solid ${showReminders?T.accent:T.border}`,color:showReminders?T.accent:T.muted,borderRadius:9,padding:'5px 10px',fontSize:14,cursor:'pointer',position:'relative',display:'flex',alignItems:'center',gap:5}}>
               <span aria-hidden="true">🔔</span>
               {firingReminderCount>0&&(
@@ -409,6 +423,7 @@ const AdminPanel = ({onLogout,loans,setLoans,customers,setCustomers,workers,setW
 //  WORKER PORTAL
 // ═══════════════════════════════════════════
 const WorkerPortal = ({workers,setWorkers,loans,setLoans,customers,setCustomers,payments,leads,setLeads,interactions,setInteractions,auditLog,setAuditLog,onBack,dataLoaded,onOpenCustomerProfile}) => {
+  const { theme, toggleTheme } = useTheme();
   const [loggedIn,setLoggedIn]=useState(false);
   const [curr,setCurr]=useState(null);
   const [email,setEmail]=useState('');
@@ -427,19 +442,37 @@ const WorkerPortal = ({workers,setWorkers,loans,setLoans,customers,setCustomers,
     }).catch(console.error);
   };
 
+  const [loading,setLoading]=useState(false);
+
   const login=()=>{
     if(!email||!pw){setErr('Enter your email and password.');return;}
+    setLoading(true);
     import('@/config/supabaseClient').then(({supabase,DEMO_MODE})=>{
       // ── Supabase auth (production) ─────────────────────────
       if(!DEMO_MODE&&supabase){
         supabase.auth.signInWithPassword({email:email.trim(),password:pw})
           .then(({error})=>{
-            if(error){setErr('Invalid credentials or inactive account.');try{SFX.error();}catch(e){}return;}
+            if(error){
+              setErr('Invalid credentials or inactive account.');
+              setLoading(false);
+              try{SFX.error();}catch(e){}
+              return;
+            }
             // Auth passed — fetch worker profile from workers table
             supabase.from('workers').select('*').eq('email',email.trim()).single()
               .then(({data:workerRow,error:wErr})=>{
-                if(wErr||!workerRow){setErr('Worker account not found. Contact admin.');try{SFX.error();}catch(e){}return;}
-                if(workerRow.status!=='Active'){setErr('Your account is inactive. Contact admin.');try{SFX.error();}catch(e){}return;}
+                if(wErr||!workerRow){
+                  setErr('Worker account not found. Contact admin.');
+                  setLoading(false);
+                  try{SFX.error();}catch(e){}
+                  return;
+                }
+                if(workerRow.status!=='Active'){
+                  setErr('Your account is inactive. Contact admin.');
+                  setLoading(false);
+                  try{SFX.error();}catch(e){}
+                  return;
+                }
                 // Merge Supabase row into workers state so UI can show it
                 setWorkers(ws=>{
                   const exists=ws.find(w=>w.email===workerRow.email);
@@ -449,23 +482,27 @@ const WorkerPortal = ({workers,setWorkers,loans,setLoans,customers,setCustomers,
                 const candidate={...workerRow,avatar:workerRow.avatar||(workerRow.name||'').split(' ').map(x=>x[0]).join('').slice(0,2).toUpperCase()};
                 setCurr(candidate);setLoggedIn(true);
                 addAudit('Worker Login',candidate.id,candidate.name);SFX.login();
-              });
-          });
+                // Note: loading state will be "cleared" by loggedIn changing, but we can set it to false too
+                setLoading(false);
+              }).catch(() => { setLoading(false); setErr('Account verification failed.'); });
+          }).catch(err => { setLoading(false); setErr(err.message || 'Login failed.'); });
         return;
       }
       // ── Demo/offline fallback — local hash check ──────────
       const candidate=workers.find(x=>x.email===email&&x.status==='Active');
-      if(!candidate){setErr('Invalid credentials or inactive account.');try{SFX.error();}catch(e){};return;}
+      if(!candidate){setErr('Invalid credentials or inactive account.');setLoading(false);try{SFX.error();}catch(e){};return;}
       checkPwAsync(pw,candidate.pwHash||'').then(ok=>{
         const legacyOk=!ok&&_checkPw(pw,candidate.pwHash||candidate.pw||'');
         if(ok||legacyOk){setCurr(candidate);setLoggedIn(true);addAudit('Worker Login',candidate.id,candidate.name);SFX.login();}
         else{setErr('Invalid credentials or inactive account.');try{SFX.error();}catch(e){};}
+        setLoading(false);
       }).catch(()=>{
         if(_checkPw(pw,candidate.pwHash||candidate.pw||'')){
           setCurr(candidate);setLoggedIn(true);addAudit('Worker Login',candidate.id,candidate.name);SFX.login();
         }else{setErr('Invalid credentials or inactive account.');try{SFX.error();}catch(e){};}
+        setLoading(false);
       });
-    }).catch(()=>setErr('Login failed. Check your connection.'));
+    }).catch(()=> { setErr('Login failed. Check your connection.'); setLoading(false); });
   };
 
   if(!loggedIn) return (
@@ -478,7 +515,7 @@ const WorkerPortal = ({workers,setWorkers,loans,setLoans,customers,setCustomers,
         {err&&<Alert type='danger'>{err}</Alert>}
         <FI label='Email' type='email' value={email} onChange={setEmail} placeholder='your.email@adequatecapital.co.ke'/>
         <FI label='Password' type='password' value={pw} onChange={setPw} placeholder='Your password'/>
-        <Btn onClick={login} full>Sign In →</Btn>
+        <Btn onClick={login} loading={loading} full>Sign In →</Btn>
         <div style={{height:1,background:T.border,margin:'18px 0'}}/>
         <button onClick={onBack} style={{display:'block',width:'100%',background:T.surface,border:`1px solid ${T.border}`,borderRadius:10,padding:'9px',color:T.muted,fontSize:12,cursor:'pointer',textAlign:'center'}}>← Back to Admin Login</button>
       </div>
@@ -497,6 +534,10 @@ const WorkerPortal = ({workers,setWorkers,loans,setLoans,customers,setCustomers,
       <div style={{background:T.surface,borderBottom:`1px solid ${T.border}`,padding:'10px 18px',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
         <div style={{fontFamily:T.head,color:T.accent,fontWeight:900,fontSize:14}}>Adequate Capital — Worker Portal</div>
         <div style={{display:'flex',gap:9,alignItems:'center'}}>
+          <button onClick={toggleTheme} aria-label="Toggle Theme" style={{background:T.card2,border:`1px solid ${T.border}`,color:T.muted,borderRadius:8,padding:'4px 8px',fontSize:13,cursor:'pointer',display:'flex',alignItems:'center',gap:5,marginRight:4}}>
+            <span>{theme === 'dark' ? '🌙' : theme === 'system' ? '🌓' : '☀️'}</span>
+            <span style={{fontSize:10,fontWeight:700,opacity:0.8}}>{theme.charAt(0).toUpperCase()+theme.slice(1)}</span>
+          </button>
           <Av ini={curr?.avatar||curr?.name[0]} size={26} color={T.accent}/>
           <span style={{color:T.dim,fontSize:13}}>{curr?.name}</span>
           <Btn sm v='ghost' onClick={()=>{setLoggedIn(false);setCurr(null);}}>Logout</Btn>
@@ -563,6 +604,7 @@ const AdminLogin = ({onLogin,onWorkerPortal}) => {
 
   // ── Main login state ───────────────────────────────────────
   const [step,setStep]=useState(1);
+  const [loading,setLoading]=useState(false);
   const [loginEmail,setLoginEmail]=useState('admin@adequatecapital.co.ke');
   const [pw,setPw]=useState('');
   const [err,setErr]=useState('');
@@ -579,19 +621,24 @@ const AdminLogin = ({onLogin,onWorkerPortal}) => {
   const stepPw=()=>{
     if(locked)return;
     if(pw.length<4){setErr('Password too short.');return;}
+    setLoading(true);
     import('@/config/supabaseClient').then(({supabase,DEMO_MODE})=>{
       if(!DEMO_MODE&&supabase){
         supabase.auth.signInWithPassword({email:loginEmail.trim(),password:pw}).then(({error})=>{
           if(error){
             const c=_recordFailure();const lo=_getLockout();setLockout(lo);
-            setErr(c>=3?'🔒 Too many failed attempts. Wait 15 min.':error.message||'Incorrect email or password.');
+            setErr(c>=3?<span style={{display:'inline-flex',alignItems:'center',gap:4}}><Lock size={14}/> Too many failed attempts. Wait 15 min.</span>:error.message||'Incorrect email or password.');
+            setLoading(false);
             try{SFX.error();}catch(e){}
             return;
           }
           setErr('');
           const nextStep=enabledSteps[1];
           if(!nextStep){_clearLockout();setLockout(null);onLogin(loginEmail.trim());}
-          else setStep(2);
+          else { setStep(2); setLoading(false); }
+        }).catch(err => {
+          setErr(err.message || 'Connection failed.');
+          setLoading(false);
         });
         return;
       }
@@ -603,28 +650,30 @@ const AdminLogin = ({onLogin,onWorkerPortal}) => {
       checkOk.then(ok=>{
         if(!ok){
           const c=_recordFailure();const lo=_getLockout();setLockout(lo);
-          setErr(c>=3?'🔒 Too many failed attempts.':'Incorrect password.');
+          setErr(c>=3?<span style={{display:'inline-flex',alignItems:'center',gap:4}}><Lock size={14}/> Too many failed attempts.</span>:'Incorrect password.');
+          setLoading(false);
           try{SFX.error();}catch(e){}
           return;
         }
         setErr('');
         const nextStep=enabledSteps[1];
         if(!nextStep){_clearLockout();setLockout(null);onLogin();}
-        else setStep(2);
+        else { setStep(2); setLoading(false); }
       });
     }).catch(()=>{
       const stored=secCfg.adminPwHash;
       const ok=stored?_checkPw(pw,stored):pw===DEFAULT_ADMIN_PW;
-      if(!ok){setErr('Incorrect password.');return;}
+      if(!ok){setErr('Incorrect password.');setLoading(false);return;}
       setErr('');
       const nextStep=enabledSteps[1];
       if(!nextStep){_clearLockout();setLockout(null);onLogin();}
-      else setStep(2);
+      else { setStep(2); setLoading(false); }
     });
   };
 
   const stepBio=async()=>{
     try{
+      setLoading(true);
       if(!window.PublicKeyCredential) throw new Error('not supported');
       const challenge=crypto.getRandomValues(new Uint8Array(32));
       const credId=secCfg.bioCredId;
@@ -632,9 +681,10 @@ const AdminLogin = ({onLogin,onWorkerPortal}) => {
       await navigator.credentials.get({publicKey:{challenge,allowCredentials:allowCreds,userVerification:'preferred',timeout:60000}});
       const nextStep=enabledSteps[2];
       if(!nextStep){_clearLockout();setLockout(null);onLogin(loginEmail.trim());}
-      else setStep(3);
+      else { setStep(3); setLoading(false); }
     }catch(e){
       setErr('Biometric failed or cancelled. Try again.');
+      setLoading(false);
       try{SFX.error();}catch(ex){}
     }
   };
@@ -645,10 +695,12 @@ const AdminLogin = ({onLogin,onWorkerPortal}) => {
   };
 
   const stepTotp=()=>{
-    if(!otpCode){setErr('Generate OTP code first.');return;}
+    setLoading(true);
+    if(!otpCode){setErr('Generate OTP code first.');setLoading(false);return;}
     if(otpInput!==otpCode){
       const c=_recordFailure();const lo=_getLockout();setLockout(lo);
-      setErr(c>=3?'🔒 Too many failed attempts.':'Invalid OTP code.');
+      setErr(c>=3?<span style={{display:'inline-flex',alignItems:'center',gap:4}}><Lock size={14}/> Too many failed attempts.</span>:'Invalid OTP code.');
+      setLoading(false);
       try{SFX.error();}catch(e){}
       return;
     }
@@ -676,7 +728,7 @@ const AdminLogin = ({onLogin,onWorkerPortal}) => {
         {locked&&!showRecovery&&(
           <div style={{textAlign:'center'}}>
             {/* Lock icon */}
-            <div style={{width:72,height:72,borderRadius:99,background:T.dLo,border:`2px solid ${T.danger}40`,display:'flex',alignItems:'center',justifyContent:'center',margin:'0 auto 16px',fontSize:32}}>🔒</div>
+            <div style={{width:72,height:72,borderRadius:99,background:T.dLo,border:`2px solid ${T.danger}40`,display:'flex',alignItems:'center',justifyContent:'center',margin:'0 auto 16px'}}><Lock size={32}/></div>
             <div style={{color:T.danger,fontWeight:800,fontSize:16,fontFamily:T.head,marginBottom:6}}>Account Locked</div>
             <div style={{color:T.muted,fontSize:13,marginBottom:20}}>Too many failed attempts. Please wait or use account recovery.</div>
 
@@ -702,7 +754,7 @@ const AdminLogin = ({onLogin,onWorkerPortal}) => {
 
             {/* Recovery options */}
             <div style={{background:T.surface,borderRadius:12,padding:'16px',marginBottom:16}}>
-              <div style={{color:T.txt,fontWeight:700,fontSize:13,marginBottom:10}}>🆘 Recover Access Now</div>
+              <div style={{color:T.txt,fontWeight:700,fontSize:13,marginBottom:10,display:'flex',alignItems:'center',gap:6}}><ShieldAlert size={14}/> Recover Access Now</div>
               {!hasEmail&&!hasPhone&&(
                 <div style={{color:T.muted,fontSize:12}}>No recovery contacts configured. Go to Security Settings after the lockout expires to add email or phone.</div>
               )}
@@ -711,14 +763,14 @@ const AdminLogin = ({onLogin,onWorkerPortal}) => {
                   {hasEmail&&(
                     <button onClick={()=>{setShowRecovery(true);sendRecoveryCode('email');}}
                       style={{background:T.bLo,border:`1px solid ${T.blue}38`,color:T.blue,borderRadius:9,padding:'10px 14px',cursor:'pointer',fontWeight:700,fontSize:13,display:'flex',alignItems:'center',gap:8}}>
-                      📧 Send recovery code to email
+                      <Mail size={16}/> Send recovery code to email
                       <span style={{color:T.muted,fontSize:11,fontWeight:400}}>{secCfgForRec.adminEmail}</span>
                     </button>
                   )}
                   {hasPhone&&(
                     <button onClick={()=>{setShowRecovery(true);sendRecoveryCode('sms');}}
                       style={{background:T.oLo,border:`1px solid ${T.ok}38`,color:T.ok,borderRadius:9,padding:'10px 14px',cursor:'pointer',fontWeight:700,fontSize:13,display:'flex',alignItems:'center',gap:8}}>
-                      📱 Send recovery code via SMS
+                      <Smartphone size={16}/> Send recovery code via SMS
                       <span style={{color:T.muted,fontSize:11,fontWeight:400}}>{secCfgForRec.adminRecoveryPhone||secCfgForRec.adminPhone}</span>
                     </button>
                   )}
@@ -740,7 +792,7 @@ const AdminLogin = ({onLogin,onWorkerPortal}) => {
               ← Back
             </button>
             <div style={{textAlign:'center',marginBottom:20}}>
-              <div style={{fontSize:32,marginBottom:10}}>{recMethod==='email'?'📧':'📱'}</div>
+              <div style={{display:'flex',justifyContent:'center',marginBottom:10}}>{recMethod==='email'?<Mail size={32}/>:<Smartphone size={32}/>}</div>
               <div style={{color:T.txt,fontWeight:800,fontSize:15,fontFamily:T.head,marginBottom:4}}>Enter Recovery Code</div>
               <div style={{color:T.muted,fontSize:12}}>
                 {recMethod==='email'
@@ -766,7 +818,7 @@ const AdminLogin = ({onLogin,onWorkerPortal}) => {
             />
             {recErr&&<div style={{color:T.danger,fontSize:12,textAlign:'center',marginBottom:8}}>⚠ {recErr}</div>}
             <div style={{display:'flex',gap:8}}>
-              <Btn full onClick={verifyRecoveryCode}>Verify & Unlock →</Btn>
+              <Btn full loading={loading} onClick={verifyRecoveryCode}>Verify & Unlock →</Btn>
               <Btn v='secondary' onClick={()=>sendRecoveryCode(recMethod)}>Resend</Btn>
             </div>
           </div>
@@ -779,7 +831,7 @@ const AdminLogin = ({onLogin,onWorkerPortal}) => {
               {steps.map((s,i)=>{const done=step>i+1,active=step===i+1;return(
                 <div key={s} style={{display:'flex',alignItems:'center',gap:4}}>
                   <div style={{width:24,height:24,borderRadius:99,background:done?T.accent:active?T.aMid:T.surface,border:`2px solid ${done||active?T.accent:T.border}`,display:'flex',alignItems:'center',justifyContent:'center',fontSize:10,fontWeight:800,color:done?'#060A10':active?T.accent:T.muted}}>
-                    {done?'✓':i+1}
+                    {done?<Check size={10} style={{marginTop:-1}}/>:i+1}
                   </div>
                   <span style={{fontSize:11,color:active?T.accent:T.muted,fontWeight:active?700:400}}>{s}</span>
                   {i<steps.length-1&&<span style={{color:T.border,margin:'0 1px'}}>›</span>}
@@ -792,7 +844,7 @@ const AdminLogin = ({onLogin,onWorkerPortal}) => {
                 <FI label='Email' type='email' value={loginEmail} onChange={setLoginEmail} placeholder='admin@adequatecapital.co.ke'/>
                 <FI label='Password' type='password' value={pw} onChange={setPw} placeholder='Enter your password'
                   hint='Session expires after 15 min'/>
-                <Btn onClick={stepPw} full>Continue →</Btn>
+                <Btn onClick={stepPw} loading={loading} full>Continue →</Btn>
               </div>
             )}
             {step===2&&enabledSteps[1]==='Biometric'&&(
@@ -800,7 +852,7 @@ const AdminLogin = ({onLogin,onWorkerPortal}) => {
                 <div style={{background:T.aLo,border:`1px solid ${T.aMid}`,borderRadius:99,width:70,height:70,display:'flex',alignItems:'center',justifyContent:'center',margin:'0 auto 18px',fontSize:28}}>🪬</div>
                 <div style={{color:T.txt,fontWeight:800,fontFamily:T.head,fontSize:15,marginBottom:7}}>Biometric Verification</div>
                 <div style={{color:T.muted,fontSize:13,marginBottom:22}}>Fingerprint or Face ID · Follow your device prompt</div>
-                <Btn onClick={stepBio} full>Retry Biometric</Btn>
+                <Btn onClick={stepBio} loading={loading} full>Retry Biometric</Btn>
               </div>
             )}
             {((step===2&&enabledSteps[1]==='OTP')||(step===3&&enabledSteps[2]==='OTP'))&&(
@@ -818,7 +870,7 @@ const AdminLogin = ({onLogin,onWorkerPortal}) => {
                 <input value={otpInput} onChange={e=>setOtpInput(e.target.value.replace(/\D/g,'').slice(0,6))} placeholder='••••••' maxLength={6}
                   style={{width:'100%',background:T.surface,border:`1px solid ${T.hi}`,borderRadius:10,padding:'13px',color:T.accent,fontSize:26,fontWeight:800,letterSpacing:12,textAlign:'center',outline:'none',marginBottom:7,boxSizing:'border-box'}}/>
                 <div style={{display:'flex',gap:8,marginBottom:8}}><Btn v='secondary' onClick={sendOtp} full>Resend Code</Btn></div>
-                <Btn onClick={stepTotp} full>Verify & Enter →</Btn>
+                <Btn onClick={stepTotp} loading={loading} full>Verify & Enter →</Btn>
               </div>
             )}
             <div style={{height:1,background:T.border,margin:'20px 0'}}/>
@@ -900,20 +952,36 @@ export default function App() {
       if (!wR.error && wR.data?.length) setWorkers(wR.data.map(w => ({ ...w, docs: w.docs || [], avatar: w.avatar || (w.name || '').split(' ').map(x => x[0]).join('').slice(0, 2).toUpperCase() })));
       else if (wR.error) console.error('[load workers]', wR.error.message);
 
-      // Prevent wiping a warm cache when Supabase returns 0 rows unexpectedly (e.g., RLS)
+      // Guard each table independently against RLS returning 0 rows when the cache has data.
+      // Previously only an all-three-empty scenario triggered the guard, meaning
+      // a partial failure (e.g., loans OK but customers blocked by RLS) would
+      // silently overwrite the customers cache with an empty array.
       const cache = readCache();
-      const hasWarm = !!(cache?.customers?.length || cache?.loans?.length || cache?.payments?.length);
-      const allEmptyFast = nextLoansFast.length === 0 && nextCustomersFast.length === 0 && nextPaymentsFast.length === 0;
+      const hasWarmLoans = !!(cache?.loans?.length);
+      const hasWarmCustomers = !!(cache?.customers?.length);
+      const hasWarmPayments = !!(cache?.payments?.length);
       const anyErrorFast = !!(lFast.error || cFast.error || pFast.error);
 
-      if (!anyErrorFast && !(hasWarm && allEmptyFast)) {
-        // Only update state if it would actually populate something or there is no warm cache.
-        setLoans(nextLoansFast);
-        setCustomers(nextCustomersFast);
-        setPayments(nextPaymentsFast);
-        writeCache({ loans: nextLoansFast, customers: nextCustomersFast, payments: nextPaymentsFast });
-      } else if (hasWarm && allEmptyFast) {
-        console.warn('[load] Supabase returned empty datasets; keeping cached data.');
+      const loansToSet = (!lFast.error && nextLoansFast.length > 0) ? nextLoansFast
+        : (hasWarmLoans ? null : nextLoansFast); // null = skip
+      const customersToSet = (!cFast.error && nextCustomersFast.length > 0) ? nextCustomersFast
+        : (hasWarmCustomers ? null : nextCustomersFast);
+      const paymentsToSet = (!pFast.error && nextPaymentsFast.length > 0) ? nextPaymentsFast
+        : (hasWarmPayments ? null : nextPaymentsFast);
+
+      if (loansToSet !== null) setLoans(loansToSet);
+      if (customersToSet !== null) setCustomers(customersToSet);
+      if (paymentsToSet !== null) setPayments(paymentsToSet);
+
+      if (!anyErrorFast && (loansToSet?.length || customersToSet?.length || paymentsToSet?.length)) {
+        writeCache({
+          loans: loansToSet ?? cache?.loans ?? [],
+          customers: customersToSet ?? cache?.customers ?? [],
+          payments: paymentsToSet ?? cache?.payments ?? [],
+        });
+      } else if (!anyErrorFast && !(loansToSet || customersToSet || paymentsToSet)) {
+        // All tables returned 0 and cache has data — RLS or network issue, keep cache
+        console.warn('[load] All fast-fetch returned empty; keeping warm cache to avoid data wipe.');
       }
 
       // Backfill missing customers referenced by loans (preserves previous behavior)
@@ -1032,7 +1100,11 @@ export default function App() {
         else console.error('[load leads]', ldR.error.message);
         if (!iR.error) setInteractions(iR.data?.length ? iR.data.map(fromSupabaseInteraction) : []);
         else console.error('[load interactions]', iR.error.message);
-        if (!aR.error && aR.data?.length) setAuditLog(aR.data.map(r => ({ ts: r.ts, user: r.user_name || 'system', action: r.action, target: r.target_id, detail: r.detail, device_type: r.device_type, browser: r.browser, os: r.os, ip_address: r.ip_address, country: r.country, city: r.city })));
+        if (!aR.error && aR.data) {
+          // Always update — even an empty array is a valid server response (e.g., fresh DB or RLS blocked).
+          // Previously `aR.data?.length` was falsy for [], silently leaving stale empty state.
+          setAuditLog(aR.data.map(r => ({ ts: r.ts, user: r.user_name || 'system', action: r.action, target: r.target_id, detail: r.detail, device_type: r.device_type, browser: r.browser, os: r.os, ip_address: r.ip_address, country: r.country, city: r.city })));
+        }
         else if (aR.error) console.error('[load audit_log]', aR.error.message);
       }).catch(err => console.error('[lazy load fallback]', err.message));
     } catch (e) {
@@ -1099,7 +1171,13 @@ export default function App() {
     <>
       <StylesMemo/>
       {mode==='admin-login'&&<AdminLogin onLogin={handleLogin} onWorkerPortal={()=>setMode('worker')}/>}
-      {mode==='admin'&&dataLoaded&&<AdminPanel {...shared} onLogout={()=>setMode('admin-login')}/>}
+      {mode==='admin' && (!dataLoaded ? (
+        <div style={{minHeight:'100vh',background:'#060A10',display:'flex',alignItems:'center',justifyContent:'center',flexDirection:'column',gap:20}}>
+          <div style={{fontFamily:T.head,color:T.accent,fontWeight:900,fontSize:22,letterSpacing:-.5}}>Adequate Capital</div>
+          <div style={{width:32,height:32,border:'3px solid #1A2234',borderTop:'3px solid #00D4AA',borderRadius:'50%',animation:'spin .8s linear infinite'}}/>
+          <div style={{color:T.muted,fontSize:13,fontFamily:T.body,fontWeight:500}}>Hydro-syncing workspace…</div>
+        </div>
+      ) : <AdminPanel {...shared} onLogout={()=>setMode('admin-login')}/>)}
       {mode==='worker'&&<WorkerPortal {...shared} dataLoaded={dataLoaded} onBack={()=>setMode('admin-login')}/>}
 
       {/* Global Customer Profile Overlay */}

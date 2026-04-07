@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { IdCard, FileImage, FileText, CheckCircle, AlertTriangle, User, Target, TrendingUp, Lock, Paperclip, ClipboardList, Check, Square, Hourglass } from 'lucide-react';
 import { 
   T, SC, RC, SFX, Card, CH, KPI, DT, Btn, Badge, Av, 
   Dialog, Alert, LoanForm, DocViewer,
@@ -39,11 +40,11 @@ const WorkerPanel = ({
   const pendingMine = myL.filter(l => l.status === 'worker-pending');
 
   const WORKER_SELF_DOC_SLOTS = [
-    { key: 'id_front', label: 'National ID — Front', icon: '🪪', required: true, accept: 'image/*', capture: 'environment' },
-    { key: 'id_back', label: 'National ID — Back', icon: '🪪', required: true, accept: 'image/*', capture: 'environment' },
-    { key: 'passport', label: 'Passport Photo', icon: '🖼️', required: true, accept: 'image/*', capture: 'user' },
-    { key: 'extra_1', label: 'Additional Document', icon: '📋', required: false, accept: 'image/*,application/pdf', capture: undefined },
-    { key: 'extra_2', label: 'Additional Document 2', icon: '📋', required: false, accept: 'image/*,application/pdf', capture: undefined },
+    { key: 'id_front', label: 'National ID — Front', icon: <IdCard size={16} />, required: true, accept: 'image/*', capture: 'environment' },
+    { key: 'id_back', label: 'National ID — Back', icon: <IdCard size={16} />, required: true, accept: 'image/*', capture: 'environment' },
+    { key: 'passport', label: 'Passport Photo', icon: <FileImage size={16} />, required: true, accept: 'image/*', capture: 'user' },
+    { key: 'extra_1', label: 'Additional Document', icon: <FileText size={16} />, required: false, accept: 'image/*,application/pdf', capture: undefined },
+    { key: 'extra_2', label: 'Additional Document 2', icon: <FileText size={16} />, required: false, accept: 'image/*,application/pdf', capture: undefined },
   ];
 
   const handleDocAdd = (doc) => {
@@ -91,12 +92,14 @@ const WorkerPanel = ({
         <Btn onClick={() => {
           if (!docsComplete) { showToast('⚠ Upload all required documents before applying for a loan.', 'warn'); setTab('documents'); return; }
           setShowLoanApp(true);
-        }} v={docsComplete ? 'primary' : 'secondary'}>📝 Apply Loan for Client{!docsComplete ? ' 🔒' : ''}</Btn>
+        }} v={docsComplete ? 'primary' : 'secondary'}>
+          <span style={{display:'flex', alignItems:'center', gap:6}}><FileText size={16} /> Apply Loan for Client{!docsComplete && <Lock size={14} />}</span>
+        </Btn>
       </div>
 
       {!docsComplete && (
         <div style={{ background: T.dLo, border: `1px solid ${T.danger}38`, borderRadius: 11, padding: '12px 16px', marginBottom: 14, display: 'flex', alignItems: 'center', gap: 12 }}>
-          <span style={{ fontSize: 20 }}>🔒</span>
+          <span style={{ fontSize: 20, display: 'flex' }}><Lock size={20} color={T.danger} /></span>
           <div style={{ flex: 1 }}>
             <div style={{ color: T.danger, fontWeight: 800, fontSize: 13 }}>Documents Incomplete</div>
             <div style={{ color: T.muted, fontSize: 12, marginTop: 2 }}>
@@ -109,7 +112,7 @@ const WorkerPanel = ({
       )}
       {pendingMine.length > 0 && (
         <div style={{ background: T.gLo, border: `1px solid ${T.gold}38`, borderRadius: 11, padding: '11px 14px', marginBottom: 16 }}>
-          <div style={{ color: T.gold, fontWeight: 700, fontSize: 13 }}>⏳ {pendingMine.length} application{pendingMine.length > 1 ? 's' : ''} pending admin approval</div>
+          <div style={{ color: T.gold, fontWeight: 700, fontSize: 13, display:'flex', alignItems:'center', gap:6 }}><Hourglass size={14} /> {pendingMine.length} application{pendingMine.length > 1 ? 's' : ''} pending admin approval</div>
         </div>
       )}
 
@@ -122,10 +125,10 @@ const WorkerPanel = ({
       {tab === 'overview' && (
         <div>
           <div className='kpi-row' style={{ display: 'flex', gap: 10, marginBottom: 12, flexWrap: 'wrap' }}>
-            <KPI label='My Loan Book' icon='📈' value={fmtM(book)} color={T.accent} delay={1} />
-            <KPI label='Active Loans' icon='✅' value={act.length} color={T.ok} delay={2} />
-            <KPI label='Overdue' icon='⚠️' value={ov.length} color={T.danger} delay={3} />
-            <KPI label='My Customers' icon='👤' value={myC.length} delay={4} />
+            <KPI label='My Loan Book' icon={TrendingUp} value={fmtM(book)} color={T.accent} delay={1} />
+            <KPI label='Active Loans' icon={CheckCircle} value={act.length} color={T.ok} delay={2} />
+            <KPI label='Overdue' icon={AlertTriangle} value={ov.length} color={T.danger} delay={3} />
+            <KPI label='My Customers' icon={User} value={myC.length} delay={4} />
           </div>
 
           {(() => {
@@ -141,12 +144,12 @@ const WorkerPanel = ({
                 <div style={{ padding: '14px 16px' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
                     <div>
-                      <div style={{ color: met ? T.ok : T.gold, fontWeight: 800, fontSize: 13, fontFamily: T.head }}>🎯 Daily Conversion Target</div>
+                      <div style={{ color: met ? T.ok : T.gold, fontWeight: 800, fontSize: 13, fontFamily: T.head, display:'flex', alignItems:'center', gap:6 }}><Target size={16}/> Daily Conversion Target</div>
                       <div style={{ color: T.muted, fontSize: 11, marginTop: 2 }}>Goal: convert at least 3 customers today</div>
                     </div>
                     <div style={{ textAlign: 'right' }}>
                       <div style={{ color: met ? T.ok : T.gold, fontFamily: T.mono, fontSize: 22, fontWeight: 900, lineHeight: 1 }}>{totalToday}<span style={{ color: T.muted, fontSize: 13 }}>/{TARGET}</span></div>
-                      <div style={{ color: met ? T.ok : T.muted, fontSize: 11, marginTop: 1 }}>{met ? '✓ Target met!' : 'Keep going!'}</div>
+                      <div style={{ color: met ? T.ok : T.muted, fontSize: 11, marginTop: 1, display:'flex', alignItems:'center', gap:4, justifyContent:'flex-end' }}>{met ? <><Check size={12}/> Target met!</> : 'Keep going!'}</div>
                     </div>
                   </div>
                   <div style={{ height: 8, background: T.border, borderRadius: 99, overflow: 'hidden' }}>
@@ -155,7 +158,7 @@ const WorkerPanel = ({
                   <div style={{ display: 'flex', gap: 6, marginTop: 10, flexWrap: 'wrap' }}>
                     {[1, 2, 3].map(i => (
                       <div key={i} style={{ flex: 1, minWidth: 60, background: totalToday >= i ? met ? T.oLo : T.gLo : T.surface, border: `1px solid ${totalToday >= i ? met ? T.ok : T.gold : T.border}`, borderRadius: 8, padding: '6px 10px', textAlign: 'center' }}>
-                        <div style={{ fontSize: 16 }}>{totalToday >= i ? '✅' : '⬜'}</div>
+                        <div style={{ fontSize: 16, display:'flex', justifyContent:'center' }}>{totalToday >= i ? <CheckCircle size={16} color={met ? T.ok : T.gold}/> : <Square size={16} color={T.muted}/>}</div>
                         <div style={{ color: T.muted, fontSize: 10, marginTop: 2 }}>Customer {i}</div>
                       </div>
                     ))}
@@ -177,7 +180,7 @@ const WorkerPanel = ({
         <div>
           {!docsComplete && (
             <div style={{ background: T.dLo, border: `1px solid ${T.danger}38`, borderRadius: 10, padding: '11px 14px', marginBottom: 12, display: 'flex', alignItems: 'center', gap: 10 }}>
-              <span style={{ fontSize: 16 }}>🔒</span>
+              <span style={{ fontSize: 16, display: 'flex' }}><Lock size={16} color={T.danger} /></span>
               <div style={{ color: T.danger, fontSize: 13, fontWeight: 600 }}>Upload required documents to add leads.{' '}
                 <button onClick={() => setTab('documents')} style={{ background: 'none', border: 'none', color: T.accent, cursor: 'pointer', fontSize: 13, fontWeight: 700, padding: 0, textDecoration: 'underline' }}>Go to Documents →</button>
               </div>
@@ -201,10 +204,10 @@ const WorkerPanel = ({
         <div className='fu'>
           {viewDoc && <DocViewer doc={viewDoc} onClose={() => setViewDoc(null)} />}
           <Card style={{ marginBottom: 14 }}>
-            <CH title='📂 My Documents' sub='Upload your National ID (front & back), passport photo, and any additional documents' />
+            <CH title={<div style={{display:'flex', alignItems:'center', gap:8}}><FileText size={18} /> My Documents</div>} sub='Upload your National ID (front & back), passport photo, and any additional documents' />
             <div style={{ padding: '14px 16px' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 10, background: requiredDone < requiredCount ? T.dLo : T.oLo, border: `1px solid ${requiredDone < requiredCount ? T.danger : T.ok}38`, borderRadius: 10, padding: '10px 14px', marginBottom: 16 }}>
-                <span style={{ fontSize: 20 }}>{requiredDone < requiredCount ? '⚠️' : '✅'}</span>
+                <span style={{ fontSize: 20, display: 'flex' }}>{requiredDone < requiredCount ? <AlertTriangle size={20} color={T.danger} /> : <CheckCircle size={20} color={T.ok}/>}</span>
                 <div>
                   <div style={{ color: requiredDone < requiredCount ? T.danger : T.ok, fontWeight: 700, fontSize: 13 }}>
                     {requiredDone < requiredCount
@@ -231,7 +234,7 @@ const WorkerPanel = ({
                   return (
                     <div key={slot.key} style={{ background: T.surface, border: `1.5px solid ${doc ? T.ok : slot.required ? T.danger + '40' : T.border}`, borderRadius: 12, padding: '12px 14px', display: 'flex', alignItems: 'center', gap: 12, transition: 'border-color .2s' }}>
                       <div style={{ width: 28, height: 28, borderRadius: 99, background: doc ? T.ok : slot.required ? T.dLo : T.border, color: doc ? '#fff' : slot.required ? T.danger : T.muted, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 900, flexShrink: 0 }}>
-                        {doc ? '✓' : idx + 1}
+                        {doc ? <Check size={12} strokeWidth={4} /> : idx + 1}
                       </div>
                       <div style={{ flex: 1, minWidth: 0 }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
@@ -241,15 +244,15 @@ const WorkerPanel = ({
                             ? <span style={{ color: T.danger, fontSize: 11, fontWeight: 700 }}>★ Required</span>
                             : <span style={{ color: T.muted, fontSize: 11 }}>Optional</span>}
                         </div>
-                        <div style={{ color: doc ? T.ok : T.muted, fontSize: 11, marginTop: 3 }}>
-                          {doc ? `✓ Uploaded ${doc.uploaded}` : (slot.required ? 'Please upload this document' : 'Upload if available')}
+                        <div style={{ color: doc ? T.ok : T.muted, fontSize: 11, marginTop: 3, display:'flex', alignItems:'center', gap:4 }}>
+                          {doc ? <><Check size={11} strokeWidth={3}/> Uploaded {doc.uploaded}</> : (slot.required ? 'Please upload this document' : 'Upload if available')}
                         </div>
                       </div>
                       {doc && (
                         <div onClick={() => setViewDoc(doc)} style={{ cursor: 'pointer', flexShrink: 0 }}>
                           {doc.type?.startsWith('image/')
                             ? <img src={doc.dataUrl} alt={slot.label} style={{ width: 52, height: 52, objectFit: 'cover', borderRadius: 7, border: `2px solid ${T.ok}`, boxShadow: '0 2px 8px #00000040' }} />
-                            : <div style={{ width: 52, height: 52, background: T.card, borderRadius: 7, border: `2px solid ${T.ok}`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 24 }}>📄</div>
+                            : <div style={{ width: 52, height: 52, background: T.card, borderRadius: 7, border: `2px solid ${T.ok}`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 24 }}><FileText size={24} color={T.ok}/></div>
                           }
                         </div>
                       )}
@@ -262,7 +265,7 @@ const WorkerPanel = ({
                         )}
                         {!doc && (
                           <label style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5, background: T.bLo, border: `1px solid ${T.blue}38`, borderRadius: 8, padding: '7px 12px', flexShrink: 0 }}>
-                            <span style={{ fontSize: 14 }}>📎</span>
+                            <span style={{ fontSize: 14, display:'flex' }}><Paperclip size={14} color={T.blue}/></span>
                             <span style={{ color: T.blue, fontSize: 11, fontWeight: 700 }}>Upload</span>
                             <input type='file' accept={slot.accept} capture={slot.capture} style={{ display: 'none' }} onChange={e => {
                               const file = e.target.files?.[0]; if (!file) return; e.target.value = '';
@@ -277,8 +280,9 @@ const WorkerPanel = ({
                   );
                 })}
               </div>
-              <div style={{ color: T.muted, fontSize: 11, marginTop: 14, lineHeight: 1.6 }}>
-                📋 Your documents will be reviewed by the admin. Ensure photos are clear and legible. Accepted formats: JPG, PNG, PDF.
+              <div style={{ color: T.muted, fontSize: 11, marginTop: 14, lineHeight: 1.6, display:'flex', gap:6, alignItems:'flex-start' }}>
+                <ClipboardList size={14} style={{marginTop:2, flexShrink:0}}/> 
+                <div>Your documents will be reviewed by the admin. Ensure photos are clear and legible. Accepted formats: JPG, PNG, PDF.</div>
               </div>
             </div>
           </Card>

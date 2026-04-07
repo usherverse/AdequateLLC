@@ -4,7 +4,7 @@ import { calcDaysOverdue } from '@/utils/helpers';
 
 // ── READ ─────────────────────────────────────────────────────────────────────
 
-export async function getLoans({ status = '', search = '', limit = 500, offset = 0 } = {}) {
+export async function getLoans({ status = '', search = '', limit = 50, offset = 0 } = {}) {
   if (DEMO_MODE) {
     let rows = SEED_LOANS;
     if (status && status !== 'All') rows = rows.filter(l => l.status === status);
@@ -22,7 +22,7 @@ export async function getLoans({ status = '', search = '', limit = 500, offset =
     return { data: rows.slice(offset, offset + limit), count: rows.length, error: null };
   }
 
-  let query = supabase.from('loans').select('*', { count: 'exact' });
+  let query = supabase.from('loans').select('id, customer_id, customer_name, amount, balance, status, disbursed, repayment_type, officer, mpesa, days_overdue, created_at', { count: 'exact' });
   if (status && status !== 'All') query = query.eq('status', status);
   if (search) {
     query = query.or(
@@ -78,7 +78,7 @@ export async function writeOffLoan(id) {
 export async function sweepOverdueStatus() {
   if (DEMO_MODE) return; // handled in-memory by AdminPanel
   // Fetch all active loans
-  const { data: active } = await supabase.from('loans').select('id,disbursed,repayment_type,balance,status').in('status', ['Active', 'Overdue']);
+  const { data: active } = await supabase.from('loans').select('id, disbursed, balance, status').in('status', ['Active', 'Overdue']);
   if (!active?.length) return;
 
   const GRACE = { Daily: 3, Weekly: 10, Biweekly: 18, Monthly: 35, 'Lump Sum': 35 };

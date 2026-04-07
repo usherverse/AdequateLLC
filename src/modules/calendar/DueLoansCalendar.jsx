@@ -1,5 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { calculateLoanStatus } from '@/lms-common';
+import { Check } from 'lucide-react';
 
 // ─── Theme ────────────────────────────────────────────────────────────────────
 const TH = {
@@ -227,7 +228,7 @@ export default function DueLoansCalendar({
           {cnt.urgent   > 0 && <div style={{ background: SEV.urgent.bg,   color: SEV.urgent.color,   padding: '2px 5px', borderRadius: 4, fontSize: 10, fontWeight: 700 }}>{cnt.urgent} urgent</div>}
           {cnt.upcoming > 0 && <div style={{ background: SEV.upcoming.bg, color: SEV.upcoming.color, padding: '2px 5px', borderRadius: 4, fontSize: 10, fontWeight: 700 }}>{cnt.upcoming} upcoming</div>}
           {cnt.future   > 0 && <div style={{ background: SEV.future.bg,   color: SEV.future.color,   padding: '2px 5px', borderRadius: 4, fontSize: 10, fontWeight: 700 }}>{cnt.future} future</div>}
-          {cnt.settled  > 0 && <div style={{ color: TH.muted, fontSize: 9 }}>✓ {cnt.settled} settled</div>}
+          {cnt.settled  > 0 && <div style={{ color: TH.muted, fontSize: 9 }}><span style={{display:'inline-flex',alignItems:'center',gap:2}}><Check size={10}/></span> {cnt.settled} settled</div>}
         </div>
       </div>
     );
@@ -520,8 +521,8 @@ export default function DueLoansCalendar({
                 style={{
                   position: 'fixed', inset: 0, zIndex: 9999,
                   background: 'rgba(4,8,16,0.82)',
-                  backdropFilter: 'blur(8px)',
-                  WebkitBackdropFilter: 'blur(8px)',
+                  backdropFilter: 'var(--glass-blur)',
+                  WebkitBackdropFilter: 'var(--glass-blur)',
                   display: 'flex', alignItems: 'flex-start', justifyContent: 'center',
                   padding: '24px 16px 40px',
                   overflowY: 'auto',

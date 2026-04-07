@@ -1,5 +1,6 @@
 import CustomerProfile from "@/modules/customers/CustomerProfile";
 import React, { useState, useMemo } from 'react';
+import { CreditCard, Check } from 'lucide-react';
 import { T, SC, Card, CH, DT, KPI, Btn, Badge, Search, Pills, FI, Alert, Dialog, RefreshBtn,
   LoanModal, fmt, sbWrite, sbInsert, toSupabasePayment, useContactPopup,
   ModuleHeader } from '@/lms-common';
@@ -77,7 +78,7 @@ const PaymentsTab = ({payments,setPayments,loans,setLoans,customers,setCustomers
       {ContactPopup}
       
       <ModuleHeader
-        title="💳 Payments"
+        title={<div style={{display:'flex', alignItems:'center', gap:8}}><CreditCard size={20}/> Payments</div>}
         stats={stats}
         refreshProps={{ onRefresh: () => { setPayQ(''); setFlt('All'); setShowA(null); } }}
         search={{ value: payQ, onChange: setPayQ, placeholder: 'Search by customer, M-Pesa or loan ID…' }}
@@ -110,7 +111,7 @@ const PaymentsTab = ({payments,setPayments,loans,setLoans,customers,setCustomers
             onChange={v=>setAf(f=>({...f,loanId:v.split(' — ')[0]}))}/>
           <FI label='Allocated By' value={af.allocatedBy||''} onChange={v=>setAf(f=>({...f,allocatedBy:v}))} placeholder='Officer or name (defaults to Admin)'/>
           <FI label='Note' value={af.note} onChange={v=>setAf(f=>({...f,note:v}))} placeholder='Optional note'/>
-          <div style={{display:'flex',gap:9}}><Btn onClick={doAlloc} full>✓ Allocate</Btn><Btn v='secondary' onClick={()=>setShowA(null)}>Cancel</Btn></div>
+          <div style={{display:'flex',gap:9}}><Btn onClick={doAlloc} full><span style={{display:'flex', alignItems:'center', justifyContent:'center', gap:6}}><Check size={16}/> Allocate</span></Btn><Btn v='secondary' onClick={()=>setShowA(null)}>Cancel</Btn></div>
         </Dialog>
       )}
     </div>

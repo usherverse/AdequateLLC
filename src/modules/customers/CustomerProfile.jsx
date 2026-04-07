@@ -113,7 +113,7 @@ export default function CustomerProfile({
 
   if (loading) {
     return (
-      <div style={{ position: 'fixed', inset: 0, zIndex: 9900, background: 'rgba(4,8,16,0.85)', backdropFilter: 'blur(12px)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
+      <div style={{ position: 'fixed', inset: 0, zIndex: 9900, background: 'rgba(4,8,16,0.85)', backdropFilter: 'var(--glass-blur)', WebkitBackdropFilter: 'var(--glass-blur)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
         <div className='pop' style={{ background: T.card, border: `1px solid ${T.hi}`, borderRadius: 24, padding: '40px 60px', textAlign: 'center', boxShadow: '0 20px 50px rgba(0,0,0,0.5)' }}>
           <div style={{ fontSize: 44, marginBottom: 20, animation: 'pulse 1s infinite' }}>👤</div>
           <div style={{ color: T.txt, fontWeight: 900, fontSize: 16, fontFamily: T.head, letterSpacing: 1 }}>ANALYZING PROFILE</div>
@@ -566,7 +566,7 @@ function DocumentsTab({ customerId }) {
       )}
 
       {preview && (
-        <div className="dialog-backdrop" style={{ position: 'fixed', inset: 0, zIndex: 10000, background: 'rgba(0,0,0,0.85)', backdropFilter: 'blur(16px)', display: 'flex', flexDirection: 'column', padding: 24, alignItems: 'center' }}>
+        <div className="dialog-backdrop" style={{ position: 'fixed', inset: 0, zIndex: 10000, background: 'rgba(0,0,0,0.85)', backdropFilter: 'var(--glass-blur)', WebkitBackdropFilter: 'var(--glass-blur)', display: 'flex', flexDirection: 'column', padding: 24, alignItems: 'center' }}>
           <div className="pop" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20, width: '100%', maxWidth: 1000 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
                <div style={{ width: 40, height: 40, borderRadius: 10, background: T.hi, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20 }}>
