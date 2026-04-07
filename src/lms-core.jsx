@@ -938,7 +938,7 @@ export default function App() {
 
       const [lFast, cFast, pFast, wR] = await Promise.all([
         supabase.from('loans').select('*').order('created_at', { ascending: false }).range(0, LOANS_FAST - 1),
-        supabase.from('customers').select('*').order('name').range(0, CUSTOMERS_FAST - 1),
+        supabase.from('customers').select('*').order('created_at', { ascending: false }).range(0, CUSTOMERS_FAST - 1),
         supabase.from('payments').select('*').order('date', { ascending: false }).range(0, PAYMENTS_FAST - 1),
         supabase.from('workers').select('*').order('name'),
       ]);

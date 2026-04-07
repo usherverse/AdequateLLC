@@ -6,6 +6,7 @@ CREATE INDEX IF NOT EXISTS idx_audit_logs_ts_desc ON public.audit_logs (ts DESC)
 
 -- 2. Composite indexes for Customer searching and listing
 -- This speeds up the .or() filter on ilike fields and the default created_at ordering
+CREATE INDEX IF NOT EXISTS idx_customers_name_btree ON public.customers (name);
 CREATE INDEX IF NOT EXISTS idx_customers_name_ilike ON public.customers USING gin (name gin_trgm_ops);
 CREATE INDEX IF NOT EXISTS idx_customers_phone_ilike ON public.customers USING gin (phone gin_trgm_ops);
 CREATE INDEX IF NOT EXISTS idx_customers_id_no_ilike ON public.customers USING gin (id_no gin_trgm_ops);
