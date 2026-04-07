@@ -1,10 +1,9 @@
-import CustomerProfile from "@/modules/customers/CustomerProfile";
-import React, { useState, useMemo, useEffect, useRef, useCallback, memo } from 'react';
+import { useState, useMemo } from 'react';
 import { T, SC, RC, SFX, Card, CH, KPI, DT, Btn, Badge, Av, Bar, BackBtn, RefreshBtn,
   FI, PhoneInput, NumericInput, Search, Pills, Alert, Dialog, ConfirmDialog, ToastContainer,
   LoanModal, LoanForm, RepayTracker, LivePortfolioChart, WeeklyCollectionsChart,
   fmt, fmtM, now, uid, escHtml, toCSV, dlCSV, buildFullBackup,
-  calculateLoanStatus,
+  calculateLoanStatus, deriveDashboardMetrics,
   sbWrite, sbInsert,
   toSupabaseLoan, toSupabaseCustomer, toSupabasePayment, toSupabaseInteraction,
   generateLoanAgreementHTML, generateAssetListHTML, downloadLoanDoc,
@@ -19,106 +18,723 @@ const DashboardTab = ({loans,setLoans,customers,setCustomers,payments,setPayment
   const [selLoan,setSelLoanRaw]=useState(null);
   const setSelLoan = (l) => { setSelLoanRaw(l); if(l) setTimeout(()=>{ try{scrollTop?.();}catch(e){} },10); };
   const setSelCust = (c) => onOpenCustomerProfile?.(c.id);
-  const dashDerived = useMemo(() => {
-    const paidMap = payments.reduce((acc, p) => {
-      if (p.loanId) acc[p.loanId] = (acc[p.loanId] || 0) + p.amount;
-      return acc;
-    }, {});
 
-    const calcTrueDue = (l) => {
-      const paid = paidMap[l.id] || 0;
-      const baseInterest = Math.round((l.amount || 0) * 0.3);
-      const engine = calculateLoanStatus(l);
-      return Math.max(0, (l.amount || 0) + baseInterest + engine.interestAccrued + engine.penaltyAccrued - paid);
+  const dashDerived = useMemo(() => {
+    const d = deriveDashboardMetrics(loans, payments, customers);
+
+    // Context-specific chart drills (Location, Type) still need local logic but
+    // should use the base calculated metrics for consistency.
+    const par = (days) => {
+      if (d.parTotal === 0) return "0.0";
+      const count = loans.filter((l) => {
+        const stats = calculateLoanStatus(l, null, d.paidMap[l.id] || 0);
+        return stats.overdueDays >= days && !stats.isSettled && !stats.isWrittenOff;
+      }).length;
+      return ((count / d.parTotal) * 100).toFixed(1);
     };
 
-    const non    = loans.filter(l=>l.status!=="Settled");
-    const book   = non.reduce((s,l)=>s+calcTrueDue(l),0);
-    const ovList = loans.filter(l=>l.status==="Overdue");
-    const ovAmt  = ovList.reduce((s,l)=>s+calcTrueDue(l),0);
-    const coll   = payments.filter(p=>p.status==="Allocated").reduce((s,p)=>s+p.amount,0);
-    const todayP = payments.filter(p=>p.date===now()).reduce((s,p)=>s+p.amount,0);
-    const nc     = non.length||1;
-    const par    = d=>((loans.filter(l=>l.daysOverdue>=d).length/nc)*100).toFixed(1);
-    const collRate=(coll>0&&book>0)?Math.min((coll/book)*100,100).toFixed(1):'0.0';
-    const locs=[...new Set(customers.map(c=>c.location).filter(Boolean))].map(loc=>{
-      const lc=loans.filter(l=>customers.find(c=>c.name===l.customer&&c.location===loc));
-      const od=lc.filter(l=>l.status==="Overdue").length;
-      return {loc,rate:lc.length?+((od/lc.length)*100).toFixed(1):0,n:lc.length};
-    }).sort((a,b)=>b.rate-a.rate);
-    const byType=["Daily","Weekly","Biweekly","Monthly","Lump Sum"].map(rt=>{
-      const ls=loans.filter(l=>l.repaymentType===rt&&l.status!=="Settled");
-      const paid=payments.filter(p=>ls.some(l=>l.id===p.loanId)).reduce((s,p)=>s+p.amount,0);
-      const balance=ls.reduce((s,l)=>s+calcTrueDue(l),0);
-      return {type:rt,count:ls.length,paid,balance};
-    }).filter(x=>x.count>0);
-    const todayStr = new Date().toLocaleDateString("en-KE",{weekday:"long",year:"numeric",month:"long",day:"numeric"});
-    return {non,book,ovList,ovAmt,coll,todayP,nc,par,collRate,locs,byType,todayStr,calcTrueDue};
+    const locs = [...new Set(customers.map((c) => c.location).filter(Boolean))]
+      .map((loc) => {
+        const lc = loans.filter((l) =>
+          customers.find((c) => c.name === l.customer && c.location === loc),
+        );
+        const od = lc.filter((l) => {
+          const e = calculateLoanStatus(l, null, d.paidMap[l.id] || 0);
+          return e.overdueDays > 0 && !e.isSettled && !e.isWrittenOff;
+        }).length;
+        return {
+          loc,
+          rate: lc.length ? +((od / lc.length) * 100).toFixed(1) : 0,
+          n: lc.length,
+        };
+      })
+      .sort((a, b) => b.rate - a.rate);
+
+    const byType = ["Daily", "Weekly", "Biweekly", "Monthly", "Lump Sum"]
+      .map((rt) => {
+        const ls = loans.filter((l) => {
+          if (l.repaymentType !== rt) return false;
+          const e = calculateLoanStatus(l, null, d.paidMap[l.id] || 0);
+          return !e.isSettled && !e.isWrittenOff;
+        });
+        const paid = payments
+          .filter((p) => ls.some((l) => l.id === p.loanId))
+          .reduce((s, p) => s + p.amount, 0);
+        const balance = ls.reduce(
+          (s, l) =>
+            s + calculateLoanStatus(l, null, d.paidMap[l.id] || 0).totalAmountDue,
+          0,
+        );
+        return { type: rt, count: ls.length, paid, balance };
+      })
+      .filter((x) => x.count > 0);
+
+    const todayStr = new Date().toLocaleDateString("en-KE", {
+      weekday: "long",
+      year: "numeric",
+      month: "long",
+      day: "numeric",
+    });
+
+    return {
+      ...d,
+      par,
+      locs,
+      byType,
+      todayStr,
+    };
   }, [loans, payments, customers, workers]);
-  const { non, book, ovList, ovAmt, coll, todayP, nc, par, collRate, locs, byType, todayStr, calcTrueDue } = dashDerived;
+  const {
+    activeList,
+    book,
+    ovList,
+    ovAmt,
+    coll,
+    parTotal,
+    par,
+    collRate,
+    locs,
+    byType,
+    todayStr,
+    paidMap,
+  } = dashDerived;
+  // todayP is UI-specific — computed locally rather than cluttering the shared engine
+  const todayP = payments.filter((p) => p.date === now() && p.status === 'Allocated').reduce((s, p) => s + p.amount, 0);
 
   // FIX — ClickName was a component defined inside ADashboard's render body.
   // Converted to a plain render function to avoid new-type-on-every-render remounting.
-  const renderClickName = ({name, phone}) => (
-    <span onClick={e=>{e.stopPropagation();openContact(name,phone,e);}}
-      style={{color:T.accent,cursor:"pointer",fontWeight:600,borderBottom:`1px dashed ${T.accent}50`}}
-      title="Click to call/message">
+  const renderClickName = ({ name, phone }) => (
+    <span
+      onClick={(e) => {
+        e.stopPropagation();
+        openContact(name, phone, e);
+      }}
+      style={{
+        color: T.accent,
+        cursor: "pointer",
+        fontWeight: 600,
+        borderBottom: `1px dashed ${T.accent}50`,
+      }}
+      title="Click to call/message"
+    >
       {name}
     </span>
   );
 
-  const custPhone = (name) => customers.find(c=>c.name===name)?.phone||"";
+  const custPhone = (name) => customers.find((c) => c.name === name)?.phone || "";
 
   return (
     <div className="fu">
       {ContactPopup}
-      {drill&&(
-        <div className='dialog-backdrop' style={{position:'fixed',top:0,left:0,right:0,bottom:0,zIndex:9900,display:'flex',alignItems:'flex-start',justifyContent:'center',padding:0,backdropFilter:'blur(4px)',WebkitBackdropFilter:'blur(4px)',background:'rgba(4,8,16,0.75)',overflow:'hidden'}}>
-          <div className='pop' style={{background:T.card, borderTop:`1px solid ${T.hi}`, borderRight:`1px solid ${T.hi}`, borderLeft:`1px solid ${T.hi}`, borderBottom:`1px solid ${T.border}`, borderRadius:'0 0 20px 20px', width:'100%', maxWidth:'100%', maxHeight:'82vh', display:'flex', flexDirection:'column', boxShadow:'0 24px 64px #000000E0'}}>
-            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'14px 18px',borderBottom:`1px solid ${T.border}`,flexShrink:0,background:T.card}}>
-              <div style={{display:'flex',alignItems:'center',gap:10}}>
-                {drill.color&&<div style={{width:4,height:20,borderRadius:99,background:drill.color}}/>}
-                <h3 style={{color:T.txt,fontSize:15,fontWeight:800,fontFamily:T.head,margin:0}}>{drill.title}</h3>
-                <span style={{background:T.hi,color:T.muted,borderRadius:99,padding:'2px 8px',fontSize:11,fontFamily:T.mono}}>{drill.rows?.length??0}</span>
+      {drill && (
+        <div
+          className="dialog-backdrop"
+          style={{
+            position: "fixed",
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            zIndex: 9900,
+            display: "flex",
+            alignItems: "flex-start",
+            justifyContent: "center",
+            padding: 0,
+            backdropFilter: "blur(4px)",
+            WebkitBackdropFilter: "blur(4px)",
+            background: "rgba(4,8,16,0.75)",
+            overflow: "hidden",
+          }}
+        >
+          <div
+            className="pop"
+            style={{
+              background: T.card,
+              borderTop: `1px solid ${T.hi}`,
+              borderRight: `1px solid ${T.hi}`,
+              borderLeft: `1px solid ${T.hi}`,
+              borderBottom: `1px solid ${T.border}`,
+              borderRadius: "0 0 20px 20px",
+              width: "100%",
+              maxWidth: "100%",
+              maxHeight: "82vh",
+              display: "flex",
+              flexDirection: "column",
+              boxShadow: "0 24px 64px #000000E0",
+            }}
+          >
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                padding: "14px 18px",
+                borderBottom: `1px solid ${T.border}`,
+                flexShrink: 0,
+                background: T.card,
+              }}
+            >
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                {drill.color && (
+                  <div
+                    style={{
+                      width: 4,
+                      height: 20,
+                      borderRadius: 99,
+                      background: drill.color,
+                    }}
+                  />
+                )}
+                <h3
+                  style={{
+                    color: T.txt,
+                    fontSize: 15,
+                    fontWeight: 800,
+                    fontFamily: T.head,
+                    margin: 0,
+                  }}
+                >
+                  {drill.title}
+                </h3>
+                <span
+                  style={{
+                    background: T.hi,
+                    color: T.muted,
+                    borderRadius: 99,
+                    padding: "2px 8px",
+                    fontSize: 11,
+                    fontFamily: T.mono,
+                  }}
+                >
+                  {drill.rows?.length ?? 0}
+                </span>
               </div>
-              <button onClick={()=>setDrill(null)} style={{background:T.card2,border:`1px solid ${T.border}`,color:T.muted,borderRadius:99,width:28,height:28,cursor:'pointer',fontSize:13,display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>✕</button>
+              <button
+                onClick={() => setDrill(null)}
+                style={{
+                  background: T.card2,
+                  border: `1px solid ${T.border}`,
+                  color: T.muted,
+                  borderRadius: 99,
+                  width: 28,
+                  height: 28,
+                  cursor: "pointer",
+                  fontSize: 13,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  flexShrink: 0,
+                }}
+              >
+                ✕
+              </button>
             </div>
-            <div style={{flex:1,overflowY:'auto',overflowX:'auto'}}>
-              <DT cols={drill.cols} rows={drill.rows}/>
+            <div style={{ flex: 1, overflowY: "auto", overflowX: "auto" }}>
+              <DT cols={drill.cols} rows={drill.rows} />
             </div>
           </div>
         </div>
       )}
-      <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:16,flexWrap:'wrap',gap:10}}>
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "flex-start",
+          marginBottom: 16,
+          flexWrap: "wrap",
+          gap: 10,
+        }}
+      >
         <div>
-          <div style={{fontFamily:T.head,color:T.txt,fontSize:22,fontWeight:800}}>🏠 Dashboard</div>
-          <div style={{color:T.muted,fontSize:13,marginTop:3}}>{todayStr}</div>
+          <div
+            style={{
+              fontFamily: T.head,
+              color: T.txt,
+              fontSize: 22,
+              fontWeight: 800,
+            }}
+          >
+            🏠 Dashboard
+          </div>
+          <div style={{ color: T.muted, fontSize: 13, marginTop: 3 }}>
+            {todayStr}
+          </div>
         </div>
-        <RefreshBtn onRefresh={()=>setDrill(null)}/>
+        <RefreshBtn onRefresh={() => setDrill(null)} />
       </div>
 
       {/* KPI Row 1 */}
-      <div className="kpi-row" style={{display:"flex",gap:10,marginBottom:10,flexWrap:"wrap"}}>
-        <KPI label="Loan Book" icon="📈" value={fmtM(book)} color={T.accent} delay={1}
-          onClick={()=>setDrill({title:"All Active Loans",cols:[{k:"id",l:"ID",r:v=><span style={{color:T.accent,fontFamily:T.mono,fontSize:12}}>{v}</span>},{k:"customer",l:"Customer",r:(v,r)=>renderClickName({name:v,phone:custPhone(v)})},{k:"amount",l:"Principal",r:v=>fmt(v)},{k:"id",l:"True Due",r:(v,r)=><span style={{color:T.txt,fontWeight:700,fontFamily:T.mono}}>{fmt(calcTrueDue(r))}</span>},{k:"status",l:"Status",r:v=><Badge color={SC[v]||T.muted}>{v}</Badge>}],rows:non})}/>
-        <KPI label="Overdue" icon="⚠️" value={fmtM(ovAmt)} color={T.danger} delay={2}
-          onClick={()=>setDrill({title:"Overdue Loans",cols:[{k:"id",l:"ID",r:v=><span style={{color:T.accent,fontFamily:T.mono,fontSize:12}}>{v}</span>},{k:"customer",l:"Customer",r:(v,r)=>renderClickName({name:v,phone:custPhone(v)})},{k:"id",l:"True Due",r:(v,r)=><span style={{color:T.danger,fontWeight:700,fontFamily:T.mono}}>{fmt(calcTrueDue(r))}</span>},{k:"daysOverdue",l:"Days",r:v=><span style={{color:T.danger,fontWeight:800}}>{v}d</span>},{k:"daysOverdue",l:"Status",r:(_,r)=>{const e=calculateLoanStatus(r);return <span style={{color:e.isFrozen?T.muted:T.danger,fontSize:11,fontWeight:700}}>{e.phase==='frozen'?'❄ Frozen':e.phase==='penalty'?'⚠ Penalty':'Interest'}</span>;}}],rows:ovList})}/>
-        <KPI label="Collected Today" icon="✅" value={fmtM(todayP)} color={T.ok} delay={3}
-          onClick={()=>setDrill({title:"Today\'s Payments",cols:[{k:"id",l:"Pay ID"},{k:"customer",l:"Customer",r:(v,r)=>renderClickName({name:v,phone:custPhone(v)})},{k:"amount",l:"Amount",r:v=><span style={{color:T.ok,fontFamily:T.mono,fontWeight:700}}>{fmt(v)}</span>},{k:"mpesa",l:"M-Pesa"},{k:"status",l:"Status",r:v=><Badge color={SC[v]||T.muted}>{v}</Badge>}],rows:payments.filter(p=>p.date===now())})}/>
-        <KPI label="Collection Rate" icon="📊" value={`${collRate}%`} color={T.ok} delay={4}
-          onClick={()=>setDrill({title:"Collection by Officer",cols:[{k:"name",l:"Officer"},{k:"book",l:"Book",r:v=>fmt(v)},{k:"collected",l:"Collected",r:v=><span style={{color:T.ok,fontFamily:T.mono}}>{fmt(v)}</span>},{k:"rate",l:"Rate",r:v=><span style={{color:+v>80?T.ok:T.warn,fontWeight:800}}>{v}%</span>}],rows:workers.map(w=>{const wl=loans.filter(l=>l.officer===w.name&&l.status!=="Settled");const bk=wl.reduce((s,l)=>s+l.balance,0);const wp=payments.filter(p=>wl.some(l=>l.id===p.loanId)).reduce((s,p)=>s+p.amount,0);return {name:w.name,book:bk,collected:wp,rate:(wp>0&&bk>0)?((wp/bk)*100).toFixed(1):'0.0'};}).filter(x=>x.book>0)})}/>
+      <div
+        className="kpi-row"
+        style={{ display: "flex", gap: 10, marginBottom: 10, flexWrap: "wrap" }}
+      >
+        <KPI
+          label="Loan Book"
+          icon="📈"
+          value={fmtM(book)}
+          color={T.accent}
+          delay={1}
+          onClick={() =>
+            setDrill({
+              title: "All Active Loans",
+              cols: [
+                {
+                  k: "id",
+                  l: "ID",
+                  r: (v) => (
+                    <span
+                      style={{ color: T.accent, fontFamily: T.mono, fontSize: 12 }}
+                    >
+                      {v}
+                    </span>
+                  ),
+                },
+                {
+                  k: "customer",
+                  l: "Customer",
+                  r: (v, r) => renderClickName({ name: v, phone: custPhone(v) }),
+                },
+                { k: "amount", l: "Principal", r: (v) => fmt(v) },
+                {
+                  k: "id",
+                  l: "Remaining",
+                  r: (v, r) => (
+                    <span
+                      style={{
+                        color: T.txt,
+                        fontWeight: 700,
+                        fontFamily: T.mono,
+                      }}
+                    >
+                      {fmt(
+                        calculateLoanStatus(r, null, paidMap[r.id] || 0)
+                          .totalAmountDue,
+                      )}
+                    </span>
+                  ),
+                },
+                {
+                  k: "status",
+                  l: "Status",
+                  r: (v, row) => {
+                    const e = calculateLoanStatus(
+                      row,
+                      null,
+                      paidMap[row.id] || 0,
+                    );
+                    return (
+                      <Badge color={SC[e.badgeStatus] || T.muted}>
+                        {e.status}
+                      </Badge>
+                    );
+                  },
+                },
+                {
+                  k: "totalDays",
+                  l: "Days",
+                  r: (v, row) => {
+                    const e = calculateLoanStatus(row, null, paidMap[row.id] || 0);
+                    return (
+                      <span
+                        style={{
+                          color: e.totalDays > 120 ? T.danger : T.txt,
+                          fontWeight: 800,
+                          fontFamily: "monospace",
+                        }}
+                      >
+                        {e.totalDays}d
+                      </span>
+                    );
+                  },
+                },
+              ],
+              rows: activeList,
+            })
+          }
+        />
+        <KPI
+          label="Overdue"
+          icon="⚠️"
+          value={fmtM(ovAmt)}
+          color={T.danger}
+          delay={2}
+          onClick={() =>
+            setDrill({
+              title: "Overdue Loans",
+              cols: [
+                {
+                  k: "id",
+                  l: "ID",
+                  r: (v) => (
+                    <span
+                      style={{ color: T.accent, fontFamily: T.mono, fontSize: 12 }}
+                    >
+                      {v}
+                    </span>
+                  ),
+                },
+                {
+                  k: "customer",
+                  l: "Customer",
+                  r: (v, r) => renderClickName({ name: v, phone: custPhone(v) }),
+                },
+                {
+                  k: "id",
+                  l: "Remaining",
+                  r: (v, r) => (
+                    <span
+                      style={{
+                        color: T.danger,
+                        fontWeight: 700,
+                        fontFamily: T.mono,
+                      }}
+                    >
+                      {fmt(
+                        calculateLoanStatus(r, null, paidMap[r.id] || 0)
+                          .totalAmountDue,
+                      )}
+                    </span>
+                  ),
+                },
+                {
+                  k: "days",
+                  l: "Days",
+                  r: (v, row) => {
+                    const e = calculateLoanStatus(row, null, paidMap[row.id] || 0);
+                    return (
+                      <span
+                        style={{
+                          color: e.totalDays > 120 ? T.danger : T.txt,
+                          fontWeight: 800,
+                          fontFamily: "monospace",
+                        }}
+                      >
+                        {e.totalDays}d
+                      </span>
+                    );
+                  },
+                },
+                {
+                  k: "status",
+                  l: "Status",
+                  r: (v, row) => {
+                    const e = calculateLoanStatus(
+                      row,
+                      null,
+                      paidMap[row.id] || 0,
+                    );
+                    return (
+                      <Badge color={SC[e.badgeStatus] || T.muted}>
+                        {e.status}
+                      </Badge>
+                    );
+                  },
+                },
+              ],
+              rows: ovList,
+            })
+          }
+        />
+        <KPI
+          label="Collected Today"
+          icon="✅"
+          value={fmtM(todayP)}
+          color={T.ok}
+          delay={3}
+          onClick={() =>
+            setDrill({
+              title: "Today's Payments",
+              cols: [
+                { k: "id", l: "Pay ID" },
+                {
+                  k: "customer",
+                  l: "Customer",
+                  r: (v, r) => renderClickName({ name: v, phone: custPhone(v) }),
+                },
+                {
+                  k: "amount",
+                  l: "Amount",
+                  r: (v) => (
+                    <span
+                      style={{
+                        color: T.ok,
+                        fontFamily: T.mono,
+                        fontWeight: 700,
+                      }}
+                    >
+                      {fmt(v)}
+                    </span>
+                  ),
+                },
+                { k: "mpesa", l: "M-Pesa" },
+                {
+                  k: "status",
+                  l: "Status",
+                  r: (v) => <Badge color={SC[v] || T.muted}>{v}</Badge>,
+                },
+              ],
+              rows: payments.filter((p) => p.date === now()),
+            })
+          }
+        />
+        <KPI
+          label="Collection Rate"
+          icon="📊"
+          value={`${collRate}%`}
+          color={T.ok}
+          delay={4}
+          onClick={() =>
+            setDrill({
+              title: "Collection by Officer",
+              cols: [
+                { k: "name", l: "Officer" },
+                { k: "book", l: "Book", r: (v) => fmt(v) },
+                {
+                  k: "collected",
+                  l: "Collected",
+                  r: (v) => (
+                    <span style={{ color: T.ok, fontFamily: T.mono }}>
+                      {fmt(v)}
+                    </span>
+                  ),
+                },
+                {
+                  k: "rate",
+                  l: "Rate",
+                  r: (v) => (
+                    <span
+                      style={{
+                        color: +v > 80 ? T.ok : T.warn,
+                        fontWeight: 800,
+                      }}
+                    >
+                      {v}%
+                    </span>
+                  ),
+                },
+              ],
+              rows: workers
+                .map((w) => {
+                  const wl = loans.filter((l) => l.officer === w.name);
+                  let bk = 0,
+                    wp = 0;
+                  wl.forEach((l) => {
+                    const p = paidMap[l.id] || 0;
+                    const e = calculateLoanStatus(l, null, p);
+                    if (!e.isSettled && !e.isWrittenOff) {
+                      bk += e.totalAmountDue;
+                    }
+                    wp += p;
+                  });
+                  return {
+                    name: w.name,
+                    book: bk,
+                    collected: wp,
+                    rate:
+                      wp > 0 && bk > 0
+                        ? ((wp / (wp + bk)) * 100).toFixed(1)
+                        : "0.0",
+                  };
+                })
+                .filter((x) => x.book > 0),
+            })
+          }
+        />
       </div>
 
       {/* KPI Row 2 */}
-      <div className="kpi-row" style={{display:"flex",gap:10,marginBottom:16,flexWrap:"wrap"}}>
-        <KPI label="Active Workers" icon="👷" value={workers.filter(w=>w.status==="Active").length} delay={1}
-          onClick={()=>setDrill({title:"Active Staff",cols:[{k:"name",l:"Name"},{k:"role",l:"Role"},{k:"phone",l:"Phone"}],rows:workers.filter(w=>w.status==="Active")})}/>
-        <KPI label="Customers" icon="👤" value={customers.length} delay={2}
-          onClick={()=>setDrill({title:"All Customers",cols:[{k:"id",l:"ID",r:v=><span style={{color:T.accent,fontFamily:T.mono,fontSize:12}}>{v}</span>},{k:"name",l:"Name",r:(v,r)=>renderClickName({name:v,phone:r.phone})},{k:"business",l:"Business"},{k:"location",l:"Location"},{k:"risk",l:"Risk",r:v=><Badge color={RC[v]}>{v}</Badge>}],rows:customers})}/>
-        <KPI label="PAR 7" icon="⚠️" value={`${par(7)}%`} color={+par(7)>10?T.danger:T.warn} delay={3}
-          onClick={()=>setDrill({title:"Loans Overdue 7+ Days",cols:[{k:"id",l:"ID",r:v=><span style={{color:T.accent,fontFamily:T.mono,fontSize:12}}>{v}</span>},{k:"customer",l:"Customer",r:(v,r)=>renderClickName({name:v,phone:custPhone(v)})},{k:"id",l:"True Due",r:(v,r)=>fmt(calcTrueDue(r))},{k:"daysOverdue",l:"Days",r:v=><span style={{color:T.danger,fontWeight:800}}>{v}d</span>}],rows:loans.filter(l=>l.daysOverdue>=7)})}/>
-        <KPI label="PAR 30" icon="🔴" value={`${par(30)}%`} color={+par(30)>5?T.danger:T.ok} delay={4}
-          onClick={()=>setDrill({title:"Loans Overdue 30+ Days",cols:[{k:"id",l:"ID",r:v=><span style={{color:T.accent,fontFamily:T.mono,fontSize:12}}>{v}</span>},{k:"customer",l:"Customer",r:(v,r)=>renderClickName({name:v,phone:custPhone(v)})},{k:"id",l:"True Due",r:(v,r)=>fmt(calcTrueDue(r))},{k:"daysOverdue",l:"Days",r:v=><span style={{color:T.danger,fontWeight:800,fontFamily:T.mono}}>{v}d</span>},{k:"status",l:"Phase",r:(_,r)=>{const e=calculateLoanStatus(r);return <span style={{color:e.isFrozen?T.purple:T.danger,fontSize:11,fontWeight:700}}>{e.phase==='frozen'?'❄ Frozen':e.phase==='penalty'?'⚠ Penalty':'Interest'}</span>;}}],rows:loans.filter(l=>l.daysOverdue>=30)})}/>
+      <div
+        className="kpi-row"
+        style={{ display: "flex", gap: 10, marginBottom: 16, flexWrap: "wrap" }}
+      >
+        <KPI
+          label="Active Workers"
+          icon="👷"
+          value={workers.filter((w) => w.status === "Active").length}
+          delay={1}
+          onClick={() =>
+            setDrill({
+              title: "Active Staff",
+              cols: [
+                { k: "name", l: "Name" },
+                { k: "role", l: "Role" },
+                { k: "phone", l: "Phone" },
+              ],
+              rows: workers.filter((w) => w.status === "Active"),
+            })
+          }
+        />
+        <KPI
+          label="Customers"
+          icon="👤"
+          value={customers.length}
+          delay={2}
+          onClick={() =>
+            setDrill({
+              title: "All Customers",
+              cols: [
+                {
+                  k: "id",
+                  l: "ID",
+                  r: (v) => (
+                    <span
+                      style={{ color: T.accent, fontFamily: T.mono, fontSize: 12 }}
+                    >
+                      {v}
+                    </span>
+                  ),
+                },
+                {
+                  k: "name",
+                  l: "Name",
+                  r: (v, r) => renderClickName({ name: v, phone: r.phone }),
+                },
+                { k: "business", l: "Business" },
+                { k: "location", l: "Location" },
+                { k: "risk", l: "Risk", r: (v) => <Badge color={RC[v]}>{v}</Badge> },
+              ],
+              rows: customers,
+            })
+          }
+        />
+        <KPI
+          label="PAR 7"
+          icon="⚠️"
+          value={`${par(7)}%`}
+          color={+par(7) > 10 ? T.danger : T.warn}
+          delay={3}
+          onClick={() =>
+            setDrill({
+              title: "Loans Overdue 7+ Days",
+              cols: [
+                {
+                  k: "id",
+                  l: "ID",
+                  r: (v) => (
+                    <span
+                      style={{ color: T.accent, fontFamily: T.mono, fontSize: 12 }}
+                    >
+                      {v}
+                    </span>
+                  ),
+                },
+                {
+                  k: "customer",
+                  l: "Customer",
+                  r: (v, r) => renderClickName({ name: v, phone: custPhone(v) }),
+                },
+                {
+                  k: "id",
+                  l: "Remaining",
+                  r: (v, r) =>
+                    fmt(
+                      calculateLoanStatus(r, null, paidMap[r.id] || 0)
+                        .totalAmountDue,
+                    ),
+                },
+                {
+                  k: "days",
+                  l: "Days",
+                  r: (v, row) => {
+                    const e = calculateLoanStatus(row, null, paidMap[row.id] || 0);
+                    return (
+                      <span style={{ color: T.danger, fontWeight: 800 }}>
+                        {e.overdueDays}d
+                      </span>
+                    );
+                  },
+                },
+              ],
+              rows: loans.filter((l) => {
+                const e = calculateLoanStatus(l, null, paidMap[l.id] || 0);
+                return e.overdueDays >= 7 && !e.isSettled && !e.isWrittenOff;
+              }),
+            })
+          }
+        />
+        <KPI
+          label="PAR 30"
+          icon="🔴"
+          value={`${par(30)}%`}
+          color={+par(30) > 5 ? T.danger : T.ok}
+          delay={4}
+          onClick={() =>
+            setDrill({
+              title: "Loans Overdue 30+ Days",
+              cols: [
+                {
+                  k: "id",
+                  l: "ID",
+                  r: (v) => (
+                    <span
+                      style={{ color: T.accent, fontFamily: T.mono, fontSize: 12 }}
+                    >
+                      {v}
+                    </span>
+                  ),
+                },
+                {
+                  k: "customer",
+                  l: "Customer",
+                  r: (v, r) => renderClickName({ name: v, phone: custPhone(v) }),
+                },
+                {
+                  k: "id",
+                  l: "Remaining",
+                  r: (v, r) =>
+                    fmt(
+                      calculateLoanStatus(r, null, paidMap[r.id] || 0)
+                        .totalAmountDue,
+                    ),
+                },
+                {
+                  k: "days",
+                  l: "Days",
+                  r: (v, row) => {
+                    const e = calculateLoanStatus(row, null, paidMap[row.id] || 0);
+                    return (
+                      <span
+                        style={{
+                          color: T.danger,
+                          fontWeight: 800,
+                          fontFamily: T.mono,
+                        }}
+                      >
+                        {e.overdueDays}d
+                      </span>
+                    );
+                  },
+                },
+                {
+                  k: "status",
+                  l: "Phase",
+                  r: (_, r) => {
+                    const e = calculateLoanStatus(r, null, paidMap[r.id] || 0);
+                    return (
+                      <span
+                        style={{
+                          color: e.isFrozen ? T.purple : T.danger,
+                          fontSize: 11,
+                          fontWeight: 700,
+                        }}
+                      >
+                        {e.phase === "frozen"
+                          ? "❄ Frozen"
+                          : e.phase === "penalty"
+                            ? "⚠ Penalty"
+                            : "Interest"}
+                      </span>
+                    );
+                  },
+                },
+              ],
+              rows: loans.filter((l) => {
+                const e = calculateLoanStatus(l, null, paidMap[l.id] || 0);
+                return e.overdueDays >= 30 && !e.isSettled && !e.isWrittenOff;
+              }),
+            })
+          }
+        />
       </div>
 
       {/* Live Chart */}

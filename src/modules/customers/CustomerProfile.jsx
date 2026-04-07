@@ -152,7 +152,7 @@ export default function CustomerProfile({
       amount: Number(l.amount || 0) 
     };
     const snap = calculateLoanStatus(stub);
-    return { ...l, ...snap, actualBalance: snap.totalAmountDue };
+    return { ...l, ...snap, actualBalance: snap.totalAmountDue, totalPayable: snap.totalPayable };
   });
 
   const activeLoans = processedLoans.filter(l => l.status !== 'Settled' && l.status !== 'Written off');
@@ -269,9 +269,9 @@ export default function CustomerProfile({
             <DT cols={[
               { k: 'id', l: 'Loan ID', r: (v, row) => <span onClick={() => onSelectLoan && onSelectLoan(row)} style={{color:T.accent,fontFamily:T.mono,fontWeight:700,cursor:'pointer',borderBottom:`1px dashed ${T.accent}50`}}>{v}</span> },
               { k: 'amount', l: 'Principal', r: v => <span style={{fontFamily:T.mono}}>{fmt(v)}</span> },
-              { k: 'actualBalance', l: 'Balance', r: v => <span style={{fontFamily:T.mono,color:v>0?T.warn:T.ok}}>{fmt(v)}</span> },
+              { k: 'totalPayable', l: 'Total Due', r: v => <span style={{fontFamily:T.mono,color:T.accent}}>{fmt(v)}</span> },
+              { k: 'actualBalance', l: 'Remaining', r: v => <span style={{fontFamily:T.mono,color:v>0?T.warn:v<0?T.ok:T.muted,fontWeight:700}}>{fmt(v)}</span> },
               { k: 'disbursed', l: 'Disbursed', r: v => v || '—' },
-              { k: 'repaymentType', l: 'Plan' },
               { k: 'status', l: 'Status', r: v => <Badge color={SC[v]||T.muted}>{v}</Badge> }
             ]} rows={processedLoans} />
             {processedLoans.length === 0 && <div style={{ padding: 40, textAlign: 'center', color: T.muted }}>No loans found for this customer.</div>}

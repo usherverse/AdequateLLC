@@ -23,7 +23,22 @@ const CollectionsTab = ({loans,customers,payments,setPayments,interactions,setIn
     q: collQ, setQ: setCollQ, startDate, setStartDate, endDate, setEndDate, applyFilter,
     filtered: ov, handleExport
   } = useModuleFilter({
-    data: loans.filter(l => l.status === 'Overdue'),
+    data: useMemo(() => {
+      const paidMap = payments.reduce((acc, p) => {
+        if (p.loanId && p.status === "Allocated")
+          acc[p.loanId] = (acc[p.loanId] || 0) + p.amount;
+        return acc;
+      }, {});
+      return loans.filter(l => {
+        const p = paidMap[l.id] || 0;
+        const e = calculateLoanStatus(l, null, p);
+        return e.overdueDays > 0 && !e.isSettled && !e.isWrittenOff;
+      }).map(l => {
+        const p = paidMap[l.id] || 0;
+        const e = calculateLoanStatus(l, null, p);
+        return { ...l, balance: e.totalAmountDue, daysOverdue: e.overdueDays, totalDays: e.totalDays };
+      });
+    }, [loans, payments]),
     initialTab: 'All',
     dateKey: (l) => {
       if (!l.disbursed) return null;
@@ -48,25 +63,14 @@ const CollectionsTab = ({loans,customers,payments,setPayments,interactions,setIn
   }, [interactions, startDate, endDate, collQ]);
 
   const ovTotal = useMemo(() => {
-    const paidMap = payments.reduce((acc, p) => {
-      if (p.loanId) acc[p.loanId] = (acc[p.loanId] || 0) + p.amount;
-      return acc;
-    }, {});
-    
-    return ov.reduce((s, l) => {
-      const paid = paidMap[l.id] || 0;
-      const baseInterest = Math.round((l.amount || 0) * 0.3);
-      const engine = calculateLoanStatus(l);
-      const trueDue = Math.max(0, (l.amount || 0) + baseInterest + engine.interestAccrued + engine.penaltyAccrued - paid);
-      return s + trueDue;
-    }, 0);
-  }, [ov, payments]);
+    return ov.reduce((s, l) => s + l.balance, 0);
+  }, [ov]);
 
   const [showInt,setShowInt]=useState(null);
   const [iF,setIF]=useState({type:'Phone Call',notes:'',pAmt:'',pDate:'',officer:currentUser});
   const [pipeStage,setPipeStage]=useState(null);
   const [pipeAction,setPipeAction]=useState(null);
-  const [selLoan,setSelLoan]=useState(null);
+  const [selLoan,setSelLoanRaw]=useState(null);
   const [modalLoan,setModalLoan]=useState(null);
   const [modalCust,setModalCust]=useState(null);
   const [kpiDrill,setKpiDrillRaw]=useState(null);
@@ -89,11 +93,9 @@ const CollectionsTab = ({loans,customers,payments,setPayments,interactions,setIn
     
     if (action === 'Generate Letter') {
       const paid = payments.filter(p => p.loanId === selLoan.id).reduce((a, p) => a + p.amount, 0);
-      const e = calculateLoanStatus(selLoan);
-      const baseInterest = Math.round((selLoan.amount || 0) * 0.3);
-      const trueDue = Math.max(0, (selLoan.amount || 0) + baseInterest + e.interestAccrued + e.penaltyAccrued - paid);
+      const e = calculateLoanStatus(selLoan, null, paid);
       
-      const html = generateCollectionLetterHTML(stage.id, selLoan, cust, iF.officer || currentUser, trueDue);
+      const html = generateCollectionLetterHTML(stage.id, selLoan, cust, iF.officer || currentUser, e.totalAmountDue);
       downloadLoanDoc(html, `${stage.id.toLowerCase().replace(/\s+/g,'-')}-${selLoan.id}.html`);
       showToast(`✅ ${stage.id} generated for ${selLoan.customer}`, 'ok');
       setPipeAction(null);
@@ -105,7 +107,7 @@ const CollectionsTab = ({loans,customers,payments,setPayments,interactions,setIn
     addAudit(`Recovery: ${action}`,selLoan.id,`Stage: ${stage.label}`);
     if(stage.id==='Written Off'&&action.includes('Write-Off'))setLoans(ls=>ls.map(l=>l.id===selLoan.id?{...l,status:'Written off'}:l));
     if(stage.id==='Written Off'&&action.includes('Blacklist'))setCustomers(cs=>cs.map(c=>c.id===cust?.id?{...c,blacklisted:true,blReason:'Non-cooperation / Write-off'}:c));
-    setPipeAction(null);setSelLoan(null);setPipeStage(null);
+    setPipeAction(null);setSelLoanRaw(null);setPipeStage(null);
   };
 
   const doStkPush = async (loan) => {
@@ -177,17 +179,14 @@ const CollectionsTab = ({loans,customers,payments,setPayments,interactions,setIn
                       {k:'customer',l:'Customer',r:(v,r)=>{const c=customers.find(x=>x.name===v);return <span onClick={e=>{e.stopPropagation();openContact(v,c?.phone,e);}} style={{color:T.accent,cursor:'pointer',fontWeight:600,borderBottom:`1px dashed ${T.accent}50`}}>{v}</span>;}},
                       {k:'balance',l:'Remaining',r:(v,r)=>{
                         const paid = payments.filter(p => p.loanId === r.id).reduce((a, p) => a + p.amount, 0);
-                        const baseInterest = Math.round((r.amount || 0) * 0.3);
-                        const trueBal = Math.max(0, (r.amount || 0) + baseInterest - paid);
-                        return fmt(trueBal);
+                        const e = calculateLoanStatus(r, null, paid);
+                        return fmt(e.totalAmountDue);
                       }},
-                      {k:'daysOverdue',l:'Days',r:v=><span style={{color:v>10?T.danger:T.warn,fontWeight:800,fontFamily:T.mono}}>{v}d</span>},
+                      {k:'totalDays',l:'Days',r:v=><span style={{color:v>120?T.danger:T.warn,fontWeight:800,fontFamily:T.mono}}>{v}d</span>},
                       {k:'daysOverdue',l:'Total Due',r:(_,r)=>{
                         const paid = payments.filter(p => p.loanId === r.id).reduce((a, p) => a + p.amount, 0);
-                        const e=calculateLoanStatus(r);
-                        const baseInterest = Math.round((r.amount || 0) * 0.3);
-                        const trueDue = Math.max(0, (r.amount || 0) + baseInterest + e.interestAccrued + e.penaltyAccrued - paid);
-                        return <span style={{color:trueDue > 0 ? (e.isFrozen?T.muted:T.danger) : T.ok,fontFamily:T.mono}}>{fmt(trueDue)}</span>;
+                        const e=calculateLoanStatus(r, null, paid);
+                        return <span style={{color:T.accent,fontFamily:T.mono}}>{fmt(e.totalPayable)}</span>;
                       }},
                       {k:'risk',l:'Risk',r:v=><Badge color={RC[v]}>{v}</Badge>},
                       {k:'officer',l:'Officer'},
@@ -215,10 +214,10 @@ const CollectionsTab = ({loans,customers,payments,setPayments,interactions,setIn
       <div style={{marginBottom:6}}/>
       <div className='kpi-row' style={{display:'flex',gap:10,marginBottom:16,flexWrap:'wrap'}}>
         <KPI label='Newly Overdue' icon='🔴'
-          value={ov.filter(l=>l.daysOverdue<=1).length} color={T.danger} delay={1}
+          value={ov.filter(l=>l.daysOverdue >= 1 && l.daysOverdue < 2).length} color={T.danger} delay={1}
           onClick={()=>{
-            const rows=ov.filter(l=>l.daysOverdue<=1).sort((a,b)=>b.daysOverdue-a.daysOverdue);
-            setKpiDrill({title:'Newly Overdue Loans (0–1 day)',color:T.danger,rows,type:'loans'});
+            const rows=ov.filter(l=>l.daysOverdue >= 1 && l.daysOverdue < 2).sort((a,b)=>b.daysOverdue-a.daysOverdue);
+            setKpiDrill({title:'Newly Overdue Loans (1 day)',color:T.danger,rows,type:'loans'});
             try{SFX.notify();}catch(e){}
           }}/>
         <KPI label='Total Overdue' icon='⚠️'
@@ -247,10 +246,15 @@ const CollectionsTab = ({loans,customers,payments,setPayments,interactions,setIn
         <div style={{padding:'13px 13px 6px'}}>
           <div style={{display:'flex',gap:8,overflowX:'auto',paddingBottom:7}}>
             {PIPELINE_STAGES.map(stage=>(
-              <div key={stage.id} onClick={()=>{setPipeStage(stage);setSelLoan(null);}}
+              <div key={stage.id} onClick={()=>{setPipeStage(stage);setSelLoanRaw(null);}}
                 style={{flex:'0 0 auto',width:110,background:T.surface,border:`1px solid ${pipeStage?.id===stage.id?stage.color:T.border}`,borderRadius:10,padding:'10px 8px',textAlign:'center',cursor:'pointer',transition:'all .2s'}}>
                 <div style={{fontSize:20,marginBottom:5}}>{stage.icon}</div>
-                <div style={{color:stage.color,fontWeight:800,fontSize:18,fontFamily:T.mono}}>{stage.id==='Reminder'?ov.length:stage.id==='Written Off'?loans.filter(l=>l.status==='Written off').length:0}</div>
+                <div style={{color:stage.color,fontWeight:800,fontSize:18,fontFamily:T.mono}}>
+                  {stage.id==='Reminder'?ov.length:stage.id==='Written Off'?loans.filter(l=>{
+                    const paid = payments.filter(p => p.loanId === l.id && p.status === "Allocated").reduce((s, p) => s + p.amount, 0);
+                    return calculateLoanStatus(l, null, paid).isWrittenOff;
+                  }).length:0}
+                </div>
                 <div style={{color:T.dim,fontSize:10,marginTop:3,fontWeight:600}}>{stage.label}</div>
               </div>
             ))}
@@ -259,7 +263,7 @@ const CollectionsTab = ({loans,customers,payments,setPayments,interactions,setIn
             <div style={{background:T.bg,border:`1px solid ${pipeStage.color}30`,borderRadius:10,padding:14,marginTop:7}}>
               <div style={{color:pipeStage.color,fontWeight:800,fontSize:14,fontFamily:T.head,marginBottom:4}}>{pipeStage.icon} {pipeStage.label}</div>
               <div style={{color:T.muted,fontSize:12,marginBottom:10}}>{pipeStage.desc}</div>
-              <select value={selLoan?.id||''} onChange={e=>setSelLoan(ov.find(l=>l.id===e.target.value)||null)}
+              <select value={selLoan?.id||''} onChange={e=>setSelLoanRaw(ov.find(l=>l.id===e.target.value)||null)}
                 style={{width:'100%',background:T.surface,border:`1px solid ${T.border}`,borderRadius:8,padding:'9px 12px',color:T.txt,fontSize:13,outline:'none',marginBottom:10}}>
                 <option value=''>— Select overdue loan —</option>
                 {ov.map(l=><option key={l.id} value={l.id}>{l.id} · {l.customer} · {fmt(l.balance)} · {l.daysOverdue}d</option>)}
@@ -277,15 +281,17 @@ const CollectionsTab = ({loans,customers,payments,setPayments,interactions,setIn
         <CH title='Overdue Accounts'/>
         <DT cols={[{k:'id',l:'Loan ID',r:(v,row)=><span onClick={e=>{e.stopPropagation();setModalLoan(row);}} style={{color:T.accent,fontFamily:T.mono,fontWeight:700,fontSize:12,cursor:'pointer',borderBottom:`1px dashed ${T.accent}50`}}>{v}</span>},{k:'customer',l:'Customer',r:(v,r)=>{const c=customers.find(x=>x.name===v);return <span onClick={e=>{e.stopPropagation();if(c)setModalCust(c);else openContact(v,r.phone,e);}} style={{color:T.accent,cursor:'pointer',fontWeight:600,borderBottom:`1px dashed ${T.accent}50`}}>{v}</span>;}},{k:'balance',l:'Remaining',r:(v,r)=>{
             const paid = payments.filter(p => p.loanId === r.id).reduce((a, p) => a + p.amount, 0);
-            const baseInterest = Math.round((r.amount || 0) * 0.3);
-            return fmt(Math.max(0, (r.amount || 0) + baseInterest - paid));
-          }},{k:'daysOverdue',l:'Days',r:v=><span style={{color:v>10?T.danger:T.warn,fontWeight:800,fontFamily:T.mono}}>{v}d</span>},{k:'daysOverdue',l:'Total Due',r:(_,r)=>{
+            const e = calculateLoanStatus(r, null, paid);
+            return <span style={{color:e.totalAmountDue > 0 ? (e.isFrozen?T.muted:T.danger) : T.ok,fontFamily:T.mono,fontWeight:700}}>{fmt(e.totalAmountDue)}</span>;
+          }},{k:'totalDays',l:'Days',r:v=><span style={{color:v>120?T.danger:T.txt,fontWeight:800,fontFamily:T.mono}}>{v}d</span>},{k:'daysOverdue',l:'Total Due',r:(_,r)=>{
             const paid = payments.filter(p => p.loanId === r.id).reduce((a, p) => a + p.amount, 0);
-            const e=calculateLoanStatus(r);
-            const baseInterest = Math.round((r.amount || 0) * 0.3);
-            const trueDue = Math.max(0, (r.amount || 0) + baseInterest + e.interestAccrued + e.penaltyAccrued - paid);
-            return <span style={{color:trueDue > 0 ? (e.isFrozen?T.muted:T.danger) : T.ok,fontFamily:T.mono,fontWeight:700}}>{fmt(trueDue)}</span>;
-          }},{k:'status',l:'Phase',r:(_,r)=>{const e=calculateLoanStatus(r);return <span style={{fontSize:11,fontWeight:700,color:e.isFrozen?T.muted:e.phase==='penalty'?T.danger:T.warn}}>{e.isFrozen?'❄ Frozen':e.phase==='penalty'?'Penalty':'Interest'}</span>;}},{k:'risk',l:'Risk',r:v=><Badge color={RC[v]}>{v}</Badge>},{k:'officer',l:'Officer'}]}
+            const e=calculateLoanStatus(r, null, paid);
+            return <span style={{color:T.accent,fontFamily:T.mono}}>{fmt(e.totalPayable)}</span>;
+          }},{k:'status',l:'Phase',r:(_,r)=>{
+            const paid = payments.filter(p => p.loanId === r.id).reduce((a, p) => a + p.amount, 0);
+            const e=calculateLoanStatus(r, null, paid);
+            return <span style={{fontSize:11,fontWeight:700,color:e.isFrozen?T.muted:e.phase==='penalty'?T.danger:T.warn}}>{e.isFrozen?'❄ Frozen':e.phase==='penalty'?'Penalty':'Interest'}</span>;
+          }},{k:'risk',l:'Risk',r:v=><Badge color={RC[v]}>{v}</Badge>},{k:'officer',l:'Officer'}]}
           rows={[...ov].sort((a,b)=>b.daysOverdue-a.daysOverdue)} onRow={r=>{setShowInt(r);setIF(f=>({...f,officer:f.officer||currentUser}));}}/>
       </Card>
       {interactions.length>0&&<Card>

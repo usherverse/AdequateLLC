@@ -10,6 +10,11 @@ import { supabase, DEMO_MODE } from '@/config/supabaseClient';
  * Triggers an M-Pesa STK Push prompt to the customer's phone.
  * @param {object} params — { amount, phone_number, customer_id }
  */
+/**
+ * initiateStkPush
+ * Triggers an M-Pesa STK Push prompt to the customer's phone via the Express API.
+ * @param {object} params — { amount, phone_number, customer_id }
+ */
 export async function initiateStkPush({ amount, phone_number, customer_id }) {
   if (DEMO_MODE) {
     console.warn('[M-Pesa] STK Push simulated in Demo Mode');
@@ -17,12 +22,19 @@ export async function initiateStkPush({ amount, phone_number, customer_id }) {
   }
 
   try {
-    const { data, error } = await supabase.functions.invoke('mpesa-stk-push', {
-      body: { amount, phone_number, customer_id }
+    const token = localStorage.getItem('supabase.auth.token'); // Resolve auth token if needed
+    const response = await fetch(`${import.meta.env.VITE_API_URL || ''}/api/v1/payments/registration-fee/stk-push`, {
+      method: 'POST',
+      headers: { 
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`
+      },
+      body: JSON.stringify({ customerId: customer_id, phone: phone_number })
     });
-
-    if (error) throw error;
-    return data; // { success: true, message: "..." }
+    
+    const res = await response.json();
+    if (!response.ok) throw new Error(res.error || 'STK Push failed');
+    return { success: true, ...res };
   } catch (err) {
     console.error('[M-Pesa] STK Push failed:', err.message);
     throw err;
@@ -31,7 +43,7 @@ export async function initiateStkPush({ amount, phone_number, customer_id }) {
 
 /**
  * initiateB2cDisbursement
- * Triggers an M-Pesa B2C Disbursement (sending money to customer).
+ * Triggers an M-Pesa B2C Disbursement (sending money to customer) via the Express API.
  * @param {string} loan_id — The ID of the approved loan to disburse.
  */
 export async function initiateB2cDisbursement(loan_id) {
@@ -41,12 +53,18 @@ export async function initiateB2cDisbursement(loan_id) {
   }
 
   try {
-    const { data, error } = await supabase.functions.invoke('mpesa-b2c-disburse', {
-      body: { loan_id }
+    const token = localStorage.getItem('supabase.auth.token'); 
+    const response = await fetch(`${import.meta.env.VITE_API_URL || ''}/api/v1/payments/disbursements/${loan_id}/disburse`, {
+      method: 'POST',
+      headers: { 
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`
+      }
     });
 
-    if (error) throw error;
-    return data;
+    const res = await response.json();
+    if (!response.ok) throw new Error(res.error || 'Disbursement failed');
+    return { success: true, ...res };
   } catch (err) {
     console.error('[M-Pesa] B2C Disbursement failed:', err.message);
     throw err;

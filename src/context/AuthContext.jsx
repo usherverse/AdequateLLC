@@ -1,13 +1,8 @@
 import { createContext, useContext, useEffect, useState, useCallback } from 'react';
 import { supabase, DEMO_MODE } from '@/config/supabaseClient';
 
-// ── Demo admin used when Supabase is not configured ──────────────────────────
-const DEMO_USER = {
-  id: 'demo-admin',
-  email: 'admin@adequatecapital.co.ke',
-  role: 'Admin',
-  name: 'Admin (Demo Mode)',
-};
+// ── Demo mode stub — only used when SUPABASE is missing ──────────────────────
+const DEMO_USER = null;
 
 const AuthContext = createContext(null);
 
@@ -79,14 +74,9 @@ export function AuthProvider({ children }) {
   const signIn = useCallback(async (email, password) => {
     setError(null);
 
-    // Demo mode: accept admin@... / admin123
+    // Demo mode: Blocked for security. Use legitimate credentials.
     if (DEMO_MODE) {
-      if (email === 'admin@adequatecapital.co.ke' && password === 'admin123') {
-        setWorker(DEMO_USER);
-        setSession({ user: DEMO_USER });
-        return { error: null };
-      }
-      return { error: { message: 'Invalid credentials (demo mode)' } };
+      return { error: { message: 'Authentication disabled in Demo Mode. Connect Supabase to proceed.' } };
     }
 
     const { error } = await supabase.auth.signInWithPassword({ email, password });

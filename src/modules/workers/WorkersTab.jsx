@@ -596,15 +596,18 @@ const dlBlob = (content, filename, mime) => {
 
 const buildReportData = (type, {loans, customers, payments, workers, auditLog}) => {
   if(type==='loan-portfolio') {
-    const hdr = ['Loan ID','Customer','Principal','Balance','Status','Days Overdue','Interest','Penalty','Total Owed','Phase','Officer','Disbursed','Repayment Type'];
-    const rows = loans.map(l=>{const e=calculateLoanStatus(l);return [l.id,l.customer,l.amount,l.balance,l.status,l.daysOverdue,e.interestAccrued,e.penaltyAccrued,e.totalAmountDue,e.status,l.officer,l.disbursed||'N/A',l.repaymentType];});
+    const hdr = ['Loan ID','Customer','Principal','Base Remaining','Status','Days Overdue','Penalty','Remaining','Total Due','Officer','Disbursed','Repay Type'];
+    const rows = loans.map(l=>{const e=calculateLoanStatus(l);return [l.id,l.customer,l.amount,e.baseBalance,l.status,l.daysOverdue,e.penalty,e.totalAmountDue,e.totalPayable,l.officer,l.disbursed||'N/A',l.repaymentType];});
     return {name:'loan-portfolio', title:'Loan Portfolio Report', hdr, rows};
   }
   if(type==='financial') {
     const tb  = loans.reduce((s,l)=>s+l.amount,0);
-    const out = loans.filter(l=>l.status!=='Settled').reduce((s,l)=>s+l.balance,0);
+    const out = loans.filter(l => !calculateLoanStatus(l).isSettled).reduce((s,l)=>s+l.balance,0);
     const col = payments.filter(p=>p.status==='Allocated').reduce((s,p)=>s+p.amount,0);
-    const ov  = loans.filter(l=>l.status==='Overdue').reduce((s,l)=>s+l.balance,0);
+    const ov  = loans.filter(l => {
+      const e = calculateLoanStatus(l);
+      return e.overdueDays > 0 && !e.isSettled;
+    }).reduce((s,l)=>s+l.balance,0);
     return {name:'financial-summary', title:'Financial Summary Report', hdr:['Metric','KES'],
       rows:[['Total Disbursed',tb],['Total Outstanding',out],['Total Collected',col],['Total Overdue',ov],
             ['Collection Rate %', tb>0?((col/tb)*100).toFixed(2):0]]};
@@ -620,10 +623,13 @@ const buildReportData = (type, {loans, customers, payments, workers, auditLog}) 
       rows:(auditLog||[]).map(e=>[e.ts,e.user,e.action,e.target,e.detail||''])};
   }
   if(type==='overdue') {
-    const ov = loans.filter(l=>l.status==='Overdue');
+    const ov = loans.filter(l => {
+      const e = calculateLoanStatus(l);
+      return e.overdueDays > 0 && !e.isSettled;
+    });
     return {name:'overdue-report', title:'Overdue Loans Report',
-      hdr:['Loan ID','Customer','Balance','Days Overdue','Interest','Penalty','Total Owed','Phase','Risk','Officer'],
-      rows:ov.map(l=>{const e=calculateLoanStatus(l);return [l.id,l.customer,l.balance,l.daysOverdue,e.interestAccrued,e.penaltyAccrued,e.totalAmountDue,e.status,l.risk,l.officer];})};
+      hdr:['Loan ID','Customer','Base Remaining','Days Overdue','Penalty','Remaining','Total Due','Risk','Officer'],
+      rows:ov.map(l=>{const e=calculateLoanStatus(l);return [l.id,l.customer,e.baseBalance,l.overdueDays,e.penalty,e.totalAmountDue,e.totalPayable,l.risk,l.officer];})};
   }
   if(type==='payments') {
     return {name:'payments', title:'Payments Report',
@@ -634,9 +640,12 @@ const buildReportData = (type, {loans, customers, payments, workers, auditLog}) 
     return {name:'staff-performance', title:'Staff Performance Report',
       hdr:['ID','Name','Role','Status','Loans','Book KES','Overdue %'],
       rows:workers.map(w=>{
-        const wl=loans.filter(l=>l.officer===w.name);
+        const wl=loans.filter(l => l.officer===w.name);
         const bk=wl.reduce((s,l)=>s+l.balance,0);
-        const od=wl.filter(l=>l.status==='Overdue').length;
+        const od=wl.filter(l => {
+          const e = calculateLoanStatus(l);
+          return e.overdueDays > 0 && !e.isSettled;
+        }).length;
         return [w.id,w.name,w.role,w.status,wl.length,bk,wl.length?((od/wl.length)*100).toFixed(1):0];
       })};
   }

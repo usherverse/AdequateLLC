@@ -18,6 +18,7 @@ import {
   SEED_INTERACTIONS,
   SEED_AUDIT,
 } from "@/data/seedData";
+import { buildAuditMeta } from "@/utils/deviceInfo";
 
 export const SFX = (() => {
   let ctx = null;
@@ -470,107 +471,126 @@ export const uid = (p) =>
 //  • After day 60      : FREEZE — no further accumulation, total is locked
 //  • Before overdue    : no interest or penalty (flat 30% is baked into loan balance)
 // ═══════════════════════════════════════════════════════════════════════════════
-export const DAILY_RATE = 0.012; // 1.2% per day
-export const INTEREST_DAYS = 30; // interest phase: days 1–30 overdue
-export const PENALTY_DAYS = 30; // penalty phase:  days 31–60 overdue
-export const FREEZE_AFTER = 60; // no accumulation after 60 days overdue
+export const DAILY_RATE    = 0.012;
+export const INTEREST_DAYS = 30; 
+export const PENALTY_DAYS  = 30;
+export const FREEZE_AFTER  = 60;
 
 /**
  * calculateLoanStatus(loan, asOfDate?)
  * ─────────────────────────────────────
  * Returns a deterministic snapshot of a loan's financial state.
- * This is the ONLY place interest/penalty math lives. All UI components
- * and the payment engine read from this — never calculate independently.
+ * Updated to use unified Penalty (1.2% of Principal + 30% Interest).
  *
  * @param {object} loan        - Loan record with .balance, .daysOverdue, .status, .amount
  * @param {Date}   [asOfDate]  - Calculation date (defaults to today)
  * @returns {object} {
- *   interestAccrued,   // KES — interest accumulated in days 1–30 overdue
- *   penaltyAccrued,    // KES — penalty accumulated in days 31–60 overdue
- *   totalAmountDue,    // KES — balance + interestAccrued + penaltyAccrued
- *   overdueDays,       // number — capped at display maximum (not used for calc)
- *   phase,             // 'none'|'interest'|'penalty'|'frozen'
+ *   penalty,           // KES — combined overdue charge (1.2% per day on full loan amount)
+ *   totalAmountDue,    // KES — balance + penalty
+ *   overdueDays,       // number
  *   status,            // human-readable status string
- *   isFrozen,          // bool — true when past 60 days (no more accumulation)
+ *   isFrozen,          // bool — true when past 60 days
  * }
  */
-export const calculateLoanStatus = (loan, asOfDate) => {
+export const calculateLoanStatus = (loan, asOfDate, paid) => {
   const d = asOfDate || new Date();
-  const od = Math.max(0, loan.daysOverdue || 0);
-  const bal = Math.max(0, loan.balance || 0);
+  let od = Math.max(0, loan.daysOverdue || 0);
 
-  // ── Not overdue or fully settled ───────────────────────────────────────────
-  if (
-    !od ||
-    loan.status === "Settled" ||
-    loan.status === "Written off" ||
-    bal <= 0
-  ) {
-    return {
-      interestAccrued: 0,
-      penaltyAccrued: 0,
-      totalAmountDue: bal,
-      overdueDays: od,
-      phase: bal <= 0 ? "none" : od > 0 ? "interest" : "none",
-      status: bal <= 0 ? "Settled" : loan.status || "Active",
-      isFrozen: false,
-    };
+  // v1.9 — Robust Date Detection & Overdue Calculation
+  // Date fallback chain — do NOT use createdAt here: for restored/migrated data
+  // created_at is the migration date (recent), not the original disbursement date,
+  // which would make every old undated loan appear newly issued.
+  const dbs = loan.disbursed || loan.disbursed_at || loan.disbursedAt;
+  const isUndated = !dbs; // loan has no known disbursement date
+
+  if (dbs && (loan.status === 'Active' || loan.status === 'Overdue' || !loan.status)) {
+    const dueDate = new Date(dbs);
+    dueDate.setDate(dueDate.getDate() + 30);
+    const diffTime = d.getTime() - dueDate.getTime();
+    const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+    if (diffDays > od) od = diffDays;
   }
+  const bal = loan.balance || 0;
+  const amount = loan.amount || 0;
+  const baseTotal = amount * 1.3; // Principal + 30% Base Interest
 
-  // ── Phase determination ─────────────────────────────────────────────────────
-  // Days 1–30:   interest only
-  // Days 31–60:  penalty only (interest stops at day 30)
-  // After day 60: frozen — nothing accrues
-  let interestAccrued = 0;
-  let penaltyAccrued = 0;
-  let phase, status, isFrozen;
+  // If paid is not provided, derive it from balance (assuming balance = baseTotal - paid)
+  // We use the raw balance here to detect overpayments if they are stored as negative in the DB
+  const amountPaid = paid !== undefined ? Number(paid || 0) : baseTotal - bal;
+  const baseBalance = baseTotal - amountPaid;
 
-  if (od <= INTEREST_DAYS) {
-    // Phase 1: interest only
-    interestAccrued = Math.round(bal * DAILY_RATE * od);
-    penaltyAccrued = 0;
-    phase = "interest";
-    status = "Overdue (Interest phase)";
-    isFrozen = false;
-  } else if (od <= FREEZE_AFTER) {
-    // Phase 2: interest capped at 30 days, penalty for (od - 30) days
-    interestAccrued = Math.round(bal * DAILY_RATE * INTEREST_DAYS);
-    const penaltyDays = od - INTEREST_DAYS;
-    penaltyAccrued = Math.round(bal * DAILY_RATE * penaltyDays);
-    phase = "penalty";
-    status = "Overdue (Penalty phase)";
-    isFrozen = false;
+  // Penalty Calculation
+  const cappedOd = Math.min(od, FREEZE_AFTER);
+  const penalty = Math.round(baseTotal * DAILY_RATE * cappedOd);
+  
+  // totalPayable is the total liability: Principal + Base Interest + Penalty
+  // (User refers to this as "Total Due")
+  const totalPayable = baseTotal + penalty;
+
+  // totalAmountDue is the remaining balance: (Total Due) - Amount Paid
+  // (User refers to this as "Remaining")
+  const totalAmountDue = totalPayable - amountPaid;
+
+  const disDate = dbs ? new Date(dbs) : null;
+  const totalDays = disDate && !isNaN(disDate.getTime()) ? Math.floor((d.getTime() - disDate.getTime()) / (1000 * 60 * 60 * 24)) : 0;
+  const isFrozen = od > FREEZE_AFTER;
+  const isSettled = totalAmountDue <= 0;
+  // Written off when: (a) dated loan older than 90 days, OR
+  // (b) undated loan that is not Approved/Settled — we cannot verify it is current
+  const isWrittenOff = !isSettled && (
+    totalDays > 90 ||
+    (isUndated && !['Approved', 'Application submitted', 'worker-pending'].includes(loan.status))
+  );
+  
+  let status = loan.status || "Active";
+  let badgeStatus = loan.status || "Active";
+
+  if (isSettled) {
+    status = "Settled";
+    badgeStatus = "Settled";
+  } else if (isWrittenOff) {
+    status = "Written off";
+    badgeStatus = "Written off";
+  } else if (isFrozen) {
+    status = `Frozen (${od}d)`;
+    badgeStatus = "Frozen";
+  } else if (od > 0) {
+    status = `Overdue (${od}d)`;
+    badgeStatus = "Overdue";
   } else {
-    // Phase 3: frozen — interest capped at 30 days, penalty capped at 30 days
-    interestAccrued = Math.round(bal * DAILY_RATE * INTEREST_DAYS);
-    penaltyAccrued = Math.round(bal * DAILY_RATE * PENALTY_DAYS);
-    phase = "frozen";
-    status = "Frozen (No further accumulation)";
-    isFrozen = true;
+    // Correct stale 'Settled' status from DB if balance remains
+    status = (loan.status === "Settled" && !isSettled) ? "Active" : (loan.status || "Active");
+    badgeStatus = status;
   }
 
-  return {
-    interestAccrued,
-    penaltyAccrued,
-    totalAmountDue: bal + interestAccrued + penaltyAccrued,
-    overdueDays: od,
-    phase,
-    status,
-    isFrozen,
+  const phase = isWrittenOff ? "defaulted" : isFrozen ? "frozen" : od > 0 ? "penalty" : "active";
+
+  return { 
+    penalty, 
+    totalPayable, 
+    totalAmountDue, 
+    totalDays, // Added back for UI aging display
+    overdueDays: od, 
+    status, 
+    badgeStatus,
+    isFrozen, 
+    isSettled,
+    isWrittenOff,
+    phase, 
+    baseBalance,
+    amountPaid,
+    principal: amount
   };
 };
-
-// Backward-compat shim — existing call sites use calcP(bal, daysOverdue).
-// Returns the combined interest+penalty from the new engine.
-// All new code should call calculateLoanStatus() directly.
-export const calcP = (bal, d) => {
+export const calcP = (bal, d, amount = 0) => {
   const stub = {
+    amount: amount || (bal / 1.3), // Fallback if amount not provided
     balance: bal,
     daysOverdue: d,
     status: d > 0 ? "Overdue" : "Active",
   };
-  const { interestAccrued, penaltyAccrued } = calculateLoanStatus(stub);
-  return interestAccrued + penaltyAccrued;
+  const { penalty } = calculateLoanStatus(stub);
+  return penalty;
 };
 // HTML-escape for inserting values into JSX strings and HTML documents
 export const escHtml = (v) =>
@@ -753,7 +773,8 @@ export const buildReportData = (id, { loans = [], customers = [], payments = [],
       {k:'id', l:'ID'},
       {k:'customer', l:'Customer'},
       {k:'amount', l:'Principal'},
-      {k:'balance', l:'Balance'},
+      {k:'id', l:'Total Due', r:(_,r,p)=>fmt(calculateLoanStatus(r,null,p.filter(x=>x.loanId===r.id).reduce((a,b)=>a+b.amount,0)).totalPayable)},
+      {k:'id', l:'Remaining', r:(_,r,p)=>fmt(calculateLoanStatus(r,null,p.filter(x=>x.loanId===r.id).reduce((a,b)=>a+b.amount,0)).totalAmountDue)},
       {k:'status', l:'Status'},
       {k:'officer', l:'Officer'},
       {k:'disbursed', l:'Disbursed'}
@@ -864,7 +885,8 @@ export const buildFullBackup = ({
         "Customer ID",
         "Customer",
         "Principal",
-        "Balance",
+        "Remaining",
+        "Total Due",
         "Status",
         "Days Overdue",
         "Penalty",
@@ -873,16 +895,18 @@ export const buildFullBackup = ({
         "Repayment Type",
       ],
       loans.map((l) => {
-        const e = calculateLoanStatus(l);
+        const paid = payments.filter(p => p.loanId === l.id).reduce((a, b) => a + b.amount, 0);
+        const e = calculateLoanStatus(l, null, paid);
         return [
           l.id,
           l.customerId || "",
           l.customer,
           l.amount,
-          l.balance,
+          e.totalAmountDue,
+          e.totalPayable,
           l.status,
           l.daysOverdue,
-          e.interestAccrued + e.penaltyAccrued,
+          e.penalty,
           l.officer,
           l.disbursed || "N/A",
           l.repaymentType,
@@ -1684,6 +1708,8 @@ export const FI = ({
   hint,
   half,
   error,
+  min,
+  max,
 }) => {
   const hasErr = error && required && !value;
   const s = {
@@ -1768,6 +1794,24 @@ export const FI = ({
     </div>
   );
 };
+
+// Kenyan Phone Validation Utility (07XXXXXXXX or 01XXXXXXXX)
+const isPhoneValid = (p) => {
+  if (!p) return false;
+  const clean = String(p).replace(/\D/g, "");
+  return clean.length === 10 && clean.startsWith("0");
+};
+
+const getAge = (dob) => {
+  if (!dob) return 0;
+  const birth = new Date(dob);
+  const now = new Date();
+  let age = now.getFullYear() - birth.getFullYear();
+  const m = now.getMonth() - birth.getMonth();
+  if (m < 0 || (m === 0 && now.getDate() < birth.getDate())) age--;
+  return age;
+};
+
 // useToast defined in SOUND ENGINE above
 
 export const ToastContainer = ({ toasts }) => (
@@ -3470,6 +3514,7 @@ export const OnboardForm = ({ workers, onSave, onClose, prefill, leadId }) => {
     n3n: "",
     n3p: "",
     n3r: "",
+    customBusinessType: "",
   };
   const [f, setF] = useState(blankF);
   const [docs, setDocs] = useState([]);
@@ -3588,9 +3633,15 @@ export const OnboardForm = ({ workers, onSave, onClose, prefill, leadId }) => {
   };
 
   const save = () => {
+    const finalData = { ...f };
+    if (finalData.businessType === "Other" && finalData.customBusinessType) {
+      finalData.businessType = finalData.customBusinessType;
+    }
+    delete finalData.customBusinessType;
+
     onSave({
       id: uid("CUS"),
-      ...f,
+      ...finalData,
       loans: 0,
       risk: "Low",
       joined: now(),
@@ -3599,8 +3650,11 @@ export const OnboardForm = ({ workers, onSave, onClose, prefill, leadId }) => {
       docs,
     });
   };
+  const [isSaving, setIsSaving] = useState(false);
 
   const handleSave = () => {
+    if (isSaving) return;
+    setIsSaving(true);
     clearDraft();
     save();
   };
@@ -3715,6 +3769,8 @@ export const OnboardForm = ({ workers, onSave, onClose, prefill, leadId }) => {
               value={f.dob}
               onChange={s("dob")}
               type="date"
+              max={new Date(new Date().setFullYear(new Date().getFullYear() - 18)).toISOString().split("T")[0]}
+              min={new Date(new Date().setFullYear(new Date().getFullYear() - 100)).toISOString().split("T")[0]}
               half
             />
             <FI
@@ -3802,6 +3858,16 @@ export const OnboardForm = ({ workers, onSave, onClose, prefill, leadId }) => {
               ]}
               half
             />
+            {f.businessType === "Other" && (
+              <FI
+                label="Custom Business Type"
+                value={f.customBusinessType}
+                onChange={s("customBusinessType")}
+                placeholder="Specify your business..."
+                required
+                half
+              />
+            )}
             <FI
               label="Business Location"
               value={f.businessLocation}
@@ -5455,7 +5521,10 @@ const DonutChart = ({
   const segAngles = useMemo(() => {
     let cum = -Math.PI / 2;
     return segments.map((sg) => {
-      const angle = (sg.value / total) * (Math.PI * 2);
+      let angle = (sg.value / total) * (Math.PI * 2);
+      // SVG arcs fail to render if start === end (angle === 2PI). 
+      // Cap at 1.9999PI to draw a visually perfect circle.
+      if (angle >= Math.PI * 2) angle = Math.PI * 1.9999;
       const start = cum;
       cum += angle;
       return { start, end: cum, angle, mid: start + angle / 2 };
@@ -5630,112 +5699,84 @@ const DonutChart = ({
           ) : (
             <>
               {centerValue && (
-                <div
-                  style={{
-                    color: T.txt,
-                    fontWeight: 900,
-                    fontSize: 16,
-                    fontFamily: T.mono,
-                    lineHeight: 1,
-                  }}
-                >
+                <div style={{ color: T.txt, fontWeight: 800, fontSize: 13 }}>
                   {centerValue}
                 </div>
               )}
               {centerLabel && (
-                <div
-                  style={{
-                    color: T.muted,
-                    fontSize: 10,
-                    marginTop: 2,
-                    textAlign: "center",
-                  }}
-                >
-                  {centerLabel}
-                </div>
+                <div style={{ color: T.muted, fontSize: 9 }}>{centerLabel}</div>
               )}
             </>
           )}
         </div>
       </div>
-      <div
-        style={{
-          display: "flex",
-          flexDirection: "column",
-          gap: 5,
-          width: "100%",
-        }}
-      >
-        {segments
-          .filter((s) => s.value > 0)
-          .map((s, i) => (
-            <div
-              key={s.label || s.color || i}
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: 7,
-                padding: "4px 6px",
-                borderRadius: 7,
-                background:
-                  hovered === i
-                    ? s.color + "14"
-                    : clicked === i
-                      ? s.color + "22"
-                      : "transparent",
-                transition: "background .15s",
-                cursor: onClickSegment ? "pointer" : "default",
-              }}
-              onMouseEnter={() => setHovDebounced(i)}
-              onMouseLeave={() => setHovDebounced(null)}
-              onClick={() => {
-                if (onClickSegment) onClickSegment(s, i);
-              }}
-            >
-              <div
-                style={{
-                  width: 8,
-                  height: 8,
-                  borderRadius: 99,
-                  background: s.color,
-                  flexShrink: 0,
-                  boxShadow: `0 0 4px ${s.color}88`,
-                }}
-              />
-              <span style={{ color: T.muted, fontSize: 11, flex: 1 }}>
-                {s.label}
-              </span>
-              <span
-                style={{
-                  color: s.color,
-                  fontFamily: T.mono,
-                  fontSize: 11,
-                  fontWeight: 800,
-                }}
-              >
-                {s.value >= 1e6
-                  ? (s.value / 1e6).toFixed(2) + "M"
-                  : s.value >= 1e3
-                    ? (s.value / 1e3).toFixed(1) + "K"
-                    : s.value.toLocaleString()}
-              </span>
-            </div>
-          ))}
-      </div>
       {sub && (
-        <div
-          style={{
-            color: T.muted,
-            fontSize: 10,
-            textAlign: "center",
-            marginTop: 2,
-          }}
-        >
-          {sub}
-        </div>
+        <div style={{ color: T.muted, fontSize: 10, marginTop: 4 }}>{sub}</div>
       )}
     </div>
   );
+};
+
+export const deriveDashboardMetrics = (loans, payments, customers) => {
+  const paidMap = payments.reduce((acc, p) => {
+    if (p.loanId && p.status === "Allocated")
+      acc[p.loanId] = (acc[p.loanId] || 0) + p.amount;
+    return acc;
+  }, {});
+
+  let book = 0, active = 0, overdue = 0, written = 0, approved = 0;
+  let totalDisb = 0, coll = 0, ovAmt = 0, settledVolume = 0, writtenVolume = 0, approvedVolume = 0;
+  let par1 = 0, par7 = 0, par30 = 0, parTotal = 0, healthyCount = 0;
+  
+  const activeList = [], ovList = [];
+
+  loans.forEach(l => {
+    const p = paidMap[l.id] || 0;
+    const e = calculateLoanStatus(l, null, p);
+    
+    if (e.isSettled) {
+      settledVolume += (l.amount || 0);
+      return;
+    }
+
+    totalDisb += (l.amount || 0);
+    coll += p;
+    parTotal++;
+
+    // Use engine badgeStatus for categorical counts
+    if (e.badgeStatus === 'Written off') {
+      written++;
+      writtenVolume += (l.amount || 0);
+    } else if (e.badgeStatus === 'Overdue' || e.badgeStatus === 'Frozen') {
+      overdue++;
+      book += e.totalAmountDue;
+      ovAmt += e.totalAmountDue;
+      ovList.push(l);
+      par1++;
+      if (e.overdueDays >= 7) par7++;
+      if (e.overdueDays >= 30) par30++;
+    } else if (l.status === 'Approved') {
+      approved++;
+      approvedVolume += (l.amount || 0);
+    } else {
+      active++;
+      book += e.totalAmountDue;
+      activeList.push(l);
+      healthyCount++;
+    }
+  });
+
+  const unalloc = payments.filter(p => !p.loanId || p.status === "Unallocated").reduce((s, p) => s + p.amount, 0);
+  const totalExpectedVolume = totalDisb * 1.3;
+  const collRate = totalExpectedVolume > 0 
+    ? ((coll / totalExpectedVolume) * 100).toFixed(1) 
+    : "0.0";
+
+  return { 
+    book, active, overdue, written, approved, totalDisb, coll, ovAmt, unalloc, 
+    settledVolume, writtenVolume, approvedVolume, par1, par7, par30, parTotal, healthyCount, 
+    totalExpectedVolume, paidMap, activeList, ovList, collRate 
+  };
 };
 
 export const LivePortfolioChart = ({
@@ -5748,91 +5789,8 @@ export const LivePortfolioChart = ({
   custPhone,
   scrollTop,
 }) => {
-  // FIX — memoize all expensive filter/reduce derivations so they only recalculate
-  // when the underlying data arrays actually change.
-  const derived = useMemo(() => {
-    const paidMap = payments.reduce((acc, p) => {
-      if (p.loanId && p.status === "Allocated")
-        acc[p.loanId] = (acc[p.loanId] || 0) + p.amount;
-      return acc;
-    }, {});
-
-    const calcDue = (l) => {
-      const paid = paidMap[l.id] || 0;
-      const baseInt = Math.round((l.amount || 0) * 0.3);
-      const eng = calculateLoanStatus(l);
-      return Math.max(0, (l.amount || 0) + baseInt + eng.interestAccrued + eng.penaltyAccrued - paid);
-    };
-
-    const activeList = loans.filter((l) => l.status === "Active");
-    const overdueList = loans.filter((l) => l.status === "Overdue");
-    const settledList = loans.filter((l) => l.status === "Settled");
-    const writtenList = loans.filter((l) => l.status === "Written off");
-
-    const active = activeList.reduce((s, l) => s + calcDue(l), 0);
-    const overdue = overdueList.reduce((s, l) => s + calcDue(l), 0);
-    const book = active + overdue;
-    
-    const approved = loans
-      .filter((l) => l.status === "Approved")
-      .reduce((s, l) => s + l.amount * 1.3, 0);
-
-    const settledVolume = settledList.reduce((s, l) => s + l.amount * 1.3, 0);
-    const writtenVolume = writtenList.reduce((s, l) => s + calcDue(l), 0);
-
-    const coll = payments
-      .filter((p) => p.status === "Allocated")
-      .reduce((s, p) => s + p.amount, 0);
-    const unalloc = payments
-      .filter((p) => p.status === "Unallocated")
-      .reduce((s, p) => s + p.amount, 0);
-
-    const totalDisb = loans.filter(l => !['Rejected', 'Application submitted'].includes(l.status)).reduce((s, l) => s + l.amount, 0);
-    const totalExpectedVolume = totalDisb * 1.3;
-
-    const par1 = loans.filter((l) => l.daysOverdue >= 1).length;
-    const parTotal = loans.filter((l) => !["Settled", "Written off", "Rejected", "Application submitted"].includes(l.status)).length || 1;
-    
-    const paidLoanIds = new Set(
-      payments
-        .filter((p) => p.status === "Allocated" && p.loanId)
-        .map((p) => p.loanId),
-    );
-    const healthyCount = loans.filter(
-      (l) => l.status === "Active" && paidLoanIds.has(l.id),
-    ).length;
-    
-    return {
-      book,
-      overdue,
-      active,
-      approved,
-      settledVolume,
-      writtenVolume,
-      coll,
-      unalloc,
-      totalDisb,
-      totalExpectedVolume,
-      par1,
-      parTotal,
-      healthyCount,
-    };
-  }, [loans, payments, customers]);
-  const {
-    book,
-    overdue,
-    active,
-    approved,
-    settledVolume,
-    writtenVolume,
-    coll,
-    unalloc,
-    totalDisb,
-    totalExpectedVolume,
-    par1,
-    parTotal,
-    healthyCount,
-  } = derived;
+  const derived = useMemo(() => deriveDashboardMetrics(loans, payments, customers), [loans, payments, customers]);
+  const { book, active, overdue, written, approved, totalDisb, coll, unalloc, settledVolume, writtenVolume, approvedVolume, ovAmt, par1, par7, par30, parTotal, healthyCount, totalExpectedVolume, paidMap, collRate } = derived;
 
   const fmtK = (v) =>
     v >= 1e6
@@ -5841,30 +5799,32 @@ export const LivePortfolioChart = ({
         ? (v / 1e3).toFixed(1) + "K"
         : v.toLocaleString("en-KE");
 
+  const activeBookValue = book - ovAmt;
+
   const charts = [
     {
       label: "Loan Portfolio",
-      sub: `Total book: KES ${fmtK(book)}`,
+      sub: `${active} active · ${overdue} overdue`,
       centerValue: `KES ${fmtK(book)}`,
-      centerLabel: "Total",
+      centerLabel: "Book Value",
       segments: [
         {
           label: "Active Loans",
-          value: active,
+          value: activeBookValue,
           color: T.ok,
           nav: "loans",
           navFilter: "Active",
         },
         {
           label: "Overdue",
-          value: overdue,
+          value: ovAmt,
           color: T.danger,
           nav: "collections",
           navFilter: "Overdue",
         },
         {
           label: "Approved (pending)",
-          value: approved,
+          value: approvedVolume,
           color: T.gold,
           nav: "loans",
           navFilter: "Approved",
@@ -5874,8 +5834,7 @@ export const LivePortfolioChart = ({
     {
       label: "Collections",
       sub: `Disbursed: KES ${fmtK(totalDisb)}`,
-      centerValue:
-        totalExpectedVolume > 0 ? ((coll / totalExpectedVolume) * 100).toFixed(0) + "%" : "—",
+      centerValue: `${collRate}%`,
       centerLabel: "Rate",
       segments: [
         {
@@ -5911,7 +5870,7 @@ export const LivePortfolioChart = ({
     {
       label: "Portfolio at Risk",
       sub: `${par1} loans overdue`,
-      centerValue: `${((par1 / parTotal) * 100).toFixed(1)}%`,
+      centerValue: `${parTotal > 0 ? ((par1 / parTotal) * 100).toFixed(1) : 0}%`,
       centerLabel: "PAR",
       segments: [
         {
@@ -5923,23 +5882,21 @@ export const LivePortfolioChart = ({
         },
         {
           label: "PAR 1–6 days",
-          value: loans.filter((l) => l.daysOverdue >= 1 && l.daysOverdue < 7)
-            .length,
+          value: par1 - par7,
           color: T.warn,
           nav: "collections",
           navFilter: "Overdue",
         },
         {
           label: "PAR 7–29 days",
-          value: loans.filter((l) => l.daysOverdue >= 7 && l.daysOverdue < 30)
-            .length,
+          value: par7 - par30,
           color: T.danger,
           nav: "collections",
           navFilter: "Overdue",
         },
         {
           label: "PAR 30+ days",
-          value: loans.filter((l) => l.daysOverdue >= 30).length,
+          value: par30,
           color: T.purple,
           nav: "collections",
           navFilter: "Overdue",
@@ -6058,7 +6015,62 @@ export const LivePortfolioChart = ({
                   </span>
                 );
                 if (seg.nav === "loans" || seg.nav === "collections") {
-                  rows = loans.filter((l) => (nf ? l.status === nf : true));
+                  rows = loans
+                    .filter((l) => {
+                      const p = paidMap[l.id] || 0;
+                      const e = calculateLoanStatus(l, null, p);
+                      
+                      // Match the derived logic exactly
+                      if (seg.label === "Active Loans")
+                        return e.badgeStatus === "Active";
+                      if (seg.label === "Overdue")
+                        return e.badgeStatus === "Overdue" || e.badgeStatus === "Frozen";
+                      if (seg.label === "Written off") 
+                        return e.badgeStatus === "Written off";
+                      if (seg.label === "Approved (pending)")
+                        return l.status === "Approved" && !e.isSettled;
+                      if (seg.label === "Healthy (paying)")
+                        return (
+                          !e.isSettled && 
+                          !e.isWrittenOff && 
+                          e.overdueDays <= 0 && 
+                          l.status === "Active"
+                        );
+                      if (seg.label === "PAR 1–6 days")
+                        return (
+                          (e.badgeStatus === "Overdue" || e.badgeStatus === "Frozen") &&
+                          e.overdueDays >= 1 &&
+                          e.overdueDays < 7
+                        );
+                      if (seg.label === "PAR 7–29 days")
+                        return (
+                          (e.badgeStatus === "Overdue" || e.badgeStatus === "Frozen") &&
+                          e.overdueDays >= 7 &&
+                          e.overdueDays < 30
+                        );
+                      if (seg.label === "PAR 30+ days")
+                        return (
+                          (e.badgeStatus === "Overdue" || e.badgeStatus === "Frozen") &&
+                          e.overdueDays >= 30
+                        );
+                      if (seg.label === "Outstanding")
+                        return (e.badgeStatus === "Active" || e.badgeStatus === "Overdue" || e.badgeStatus === "Frozen");
+                      if (seg.label === "Written off/Settled")
+                        return e.badgeStatus === "Written off" || e.isSettled;
+                      
+                      return nf ? (l.status === nf || e.badgeStatus === nf) : true;
+                    })
+                    .map((l) => {
+                      const p = paidMap[l.id] || 0;
+                      const e = calculateLoanStatus(l, null, p);
+                      return {
+                        ...l,
+                        balance: e.totalAmountDue,
+                        daysOverdue: e.overdueDays,
+                        totalDays: e.totalDays,
+                      };
+                    });
+
                   cols = [
                     {
                       k: "id",
@@ -6103,25 +6115,30 @@ export const LivePortfolioChart = ({
                     {
                       k: "status",
                       l: "Status",
-                      r: (v) => <Badge color={SC[v] || T.muted}>{v}</Badge>,
+                      r: (v, row) => {
+                        const p = paidMap[row.id] || 0;
+                        const e = calculateLoanStatus(row, null, p);
+                        return (
+                          <Badge color={SC[e.badgeStatus] || T.muted}>
+                            {e.status}
+                          </Badge>
+                        );
+                      },
                     },
                     {
-                      k: "daysOverdue",
+                      k: "totalDays",
                       l: "Days",
-                      r: (v) =>
-                        v > 0 ? (
-                          <span
-                            style={{
-                              color: T.danger,
-                              fontWeight: 800,
-                              fontFamily: "monospace",
-                            }}
-                          >
-                            {v}d
-                          </span>
-                        ) : (
-                          <span style={{ color: T.muted }}>—</span>
-                        ),
+                      r: (v) => (
+                        <span
+                          style={{
+                            color: v > 120 ? T.danger : T.txt,
+                            fontWeight: 800,
+                            fontFamily: "monospace",
+                          }}
+                        >
+                          {v}d
+                        </span>
+                      ),
                     },
                     { k: "officer", l: "Officer" },
                   ];
@@ -7532,7 +7549,7 @@ export const RepayTracker = ({ loans, payments }) => {
         return (
           l.repaymentType === activeType &&
           l.disbursed &&
-          !["Rejected", "Written off"].includes(l.status)
+          !["Settled", "Rejected", "Written off"].includes(l.status)
         );
       }),
     [loans, activeType],
@@ -8169,7 +8186,9 @@ export const RepayTracker = ({ loans, payments }) => {
                         ? "#EF444428"
                         : loan.status === "Overdue"
                           ? "#EF444418"
-                          : "#0F2040"),
+                          : loan.status === "Frozen"
+                            ? "#3B82F618"
+                            : "#0F2040"),
                     borderRadius: 12,
                     padding: "13px 15px",
                     cursor: "pointer",
@@ -8216,6 +8235,21 @@ export const RepayTracker = ({ loans, payments }) => {
                           }}
                         >
                           OVERDUE
+                        </span>
+                      )}
+                      {loan.status === "Frozen" && (
+                        <span
+                          style={{
+                            background: "#3B82F612",
+                            color: "#3B82F6",
+                            fontSize: 9,
+                            fontWeight: 700,
+                            padding: "2px 6px",
+                            borderRadius: 4,
+                            border: "1px solid #3B82F628",
+                          }}
+                        >
+                          FROZEN
                         </span>
                       )}
                       {summary.missed > 0 && (
@@ -8406,6 +8440,29 @@ export const RepayTracker = ({ loans, payments }) => {
 //  CUSTOMER EDIT FORM
 // ═══════════════════════════════════════════
 export const CustomerEditForm = ({ customer, workers, onSave, onClose }) => {
+  const standardTypes = [
+    "Butchery", "Carpentry", "Charcoal/firewood seller", "Clothes & Accessories", 
+    "Food kiosk", "Fruits & Vegetables", "General shop", "Juakali artisan", 
+    "Milk ATM", "Rentals/accommodation", "Agrovet", "Autospares", 
+    "Animal feeds", "Bakery", "Boutique", "Salon/Kinyozi", 
+    "Poultry", "Second hand items", "Photo studio", "DSTV/Video show", 
+    "Health centre", "Electrical shop", "Bags", "Bookshop", 
+    "Pharmacy", "Beauty & cosmetics", "Welding", "Wines & spirits", 
+    "Money agent", "Fish seller", "Shoeshiner/repair", "Cereals", 
+    "Malimali", "Movie shop", "Soaps & detergents", "Cyber cafe", 
+    "Events & entertainment", "Gas cylinders", "Poshio mill", "Murtura base", 
+    "Pond table", "School", "Baller & sand", "Glass", 
+    "Garage", "Computer college", "Dry cleaner", "Carpet seller", 
+    "Car wash", "Timberyard", "Sugarcane", "Tailor", 
+    "Bar & restaurant", "School uniforms", "Brick seller", "Bakery & weaving", 
+    "Egg seller", "Gas shop", "Gym", "Shoe seller", 
+    "Day care", "Security firm", "Curtains", "Ice cream", 
+    "Maize", "Massage spa", "Chemicals", "Curios", 
+    "Detergent supplier", "Electronics", "Loans on item", "Optician", 
+    "Packaging material", "Potato seller", "Other", "Add option"
+  ];
+  const isCustomType = customer.businessType && !standardTypes.includes(customer.businessType);
+  
   const [f, setF] = useState({
     name: customer.name || "",
     dob: customer.dob || "",
@@ -8415,7 +8472,8 @@ export const CustomerEditForm = ({ customer, workers, onSave, onClose }) => {
     altPhone: customer.altPhone || "",
     residence: customer.residence || "",
     businessName: customer.businessName || customer.business || "",
-    businessType: customer.businessType || "Retail",
+    businessType: isCustomType ? "Other" : (customer.businessType || "Retail"),
+    customBusinessType: isCustomType ? customer.businessType : "",
     businessLocation:
       customer.businessLocation ||
       customer.location ||
@@ -8442,17 +8500,37 @@ export const CustomerEditForm = ({ customer, workers, onSave, onClose }) => {
     const m = [];
     if (!f.name) m.push("Full Name");
     if (!f.idNo) m.push("National ID");
+    
+    if (f.dob) {
+        const age = getAge(f.dob);
+        if (age < 18) m.push("Customer must be at least 18 years old");
+        if (age > 100) m.push("Customer age cannot exceed 100 years");
+    }
+
     if (!f.phone) m.push("Primary Phone");
+    else if (!isPhoneValid(f.phone)) m.push("Primary Phone (must be 10 digits starting with 0)");
+    
+    if (f.altPhone && !isPhoneValid(f.altPhone)) {
+      m.push("Alternative Phone (must be 10 digits starting with 0)");
+    }
+    
     if (!f.residence) m.push("Residence");
     if (!f.businessName) m.push("Business Name");
+    if (f.businessType === "Other" && !f.customBusinessType) m.push("Please specify the Business Type");
     if (!f.businessLocation) m.push("Business Location");
     if (!f.officer) m.push("Assigned Officer");
     if (!f.n1n || !f.n1p || !f.n1r)
       m.push("Next of Kin 1 (Name, Phone & Relationship)");
+    else if (!isPhoneValid(f.n1p)) m.push("Next of Kin 1 Phone (must be 10 digits)");
+    
     if (!f.n2n || !f.n2p || !f.n2r)
       m.push("Next of Kin 2 (Name, Phone & Relationship)");
+    else if (!isPhoneValid(f.n2p)) m.push("Next of Kin 2 Phone (must be 10 digits)");
+    
     if (!f.n3n || !f.n3p || !f.n3r)
       m.push("Next of Kin 3 (Name, Phone & Relationship)");
+    else if (!isPhoneValid(f.n3p)) m.push("Next of Kin 3 Phone (must be 10 digits)");
+    
     return m;
   };
 
@@ -8462,7 +8540,13 @@ export const CustomerEditForm = ({ customer, workers, onSave, onClose }) => {
       setErr(m);
       return;
     }
-    onSave({ ...customer, ...f });
+    const finalData = { ...f };
+    if (finalData.businessType === "Other" && finalData.customBusinessType) {
+      finalData.businessType = finalData.customBusinessType;
+    }
+    delete finalData.customBusinessType;
+    
+    onSave({ ...customer, ...finalData });
   };
 
   const TABS = [
@@ -8545,6 +8629,8 @@ export const CustomerEditForm = ({ customer, workers, onSave, onClose }) => {
             value={f.dob}
             onChange={s("dob")}
             type="date"
+            max={new Date(new Date().setFullYear(new Date().getFullYear() - 18)).toISOString().split("T")[0]}
+            min={new Date(new Date().setFullYear(new Date().getFullYear() - 100)).toISOString().split("T")[0]}
             half
           />
           <FI
@@ -8636,6 +8722,16 @@ export const CustomerEditForm = ({ customer, workers, onSave, onClose }) => {
             ]}
             half
           />
+          {f.businessType === "Other" && (
+            <FI
+              label="Custom Business Type"
+              value={f.customBusinessType}
+              onChange={s("customBusinessType")}
+              placeholder="Specify your business..."
+              required
+              half
+            />
+          )}
           <FI
             label="Business Location"
             value={f.businessLocation}
@@ -9079,8 +9175,12 @@ const PaymentTimeline = ({ loan, payments, compact = false }) => {
   const upcoming = timeline.filter((t) => t.status === "upcoming").length;
   const pct =
     totalExpected > 0
-      ? Math.min(100, Math.round((totalPaid / totalExpected) * 100))
+      ? Math.round((totalPaid / totalExpected) * 100)
       : 0;
+  
+  // Track surplus/overpayment explicitly for transparency
+  const rawTotalPaid = pays.reduce((s, p) => s + p.amount, 0);
+  const overpaidAmt = Math.max(0, rawTotalPaid - totalExpected);
 
   // Count actual payment RECEIPTS (not slots)
   const totalPayCount = pays.length;
@@ -9265,7 +9365,7 @@ const PaymentTimeline = ({ loan, payments, compact = false }) => {
           <div
             style={{
               height: "100%",
-              width: `${pct}%`,
+              width: `${Math.min(100, pct)}%`,
               background:
                 pct >= 80
                   ? `linear-gradient(90deg,${T.ok},#00FF7F)`
@@ -9658,21 +9758,16 @@ export const LoanModal = ({
       i.customerId === loan.customerId ||
       i.customer_id === loan.customerId
     );
-    const lastPay =
-      [...pays].sort((a, b) => b.date.localeCompare(a.date))[0] || null;
+    const lastPay = [...pays].sort((a, b) => b.date.localeCompare(a.date))[0] || null;
     const paid = pays.reduce((s, p) => s + p.amount, 0);
-    const engine = calculateLoanStatus(loan);
-    const penalty = engine.interestAccrued + engine.penaltyAccrued; // total charges (backward compat)
-    // Total due = principal + flat 30% base interest + any overdue charges
+    const engine = calculateLoanStatus(loan, null, paid);
+    const penalty = engine.penalty;
     const baseInterest = Math.round((loan.amount || 0) * 0.3);
-    const totalDue = (loan.amount || 0) + baseInterest + engine.interestAccrued + engine.penaltyAccrued;
-    // Remaining balance = what is still owed after all payments
-    const remainingBalance = Math.max(0, totalDue - paid);
-    const owed = totalDue;
-    return { cust, pays, ints, lastPay, paid, penalty, owed, engine, totalDue, remainingBalance, baseInterest };
+    const totalDue = engine.totalPayable;
+    const remaining = engine.totalAmountDue;
+    return { cust, pays, ints, lastPay, paid, penalty, engine, totalDue, remaining, baseInterest };
   }, [loan, customers, payments, interactions]);
-  const { cust, pays, ints, lastPay, paid, penalty, owed, engine, totalDue, remainingBalance, baseInterest } =
-    loanDerived;
+  const { cust, pays, ints, lastPay, paid, penalty, engine, totalDue, remaining, baseInterest } = loanDerived;
 
   const schedule = () => {
     const bal = loan.balance;
@@ -9872,32 +9967,11 @@ export const LoanModal = ({
               ["Principal", fmt(loan.amount), T.txt],
               ["Rate", "30%", T.txt],
               ["Base Int.", fmt(baseInterest), T.txt],
-              [
-                "Paid",
-                fmt(paid),
-                paid > 0 ? T.ok : T.txt,
-              ],
-              [
-                "Balance",
-                fmt(remainingBalance),
-                remainingBalance > 0 ? (loan.status === "Overdue" ? T.danger : T.warn) : T.ok,
-              ],
-              [
-                "Overdue",
-                loan.daysOverdue > 0 ? `${loan.daysOverdue}d` : "None",
-                loan.daysOverdue > 0 ? T.danger : T.ok,
-              ],
-              [
-                "Late Int.",
-                fmt(engine.interestAccrued),
-                engine.interestAccrued > 0 ? T.warn : T.muted,
-              ],
-              [
-                "Penalty",
-                fmt(engine.penaltyAccrued),
-                engine.penaltyAccrued > 0 ? T.danger : T.muted,
-              ],
-              ["Total Due", fmt(remainingBalance), T.accent],
+              ["Paid", fmt(paid), paid > 0 ? T.ok : T.txt],
+              ["Remaining", fmt(remaining), remaining > 0 ? T.warn : T.ok],
+              ["Overdue", loan.daysOverdue > 0 ? `${loan.daysOverdue}d` : "None", loan.daysOverdue > 0 ? T.danger : T.ok],
+              ["Penalty", fmt(penalty), penalty > 0 ? T.danger : T.muted],
+              ["Total Due", fmt(totalDue), totalDue > 0 ? T.accent : T.ok],
             ].map(([k, v, col]) => (
               <div
                 key={k}
@@ -9966,11 +10040,9 @@ export const LoanModal = ({
                 </div>
                 <div style={{ color: T.muted, fontSize: 11, marginTop: 2 }}>
                   {engine.isFrozen
-                    ? "No further interest or penalty — total is locked at " +
+                    ? "No further penalty — total is locked at " +
                       fmt(engine.totalAmountDue)
-                    : engine.phase === "penalty"
-                      ? `Interest locked at ${fmt(engine.interestAccrued)} (day 1–30) · Penalty: 1.2%/day`
-                      : `Interest: 1.2%/day · Penalty starts at day 31`}
+                    : `Penalty: 1.2% per day of (Principal + Base Interest) · Capped at 60 days`}
                 </div>
               </div>
               <div
@@ -10145,10 +10217,9 @@ export const LoanModal = ({
                     }}
                   >
                     {[
-                      ["Remaining Balance", fmt(Math.max(0, (loan.amount * 1.3) - paid))],
-                      ["Late Int.", fmt(engine.interestAccrued)],
-                      ["Penalty", fmt(engine.penaltyAccrued)],
-                      ["Total Due", fmt(Math.max(0, (loan.amount * 1.3) + engine.interestAccrued + engine.penaltyAccrued - paid))],
+                      ["Remaining Balance", fmt(engine.baseBalance)],
+                      ["Penalty", fmt(engine.penalty)],
+                      ["Total Due", fmt(remaining)],
                       ["Phase", engine.status],
                       [
                         "Progress",
@@ -10318,10 +10389,8 @@ export const CustomerDetail = ({
     const totalOwed = overdueLoans.reduce((s, l) => {
       const lPays = myPays.filter(p => p.loanId === l.id);
       const paid = lPays.reduce((acc, p) => acc + p.amount, 0);
-      const baseInterest = Math.round((l.amount || 0) * 0.3);
-      const engine = calculateLoanStatus(l);
-      const trueDue = Math.max(0, (l.amount || 0) + baseInterest + engine.interestAccrued + engine.penaltyAccrued - paid);
-      return s + trueDue;
+      const engine = calculateLoanStatus(l, null, paid);
+      return s + engine.totalAmountDue;
     }, 0);
     const totalPaid = myPays.reduce((s, p) => s + p.amount, 0);
     const totalPrincipal = myLoans.reduce((s, l) => s + l.amount, 0);
@@ -10976,7 +11045,7 @@ export const CustomerDetail = ({
                           b.date.localeCompare(a.date),
                         )[0] || null;
                       const lPaid = lPays.reduce((s, p) => s + p.amount, 0);
-                      const eng = calculateLoanStatus(loan);
+                      const eng = calculateLoanStatus(loan, null, lPaid);
                       return (
                         <div
                           key={loan.id}
@@ -11050,22 +11119,17 @@ export const CustomerDetail = ({
                             {[
                               [
                                 "Remaining",
-                                fmt(Math.max(0, (loan.amount || 0) + Math.round((loan.amount || 0) * 0.3) - lPaid)),
+                                fmt(eng.baseBalance),
                                 loan.status === "Overdue" ? T.danger : T.txt,
                               ],
                               [
-                                "Interest+",
-                                fmt(eng.interestAccrued),
-                                eng.interestAccrued > 0 ? T.warn : T.muted,
-                              ],
-                              [
                                 "Penalty",
-                                fmt(eng.penaltyAccrued),
-                                eng.penaltyAccrued > 0 ? T.danger : T.muted,
+                                fmt(eng.penalty),
+                                eng.penalty > 0 ? T.danger : T.muted,
                               ],
                               [
                                 "Total Due", 
-                                fmt(Math.max(0, (loan.amount || 0) + Math.round((loan.amount || 0) * 0.3) + eng.interestAccrued + eng.penaltyAccrued - lPaid)), 
+                                fmt(eng.totalAmountDue), 
                                 T.accent
                               ],
                               [
@@ -11646,7 +11710,10 @@ export const fromSupabaseLoan = (r) => ({
   repaymentType: r.repayment_type,
   officer: r.officer,
   risk: r.risk,
-  disbursed: r.disbursed,
+  disbursed: r.disbursed_at || r.disbursed,
+  // createdAt is the Supabase auto-column — used as a fallback date when
+  // disbursed_at is NULL, so calculateLoanStatus can still age the loan correctly.
+  createdAt: r.created_at || null,
   mpesa: r.mpesa,
   phone: r.phone,
   daysOverdue: r.days_overdue || 0,
@@ -11832,6 +11899,19 @@ export const sbInsert = (table, row) => {
     .catch((e) => _sbErr("import", "sbInsert", e.message));
 };
 
+export const sbAuditInsert = async (row) => {
+  try {
+    const { supabase, DEMO_MODE } = await import("@/config/supabaseClient");
+    if (DEMO_MODE || !supabase) return;
+    const meta = await buildAuditMeta();
+    const mergedRow = { ...row, ...meta };
+    const { error } = await supabase.from("audit_log").insert([mergedRow]);
+    if (error) _sbErr("insert", "audit_log", error.message);
+  } catch (e) {
+    _sbErr("import", "sbAuditInsert", e.message);
+  }
+};
+
 // -- Security Configuration ------------------------------------------
 export const getSecConfig = () => {
   const defaults = {
@@ -11866,6 +11946,7 @@ export const ADMIN_NAV = [
   { id: "leads", l: "Leads", i: "🎯" },
   { id: "collections", l: "Collections", i: "📞" },
   { id: "payments", l: "Payments", i: "💳" },
+  { id: "paymentshub", l: "Payments Hub", i: "🏦" }, // MODIFIED: Added Payments Hub
   { id: "workers", l: "Team", i: "👷" },
   { id: "securitysettings", l: "Security Settings", i: "🛡️" },
   { id: "database", l: "Database", i: "🗄️" },

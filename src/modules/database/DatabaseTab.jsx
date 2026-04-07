@@ -121,6 +121,78 @@ const DatabaseTab = ({allState,setLoans,setCustomers,setPayments,setWorkers,setL
     });
   };
 
+  const doSyncStatuses = async () => {
+    const { loans, payments } = allStateRef.current;
+    if (!loans.length) return;
+    
+    setRestoreStatus('warn:⏳ Auditing loan statuses...');
+    setUploadProgress(10);
+    
+    // 1. Group payments by loanId for fast lookup
+    const paidMap = payments.reduce((acc, p) => {
+      if (p.loanId) acc[p.loanId] = (acc[p.loanId] || 0) + p.amount;
+      return acc;
+    }, {});
+    
+    const updates = [];
+    loans.forEach(l => {
+      const e = calculateLoanStatus(l, null, paidMap[l.id] || 0);
+      const officialStatus = e.isSettled ? 'Settled' : e.isWrittenOff ? 'Written off' : (e.overdueDays > 0 ? 'Overdue' : 'Active');
+      const hasStatusChange = l.status !== officialStatus;
+      const hasDaysChange = l.daysOverdue !== e.overdueDays;
+      
+      if (hasStatusChange || hasDaysChange) {
+        updates.push({ ...l, status: officialStatus, daysOverdue: e.overdueDays });
+      }
+    });
+
+    if (updates.length === 0) {
+      setRestoreStatus('ok:✅ All loan statuses are already synchronized.');
+      setUploadProgress(100);
+      showToast('All statuses synchronized', 'ok');
+      return;
+    }
+
+    setRestoreStatus(`warn:🔄 Updating ${updates.length} loans in database...`);
+    setUploadProgress(40);
+
+    try {
+      const { supabase, DEMO_MODE } = await import('@/config/supabaseClient');
+      if (DEMO_MODE || !supabase) {
+        // Sync locally only in demo mode
+        setLoans(ls => ls.map(l => {
+          const up = updates.find(u => u.id === l.id);
+          return up ? { ...l, status: up.status } : l;
+        }));
+      } else {
+        // Chunk updates to avoid payload limits
+        const chunkSize = 100;
+        for (let i = 0; i < updates.length; i += chunkSize) {
+          const batch = updates.slice(i, i + chunkSize);
+          const { error } = await supabase.from('loans').upsert(batch.map(toSupabaseLoan), { onConflict: 'id' });
+          if (error) throw error;
+          setUploadProgress(40 + Math.round((i / updates.length) * 50));
+        }
+        
+        // Update local state
+        setLoans(ls => ls.map(l => {
+          const up = updates.find(u => u.id === l.id);
+          return up ? { ...l, status: up.status } : l;
+        }));
+      }
+
+      setRestoreStatus(`ok:✅ Successfully synchronized ${updates.length} loan statuses.`);
+      setUploadProgress(100);
+      addAuditRef.current('FINANCIAL SYNC', 'ALL', `Updated ${updates.length} loan statuses (Settled/Written off)`);
+      showToast(`Updated ${updates.length} loans`, 'ok');
+      SFX.upload();
+    } catch (e) {
+      _sbErr('sync', 'loans', e.message);
+      setRestoreStatus(`error:❌ Synchronization failed: ${e.message}`);
+      setUploadProgress(0);
+    }
+  };
+
   const doConfirmRestore = () => {
     if(!restorePreview) return;
     const {restoredCustomers,restoredLoans,restoredPayments,restoredLeads,restoredWorkers,restoredAudit,fileName}=restorePreview;
@@ -235,6 +307,22 @@ const DatabaseTab = ({allState,setLoans,setCustomers,setPayments,setWorkers,setL
         </div>
       </div>
       <div style={{marginBottom:16}}/>
+
+      {/* Financial Sync Tool */}
+      <Card style={{marginBottom:12, border:`1px solid ${T.accent}38`}}>
+        <CH title='🔍 Financial Integrity & Synchronization' sub='Audit and correct loan statuses across the entire database'/>
+        <div style={{padding:'16px 18px'}}>
+          <div style={{color:T.dim,fontSize:13,marginBottom:14,lineHeight:1.6}}>
+            This tool audits all loans against the latest financial engine rules. It will:
+            <ul style={{marginLeft:20, marginTop:8}}>
+              <li>Mark overpaid loans as <b>Settled</b>.</li>
+              <li>Correct "Settled" loans that still have a balance back to <b>Active</b> or <b>Overdue</b>.</li>
+              <li>Apply the <b>90+1 day rule</b>: Any loan past 91 days overdue with a balance will be marked as <b>Written off</b>.</li>
+            </ul>
+          </div>
+          <Btn onClick={doSyncStatuses}>🔍 Audit & Synchronize Statuses Now</Btn>
+        </div>
+      </Card>
 
       {/* Download backup */}
       <Card style={{marginBottom:12}}>

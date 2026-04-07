@@ -11,6 +11,7 @@ import DatabaseTab from "@/modules/database/DatabaseTab";
 import SecuritySettingsTab from "@/modules/security/SecuritySettingsTab";
 import ReportsTab from "@/modules/reports/ReportsTab";
 import AuditTrailTab from "@/modules/audit/AuditTrailTab";
+import PaymentsHub from "@/pages/PaymentsHub"; // MODIFIED: Added Payments Hub
 
 import { useState, useMemo, useEffect, useLayoutEffect, useRef, useCallback, memo } from "react";
 import { _hashPw, _checkPw, SEED_WORKERS, SEED_CUSTOMERS, SEED_LOANS, SEED_PAYMENTS, SEED_LEADS, SEED_INTERACTIONS, SEED_AUDIT } from "@/data/seedData";
@@ -68,6 +69,7 @@ import {
   CustomerDetail,
   sbWrite,
   sbInsert,
+  sbAuditInsert,
   sbDelete,
   fromSupabaseLoan,
   toSupabaseLoan,
@@ -148,6 +150,7 @@ export {
   CustomerDetail,
   sbWrite,
   sbInsert,
+  sbAuditInsert,
   sbDelete,
   fromSupabaseLoan,
   toSupabaseLoan,
@@ -171,8 +174,11 @@ export {
   ADMIN_NAV,
 };
 
+import { useSearchParams } from "react-router-dom"; // MODIFIED: Support parameterized redirects
+
 const AdminPanel = ({onLogout,loans,setLoans,customers,setCustomers,workers,setWorkers,payments,setPayments,leads,setLeads,interactions,setInteractions,auditLog,setAuditLog,onOpenCustomerProfile}) => {
   const [screen,setScreen]=useState('dashboard');
+  const [searchParams, setSearchParams] = useSearchParams(); // MODIFIED
   const [screenHistory,setScreenHistory]=useState([]);
   const [sb,setSb]=useState(false);
   const [showReminders,setShowReminders]=useState(false);
@@ -182,20 +188,36 @@ const AdminPanel = ({onLogout,loans,setLoans,customers,setCustomers,workers,setW
     try{ scrollRef.current?.scrollTo({top:0,behavior:'instant'}); }catch(e){}
     try{ window.scrollTo({top:0,behavior:'instant'}); }catch(e){}
   };
-  const navTo=(s)=>{ setScreenHistory(h=>[...h.slice(-9),screen]); setScreen(s); setSb(false); scrollTop(); setTimeout(scrollTop,50); };
+  const navTo=(s, params)=>{ 
+    setScreenHistory(h=>[...h.slice(-9),screen]); 
+    setScreen(s); 
+    if (params) setSearchParams(params); // MODIFIED: Apply params to URL
+    setSb(false); 
+    scrollTop(); 
+    setTimeout(scrollTop,50); 
+  };
   const goBack=()=>{ if(screenHistory.length===0) return; const prev=screenHistory[screenHistory.length-1]; setScreenHistory(h=>h.slice(0,-1)); setScreen(prev); setTimeout(scrollTop,30); };
+
+  // MODIFIED: Sync screen from URL on mount (Fixes refresh desync)
+  useEffect(() => {
+    const tab = searchParams.get('tab');
+    if (tab && ['disbursements', 'registration-fee', 'paybill', 'audit'].includes(tab)) {
+      setScreen('paymentshub');
+    }
+  }, []); // Only on mount
+
   const {toasts,show:showToast}=useToast();
   const {reminders,add:addReminder,done:doneReminder,remove:removeReminder,update:updateReminder,firing:firingReminder,dismissFiring}=useReminders();
   const addAudit = useCallback((action, target, detail = '') => {
     const entry = { ts: ts(), user: 'admin', action, target, detail };
     setAuditLog(l => [entry, ...l].slice(0, 500));
-    sbInsert('audit_log', {
+    sbAuditInsert({
       ts: new Date().toISOString(),
       user_name: entry.user,
       action: entry.action,
       target_id: String(entry.target),
       detail: entry.detail
-    });
+    }).catch(console.error);
   }, [setAuditLog]);
 
   const unalloc=useMemo(()=>payments.filter(p=>p.status==='Unallocated').length,[payments]);
@@ -227,7 +249,7 @@ const AdminPanel = ({onLogout,loans,setLoans,customers,setCustomers,workers,setW
       const n = new Date();
       setLoans((ls) =>
         ls.map((l) => {
-          if (!["Active", "Overdue"].includes(l.status) || !l.disbursed)
+          if (!["Active", "Overdue", "Frozen"].includes(l.status) || !l.disbursed)
             return l;
           const disbDate = new Date(l.disbursed);
           const diffDays = Math.floor((n - disbDate) / (1000 * 60 * 60 * 24));
@@ -236,27 +258,29 @@ const AdminPanel = ({onLogout,loans,setLoans,customers,setCustomers,workers,setW
 
           if (l.status === "Active") {
             if (diffDays > grace && l.balance > 0) {
-              const upd = { ...l, status: "Overdue", daysOverdue: od };
+              const targetStatus = od > FREEZE_AFTER ? "Frozen" : "Overdue";
+              const upd = { ...l, status: targetStatus, daysOverdue: od };
               sbWrite("loans", toSupabaseLoan(upd));
               return upd;
             }
             return l;
           }
-          if (l.status === "Overdue") {
-            // Automatic write-off if 91+ days overdue (90+1)
+          if (l.status === "Overdue" || l.status === "Frozen") {
+            // Automatic write-off if 121+ days since disbursement (91+ days overdue)
             if (od >= 91) {
               const upd = { ...l, status: "Written off", daysOverdue: od };
               sbWrite("loans", toSupabaseLoan(upd));
               addAudit(
                 "Auto Write-Off",
                 l.id,
-                `Balance: ${fmt(l.balance)} (Automated after 91d overdue)`
+                `Amount: ${fmt(l.amount)} (Automated after ${diffDays}d total age / 91d overdue)`
               );
               return upd;
             }
 
-            if (od !== l.daysOverdue) {
-              const upd = { ...l, daysOverdue: od };
+            const targetStatus = od > FREEZE_AFTER ? "Frozen" : "Overdue";
+            if (od !== l.daysOverdue || l.status !== targetStatus) {
+              const upd = { ...l, status: targetStatus, daysOverdue: od };
               sbWrite("loans", toSupabaseLoan(upd));
               return upd;
             }
@@ -292,14 +316,15 @@ const AdminPanel = ({onLogout,loans,setLoans,customers,setCustomers,workers,setW
     calendar:   ()=><DueLoansCalendar loans={loans} payments={payments} workers={workers} workerContext={{role:'admin',name:'Admin'}} onOpenCustomerProfile={onOpenCustomerProfile} />,
     loans:      ()=><LoansTab loans={loans} setLoans={setLoans} customers={customers} setCustomers={setCustomers} payments={payments} setPayments={setPayments} interactions={interactions} setInteractions={setInteractions} workers={workers} addAudit={addAudit} showToast={showToast} onOpenCustomerProfile={onOpenCustomerProfile}/>,
     customers:  ()=><CustomersTab customers={customers} setCustomers={setCustomers} workers={workers} loans={loans} setLoans={setLoans} payments={payments} setPayments={setPayments} interactions={interactions} setInteractions={setInteractions} addAudit={addAudit} showToast={showToast} onOpenCustomerProfile={onOpenCustomerProfile}/>,
-    leads:      ()=><LeadsTab leads={leads} setLeads={setLeads} workers={workers} customers={customers} setCustomers={setCustomers} loans={loans} addAudit={addAudit} showToast={showToast} onOpenCustomerProfile={onOpenCustomerProfile}/>,
+    leads:      ()=><LeadsTab leads={leads} setLeads={setLeads} workers={workers} customers={customers} setCustomers={setCustomers} loans={loans} addAudit={addAudit} showToast={showToast} onOpenCustomerProfile={onOpenCustomerProfile} onNav={navTo}/>, // MODIFIED: Added onNav
     collections:()=><CollectionsTab loans={loans} setLoans={setLoans} customers={customers} setCustomers={setCustomers} payments={payments} setPayments={setPayments} interactions={interactions} setInteractions={setInteractions} workers={workers} addAudit={addAudit} scrollTop={scrollTop} currentUser='Admin' onOpenCustomerProfile={onOpenCustomerProfile}/>,
     payments:   ()=><PaymentsTab payments={payments} setPayments={setPayments} loans={loans} setLoans={setLoans} customers={customers} setCustomers={setCustomers} interactions={interactions} setInteractions={setInteractions} workers={workers} addAudit={addAudit} showToast={showToast} onOpenCustomerProfile={onOpenCustomerProfile}/>,
     workers:    ()=><WorkersTab workers={workers} setWorkers={setWorkers} loans={loans} setLoans={setLoans} payments={payments} customers={customers} setCustomers={setCustomers} leads={leads} setLeads={setLeads} interactions={interactions} setInteractions={setInteractions} allState={allState} addAudit={addAudit} showToast={showToast} onOpenCustomerProfile={onOpenCustomerProfile}/>,
     securitysettings: ()=><SecuritySettingsTab auditLog={auditLog} addAudit={addAudit} showToast={showToast}/>,
     database:   ()=><DatabaseTab allState={allState} setLoans={setLoans} setCustomers={setCustomers} setPayments={setPayments} setWorkers={setWorkers} setLeads={setLeads} setInteractions={setInteractions} setAuditLog={setAuditLog} addAudit={addAudit} showToast={showToast}/>,
     reports:    ()=><ReportsTab loans={loans} customers={customers} payments={payments} workers={workers} auditLog={auditLog} showToast={showToast} addAudit={addAudit}/>,
-    audit:      ()=><AuditTrailTab allState={allState} />,
+    audit:      ()=><AuditTrailTab allState={allState} setAuditLog={setAuditLog} />,
+    paymentshub: ()=><PaymentsHub customers={customers} loans={loans} payments={payments} addAudit={addAudit} showToast={showToast} />, // MODIFIED: Added Payments Hub
   };
 
   // FIX — Bug 1 (Form focus / remounting): S contains plain arrow functions, NOT React
@@ -393,13 +418,13 @@ const WorkerPortal = ({workers,setWorkers,loans,setLoans,customers,setCustomers,
   const addAudit=(action,target,detail='')=>{
     const entry={ts:ts(),user:curr?.name||curr?.email||'Worker',action,target,detail};
     setAuditLog(l=>[entry,...l].slice(0,500));
-    sbInsert('audit_log', {
+    sbAuditInsert({
       ts: new Date().toISOString(),
       user_name: entry.user,
       action: entry.action,
       target_id: String(entry.target),
       detail: entry.detail
-    });
+    }).catch(console.error);
   };
 
   const login=()=>{
@@ -1007,7 +1032,7 @@ export default function App() {
         else console.error('[load leads]', ldR.error.message);
         if (!iR.error) setInteractions(iR.data?.length ? iR.data.map(fromSupabaseInteraction) : []);
         else console.error('[load interactions]', iR.error.message);
-        if (!aR.error && aR.data?.length) setAuditLog(aR.data.map(r => ({ ts: r.ts, user: r.user_name || 'system', action: r.action, target: r.target_id, detail: r.detail })));
+        if (!aR.error && aR.data?.length) setAuditLog(aR.data.map(r => ({ ts: r.ts, user: r.user_name || 'system', action: r.action, target: r.target_id, detail: r.detail, device_type: r.device_type, browser: r.browser, os: r.os, ip_address: r.ip_address, country: r.country, city: r.city })));
         else if (aR.error) console.error('[load audit_log]', aR.error.message);
       }).catch(err => console.error('[lazy load fallback]', err.message));
     } catch (e) {
@@ -1048,13 +1073,13 @@ export default function App() {
         // This restores customers/loans/payments that are hidden when unauthenticated.
         loadAllData();
         const currTs = new Date().toISOString();
-        sbInsert('audit_log', {
+        sbAuditInsert({
           ts: currTs,
           user_name: email.trim(),
           action: 'Admin Login',
           target_id: 'System',
           detail: 'Login successful via Admin Portal'
-        });
+        }).catch(console.error);
         setAuditLog(l => [{ ts: ts(), user: email.trim(), action: 'Admin Login', target: 'System', detail: 'Login successful via Admin Portal' }, ...l].slice(0, 500));
         supabase.from('workers').select('role').eq('email', email.trim()).single()
           .then(({data,error})=>{
@@ -1092,13 +1117,13 @@ export default function App() {
           addAudit={(action, target, detail) => {
             const entry = { ts: ts(), user: 'admin', action, target, detail };
             setAuditLog(l => [entry, ...l].slice(0, 500));
-            sbInsert('audit_log', {
+            sbAuditInsert({
               ts: new Date().toISOString(),
               user_name: entry.user,
               action: entry.action,
               target_id: String(entry.target),
               detail: entry.detail
-            });
+            }).catch(console.error);
           }}
         />
 

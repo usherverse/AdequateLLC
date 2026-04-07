@@ -15,7 +15,7 @@ import { T, SC, RC, SFX, Card, CH, KPI, DT, Btn, Badge, Av, Bar, BackBtn, Refres
 import { useModuleFilter } from '@/hooks/useModuleFilter';
 
 
-const LeadsTab = ({leads,setLeads,workers,customers,setCustomers,loans,addAudit,isWorker,currentWorker,showToast=()=>{}}) => {
+const LeadsTab = ({leads,setLeads,workers,customers,setCustomers,loans,addAudit,isWorker,currentWorker,showToast=()=>{},onNav}) => {
   const [showNew,setShowNew]=useState(false);
   const [conv,setConv]=useState(null);
   const [f,setF]=useState({name:'',phone:'',business:'',location:'',source:'Referral',officer:currentWorker?.name||''});
@@ -32,11 +32,18 @@ const LeadsTab = ({leads,setLeads,workers,customers,setCustomers,loans,addAudit,
       // 2. Direct match by loanId/customerId on the lead itself (if present)
       if (l.loanId || l.loan_id || l.customerId || l.customer_id) return false;
 
-      // 3. Phone match (robust matching: last 9 digits)
-      const lp = (l.phone || '').replace(/\D/g, '').slice(-9);
-      if (lp && lp.length >= 9) {
-        const custByPhone = customers.find(c => (c.phone || '').replace(/\D/g, '').slice(-9) === lp);
+      // 3. Phone match (robust matching: last 9 digits safely)
+      const lp = String(l.phone || '').replace(/\D/g, '').slice(-9);
+      if (lp && lp.length >= 7) {
+        const custByPhone = customers.find(c => String(c.phone || '').replace(/\D/g, '').slice(-9) === lp);
         if (custByPhone && loans.some(loan => loan.customerId === custByPhone.id)) return false;
+      }
+
+      // 4. Name match (fallback for missing phones/fromLead)
+      const lnName = (l.name || '').trim().toLowerCase();
+      if (lnName) {
+        const custByName = customers.find(c => (c.name || '').trim().toLowerCase() === lnName);
+        if (custByName && loans.some(loan => loan.customerId === custByName.id)) return false;
       }
       
       return true;
@@ -116,6 +123,7 @@ const LeadsTab = ({leads,setLeads,workers,customers,setCustomers,loans,addAudit,
     addAudit('Lead Converted',conv.id,`→ Customer ${cust.id}`);
     showToast(`🎉 Lead converted to customer: ${cust.name}`,'ok',4000);SFX.save();
     setConv(null);
+    if(onNav) onNav('paymentshub', { tab: 'registration-fee', customerId: cust.id }); // MODIFIED: Context-aware redirect
   };
 
   const exportCols = [

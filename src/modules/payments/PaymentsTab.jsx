@@ -47,12 +47,14 @@ const PaymentsTab = ({payments,setPayments,loans,setLoans,customers,setCustomers
     const allocUpd={...showA,status:'Allocated',loanId:af.loanId,customerId:loan.customerId,customer:loan.customer,allocatedBy:allocBy,allocatedAt:allocTs,note:af.note};
     setPayments(ps=>ps.map(p=>p.id===showA.id?allocUpd:p));
     sbWrite('payments',toSupabasePayment(allocUpd));
-    const amt=showA.amount;
-    setLoans(ls=>ls.map(l=>{
-      if(l.id!==af.loanId) return l;
-      const newBal = Math.max(l.balance - amt, 0);
-      const newStatus = newBal <= 0 ? 'Settled' : (l.status==='Settled' ? 'Settled' : l.status);
-      return {...l, balance:newBal, status:newStatus};
+    const totalPaid = payments.filter(p => p.loanId === af.loanId).reduce((s, p) => s + p.amount, 0) + amt;
+    const e = calculateLoanStatus(loan, null, totalPaid);
+    
+    setLoans(ls => ls.map(l => {
+      if (l.id !== af.loanId) return l;
+      const newBal = Math.max(l.balance - amt, 0); // Still update balance field for legacy purposes
+      const newStatus = e.isSettled ? 'Settled' : l.status;
+      return { ...l, balance: newBal, status: newStatus };
     }));
     addAudit('Payment Allocated',showA.id,`${fmt(amt)} → ${af.loanId}`);
     showToast(`✅ Payment of ${fmt(amt)} allocated to ${af.loanId}`,'ok');

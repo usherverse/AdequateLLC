@@ -4,7 +4,7 @@ import {
   T, SC, Card, DT, Btn, Search, Pills, Badge, FI, Alert, Dialog, ConfirmDialog, RefreshBtn,
   LoanModal, LoanForm, fmt, now, uid, ts, generateLoanAgreementHTML, generateAssetListHTML, downloadLoanDoc,
   sbWrite, sbInsert, toSupabaseLoan, toSupabaseCustomer, toSupabasePayment, useContactPopup, useToast,
-  ModuleHeader
+  ModuleHeader, calculateLoanStatus
 } from '@/lms-common';
 import { useModuleFilter } from '@/hooks/useModuleFilter';
 import { initiateB2cDisbursement } from '@/utils/mpesa';
@@ -35,13 +35,24 @@ const LoansTab = ({ loans, setLoans, customers, setCustomers, payments, setPayme
         d.setDate(d.getDate() + 30);
         return d.toISOString().split('T')[0];
       }
-      return l.disbursed;
+      return l.disbursed || l.createdAt;
     },
     searchFields: ['id', 'customer', 'customerId', 'officer', 'mpesa', 'phone', 'repaymentType', 'status'],
     reportId: 'loans',
     showToast,
     addAudit,
-    initialStartDate: '2024-01-01'
+    initialStartDate: '2024-01-01',
+    customFilter: (l, t) => {
+      if (t === 'All') return true;
+      const paid = payments.filter(p => p.loanId === l.id).reduce((s, p) => s + p.amount, 0);
+      const e = calculateLoanStatus(l, null, paid);
+      // If the selected tab is a financial state, use the engine's derived status
+      if (['Active', 'Overdue', 'Settled', 'Written off'].includes(t)) {
+        return e.badgeStatus === t;
+      }
+      // Otherwise, fallback to the workflow status stored in the DB (for 'Approved', etc.)
+      return l.status === t;
+    },
   });
 
   // Check if customer has paid registration fee
@@ -87,10 +98,22 @@ const LoansTab = ({ loans, setLoans, customers, setCustomers, payments, setPayme
   };
 
   const doRecordPay = () => {
-    const amt = Math.floor(Number(payF.amount));
-    if (!amt || amt < 1) { showToast('⚠ Enter a valid payment amount (minimum KES 1)', 'warn'); return; }
-    if (amt > (payLoan.balance || 0)) { showToast(`⚠ Payment of ${fmt(amt)} exceeds outstanding balance of ${fmt(payLoan.balance)}. Please enter a correct amount.`, 'warn'); return; }
-    const newBal = Math.max((payLoan.balance || 0) - amt, 0);
+    const paid = payments
+      .filter((p) => p.loanId === payLoan.id && p.status === "Allocated")
+      .reduce((s, p) => s + p.amount, 0);
+    const e = calculateLoanStatus(payLoan, null, paid);
+    const currentBalance = e.totalAmountDue;
+
+    if (amt > currentBalance) {
+      showToast(
+        `⚠ Payment of ${fmt(
+          amt,
+        )} exceeds outstanding balance of ${fmt(currentBalance)}. Please enter a correct amount.`,
+        "warn",
+      );
+      return;
+    }
+    const newBal = Math.max(currentBalance - amt, 0);
     const newStatus = newBal <= 0 ? 'Settled' : payLoan.status;
     const payId = uid('PAY');
     const payEntry = { id: payId, date: payF.date || now(), amount: amt, mpesa: payF.mpesa || 'manual', note: '', isRegFee: !!payF.isRegFee };
@@ -116,13 +139,31 @@ const LoansTab = ({ loans, setLoans, customers, setCustomers, payments, setPayme
 
   const doReject = l => { const upd = { ...l, status: 'Rejected', rejectedAt: now() }; setLoans(ls => ls.map(x => x.id === l.id ? upd : x)); sbWrite('loans', toSupabaseLoan(upd)); addAudit('Loan Rejected', l.id, `Amount: ${fmt(l.amount)}`); showToast(`Loan ${l.id} rejected`, 'warn'); setSel(null); };
 
-  const pendingWorker = useMemo(() => loans.filter(l => l.status === 'worker-pending' || l.status === 'Application submitted'), [loans]);
+  const pendingWorker = useMemo(
+    () =>
+      loans.filter(
+        (l) =>
+          l.status === "worker-pending" || l.status === "Application submitted",
+      ),
+    [loans],
+  );
   const stats = useMemo(() => {
+    const paidMap = payments.reduce((acc, p) => {
+      if (p.loanId && p.status === "Allocated")
+        acc[p.loanId] = (acc[p.loanId] || 0) + p.amount;
+      return acc;
+    }, {});
     const total = loans.length;
-    const overdue = loans.filter(l => l.status === 'Overdue').length;
-    const approved = loans.filter(l => l.status === 'Approved').length;
+    let overdue = 0;
+    let approved = 0;
+    loans.forEach((l) => {
+      const p = paidMap[l.id] || 0;
+      const e = calculateLoanStatus(l, null, p);
+      if (e.overdueDays > 0 && !e.isSettled && !e.isWrittenOff) overdue++;
+      if (l.status === "Approved") approved++;
+    });
     return `${total} total · ${overdue} overdue · ${approved} pending`;
-  }, [loans]);
+  }, [loans, payments]);
 
   const exportCols = [
     { k: 'id', l: 'ID' },
@@ -209,7 +250,87 @@ const LoansTab = ({ loans, setLoans, customers, setCustomers, payments, setPayme
       </div>
       <Card>
         <DT
-          cols={[{ k: 'id', l: 'ID', r: v => <span style={{ color: T.accent, fontFamily: T.mono, fontWeight: 700, fontSize: 12 }}>{v}</span> }, { k: 'customer', l: 'Customer', r: (v, r) => { const c = customers.find(x => x.name === v); return <span onClick={e => { e.stopPropagation(); if (c) { setSelCust(c); } else { openContact(v, r.phone, e); } }} style={{ color: T.accent, cursor: 'pointer', fontWeight: 600, borderBottom: `1px dashed ${T.accent}50` }}>{v}</span>; } }, { k: 'amount', l: 'Principal', r: v => <span style={{ fontFamily: T.mono }}>{fmt(v)}</span> }, { k: 'balance', l: 'Balance', r: (v, r) => <span style={{ color: r.status === 'Overdue' ? T.danger : T.txt, fontFamily: T.mono }}>{fmt(v)}</span> }, { k: 'status', l: 'Status', r: v => <Badge color={SC[v] || T.muted}>{v}</Badge> }, { k: 'repaymentType', l: 'Type' }, { k: 'disbursed', l: 'Disbursed', r: v => <span style={{ fontFamily: T.mono }}>{v || '—'}</span> }, { k: 'disbursed', l: 'Due', r: (v, r) => { if (!v) return <span style={{ color: T.muted }}>—</span>; const d = new Date(v); d.setDate(d.getDate() + 30); return <span style={{ color: r.daysOverdue > 0 ? T.danger : T.txt, fontFamily: T.mono, fontWeight: r.daysOverdue > 0 ? 700 : 400 }}>{d.toISOString().split('T')[0]}</span>; } }]}
+          cols={[
+            { k: 'id', l: 'ID', r: v => <span style={{ color: T.accent, fontFamily: T.mono, fontWeight: 700, fontSize: 12 }}>{v}</span> }, 
+            { k: 'customer', l: 'Customer', r: (v, r) => { const c = customers.find(x => x.name === v); return <span onClick={e => { e.stopPropagation(); if (c) { setSelCust(c); } else { openContact(v, r.phone, e); } }} style={{ color: T.accent, cursor: 'pointer', fontWeight: 600, borderBottom: `1px dashed ${T.accent}50` }}>{v}</span>; } }, 
+            { k: 'amount', l: 'Principal', r: v => <span style={{ fontFamily: T.mono }}>{fmt(v)}</span> }, 
+            { k: 'id', l: 'Total Due', r: (_, r) => {
+              const paid = payments.filter(p => p.loanId === r.id).reduce((s, p) => s + p.amount, 0);
+              const e = calculateLoanStatus(r, null, paid);
+              return <span style={{ color: T.accent, fontFamily: T.mono }}>{fmt(e.totalPayable)}</span>;
+            }},
+            { k: 'id', l: 'Remaining', r: (_, r) => {
+              const paid = payments.filter(p => p.loanId === r.id).reduce((s, p) => s + p.amount, 0);
+              const e = calculateLoanStatus(r, null, paid);
+              return <span style={{ color: e.totalAmountDue > 0 ? (e.isFrozen?T.muted:T.danger) : T.ok, fontFamily: T.mono, fontWeight: 700 }}>{fmt(e.totalAmountDue)}</span>;
+            }}, 
+            {
+              k: "status",
+              l: "Status",
+              r: (v, r) => {
+                const paid = payments
+                  .filter((p) => p.loanId === r.id && p.status === "Allocated")
+                  .reduce((s, p) => s + p.amount, 0);
+                const e = calculateLoanStatus(r, null, paid);
+                return (
+                  <Badge color={SC[e.badgeStatus] || T.muted}>{e.status}</Badge>
+                );
+              },
+            },
+            { k: "repaymentType", l: "Type" },
+            {
+              k: "disbursed",
+              l: "Disbursed",
+              r: (v) => <span style={{ fontFamily: T.mono }}>{v || "—"}</span>,
+            },
+            {
+              k: "disbursed",
+              l: "Due",
+              r: (v, r) => {
+                if (!v) return <span style={{ color: T.muted }}>—</span>;
+                const d = new Date(v);
+                d.setDate(d.getDate() + 30);
+                const paid = payments
+                  .filter((p) => p.loanId === r.id && p.status === "Allocated")
+                  .reduce((s, p) => s + p.amount, 0);
+                const e = calculateLoanStatus(r, null, paid);
+                const isOverdue = e.overdueDays > 0;
+                return (
+                  <span
+                    style={{
+                      color: isOverdue ? T.danger : T.txt,
+                      fontFamily: T.mono,
+                      fontWeight: isOverdue ? 700 : 400,
+                    }}
+                  >
+                    {d.toISOString().split("T")[0]}
+                  </span>
+                );
+              },
+            },
+            {
+              k: "disbursed",
+              l: "Days",
+              r: (v, r) => {
+                if (!v) return <span style={{ color: T.muted }}>—</span>;
+                const paid = payments
+                  .filter((p) => p.loanId === r.id && p.status === "Allocated")
+                  .reduce((s, p) => s + p.amount, 0);
+                const e = calculateLoanStatus(r, null, paid);
+                return (
+                  <span
+                    style={{
+                      color: e.totalDays > 120 ? T.danger : T.txt,
+                      fontWeight: 800,
+                      fontFamily: "monospace",
+                    }}
+                  >
+                    {e.totalDays}d
+                  </span>
+                );
+              },
+            },
+          ]}
           rows={rows} onRow={setSel}
         />
       </Card>
@@ -275,7 +396,30 @@ const LoansTab = ({ loans, setLoans, customers, setCustomers, payments, setPayme
 
       {showApp && (
         <Dialog title='New Loan Application' onClose={() => setShowApp(false)} width={560}>
-          <LoanForm customers={customers} payments={payments} loans={loans} onSave={l => { setLoans(ls => [l, ...ls]); sbInsert('loans', toSupabaseLoan(l)); const updCust = customers.find(c => c.id === l.customerId); if (updCust) { const nc = { ...updCust, loans: (updCust.loans || 0) + 1 }; setCustomers(cs => cs.map(c => c.id === l.customerId ? nc : c)); sbWrite('customers', toSupabaseCustomer(nc)); } else { setCustomers(cs => cs.map(c => c.id === l.customerId ? { ...c, loans: (c.loans || 0) + 1 } : c)); } addAudit('Loan Application', l.id, `${fmt(l.amount)} for ${l.customer}`); setShowApp(false); }} onClose={() => setShowApp(false)} />
+          <LoanForm customers={customers} payments={payments} loans={loans} onSave={async l => { 
+            // MODIFIED: Added Eligibility Gate
+            const cust = customers.find(c => c.id === l.customerId);
+            if (cust && cust.loans === 0) {
+              const hasFee = payments.some(p => p.customerId === cust.id && p.isRegFee);
+              if (!hasFee) {
+                showToast('🛑 Eligibility Denied: Registration fee must be confirmed in the Payments Hub first.', 'danger', 6000);
+                return;
+              }
+            }
+            // Proceed with saving
+            setLoans(ls => [l, ...ls]); 
+            sbInsert('loans', toSupabaseLoan(l)); 
+            const updCust = customers.find(c => c.id === l.customerId); 
+            if (updCust) { 
+              const nc = { ...updCust, loans: (updCust.loans || 0) + 1 }; 
+              setCustomers(cs => cs.map(c => c.id === l.customerId ? nc : c)); 
+              sbWrite('customers', toSupabaseCustomer(nc)); 
+            } else { 
+              setCustomers(cs => cs.map(c => c.id === l.customerId ? { ...c, loans: (c.loans || 0) + 1 } : c)); 
+            } 
+            addAudit('Loan Application', l.id, `${fmt(l.amount)} for ${l.customer}`); 
+            setShowApp(false); 
+          }} onClose={() => setShowApp(false)} />
         </Dialog>
       )}
       {disbLoan && (() => {

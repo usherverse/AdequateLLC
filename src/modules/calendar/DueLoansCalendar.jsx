@@ -1,4 +1,5 @@
 import React, { useState, useMemo } from 'react';
+import { calculateLoanStatus } from '@/lms-common';
 
 // ─── Theme ────────────────────────────────────────────────────────────────────
 const TH = {
@@ -93,31 +94,28 @@ export default function DueLoansCalendar({
   }, [loans, workerContext]);
 
   // ── Build one maturity record per loan ─────────────────────────────────────
-  // Each record carries accurate payment-derived figures so cards never show
-  // the original principal instead of the real remaining balance.
+  // Each record carries accurate figures from calculateLoanStatus engine.
   const maturityRecords = useMemo(() => {
     return baseLoanList.map(loan => {
       const maturity = getLoanMaturityDate(loan);
       if (!maturity) return null;
       const diff    = diffFromToday(maturity, todayStr);
 
-      // Total originally owed = principal + flat 30% interest
-      const totalOwed = Number(loan.amount) + Math.round(Number(loan.amount) * 0.3);
-
-      // Sum all allocated payments recorded against this loan
-      const totalPaid = (payments || [])
+      const paid = (payments || [])
         .filter(p =>
           (p.loanId === loan.id || p.loan_id === loan.id) &&
           (p.status === 'Allocated' || p.status === 'allocated')
         )
         .reduce((s, p) => s + Number(p.amount || 0), 0);
 
-      // Actual remaining balance after all payments
-      const remainingBalance = Math.max(0, totalOwed - totalPaid);
-
-      // Mark settled if the overarching status says so, or if math proves it's 100% paid
-      const settled = isLoanSettled(loan) || remainingBalance <= 0;
-      const sev     = getSeverity(diff, settled);
+      // Use the unified logic to get the real-time financial state
+      const engine = calculateLoanStatus(loan, null, paid);
+      
+      const totalOwed        = engine.totalPayable;
+      const totalPaid        = paid;
+      const remainingBalance = engine.totalAmountDue;
+      const settled          = isLoanSettled(loan) || remainingBalance <= 0;
+      const sev              = getSeverity(diff, settled);
 
       return { loan, maturity, diff, settled, sev, totalOwed, totalPaid, remainingBalance };
     }).filter(Boolean);

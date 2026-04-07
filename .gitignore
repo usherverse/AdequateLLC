@@ -32,6 +32,13 @@ yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
+*.log
+*_output.txt
+
+# Database / PII Protection
+*.sql
+!supabase/migrations/*.sql
+!supabase_schema_v4.sql
 
 # Linters
 eslint-errors.txt
@@ -40,6 +47,7 @@ lint-results*.txt
 # Temporary / Dev scripts
 tmp/
 tmp_*
+test-*.js
 repair.cjs
 update_imports.cjs
 verify_docs.js
@@ -47,3 +55,4 @@ vite.config.js.timestamp-*
 
 # AI/IDE
 .cursor/
+.gemini/
