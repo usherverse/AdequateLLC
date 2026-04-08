@@ -388,12 +388,12 @@ const AdminPanel = ({onLogout,loans,setLoans,customers,setCustomers,workers,setW
             )}
             <RefreshBtn onRefresh={()=>{ scrollTop(); navTo(screen); }}/>
           </div>
-          <div className="topbar-actions" style={{display:'flex',gap:7,alignItems:'center',flexWrap:'wrap'}}>
-            {pendingApprovals>0&&<button onClick={()=>navTo('loans')} style={{background:T.gLo,border:`1px solid ${T.gold}38`,borderRadius:8,padding:'4px 9px',color:T.gold,fontSize:12,fontWeight:700,cursor:'pointer'}}>⏳ {pendingApprovals}</button>}
-            {overdue>0&&<button onClick={()=>navTo('collections')} style={{background:T.dLo,border:`1px solid ${T.danger}38`,borderRadius:8,padding:'4px 9px',color:T.danger,fontSize:12,fontWeight:700,cursor:'pointer'}}>{overdue} Overdue</button>}
-            {unalloc>0&&<button onClick={()=>navTo('payments')} style={{background:T.wLo,border:`1px solid ${T.warn}38`,borderRadius:8,padding:'4px 9px',color:T.warn,fontSize:12,fontWeight:700,cursor:'pointer'}}>{unalloc} Unalloc</button>}
+          <div className="topbar-actions" style={{display:'flex',gap:7,alignItems:'center'}}>
+            {pendingApprovals>0&&<button onClick={()=>navTo('loans')} style={{background:T.gLo,border:`1px solid ${T.gold}38`,borderRadius:12,padding:'4px 10px',color:T.gold,fontSize:11,fontWeight:700,cursor:'pointer'}}>{pendingApprovals}</button>}
+            {overdue>0&&<button onClick={()=>navTo('collections')} style={{background:T.dLo,border:`1px solid ${T.danger}38`,borderRadius:12,padding:'4px 10px',color:T.danger,fontSize:11,fontWeight:700,cursor:'pointer'}}>{overdue} Overdue</button>}
+            {unalloc>0&&<button onClick={()=>navTo('payments')} style={{background:T.wLo,border:`1px solid ${T.warn}38`,borderRadius:12,padding:'4px 10px',color:T.warn,fontSize:11,fontWeight:700,cursor:'pointer'}}>{unalloc} Unalloc</button>}
             
-            <button onClick={toggleTheme} aria-label="Toggle Theme" style={{background:T.card2,border:`1px solid ${T.border}`,color:T.muted,borderRadius:9,padding:'5px 10px',fontSize:14,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',width:36,height:34}}>
+            <button onClick={toggleTheme} className="theme-toggle" aria-label="Toggle Theme" style={{background:T.card2,border:`1px solid ${T.border}`,color:T.muted,borderRadius:9,padding:'5px 10px',fontSize:14,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',width:36,height:34}}>
               {theme === 'dark' ? '🌙' : theme === 'system' ? '🌓' : '☀️'}
             </button>
 

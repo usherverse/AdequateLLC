@@ -375,99 +375,50 @@ export const Styles = () => (
     .refresh-btn{transition:all .15s;display:inline-flex;align-items:center;gap:6px;background:transparent;border:1px solid var(--border);color:var(--dim);border-radius:9px;padding:6px 13px;font-size:13px;font-weight:600;cursor:pointer}
     .refresh-btn:hover{background:var(--a-lo);color:var(--accent);border-color:var(--a-mid)}
     .refresh-btn svg{transition:transform .7s cubic-bezier(.22,1,.36,1)}
-
-    @media(max-width:900px){
-    }
-    @media(max-width:600px){
+    @media(max-width:600px){
       .kpi-row{flex-direction:column!important}
       .kpi-row>*{min-width:0!important;flex:none!important;width:100%!important}
       .hide-mob{display:none!important}
       .mob-full{width:100%!important;min-width:0!important}
       .mob-stack{flex-direction:column!important;align-items:stretch!important}
-      .mob-p{padding:14px!important}
+      .mob-p{padding:12px!important}
       .mob-grid1{grid-template-columns:1fr!important}.mob-grid1>*{grid-column:span 1!important}
-      .admin-content{padding:10px 8px!important}
+      .admin-content{padding:12px 10px!important}
+      
+      /* Clean Status Bar (Top Bar) for Mobile */
+      .topbar-actions {
+        display: flex !important;
+        flex-wrap: nowrap !important;
+        gap: 6px !important;
+        width: auto !important;
+      }
+      .topbar-actions > button {
+        height: 34px !important;
+        padding: 4px 8px !important;
+        font-size: 11px !important;
+        border-radius: 8px !important;
+        white-space: nowrap !important;
+      }
+      .topbar-actions > button.theme-toggle {
+        width: 32px !important;
+      }
+
       /* v1.7.1 mobile table tweaks */
       .dt-shell table,.dt-shell thead th{font-size:11px!important}
       .dt-shell td{padding:8px 8px!important;font-size:12px!important}
       .hide-sm{display:none!important}
 
-      .lead-pipeline{flex-direction:column!important;overflow-x:hidden!important;overflow-y:auto!important}
-      .lead-pipeline>div{min-width:0!important;width:100%!important}
+      /* Card & Element Spacing */
+      .sfx-card { padding: 14px 16px !important; }
 
-      /* Mobile form fixes — ensure all text/labels are visible */
-      label{color:var(--muted)!important;font-size:11px!important}
-      input,select,textarea{
-        color:var(--txt)!important;
-        background:var(--card)!important;
-        border-color:var(--border)!important;
-        font-size:16px!important;
-        -webkit-text-fill-color:var(--txt)!important;
-        opacity:1!important;
-      }
-      input::placeholder{color:var(--muted)!important;-webkit-text-fill-color:var(--muted)!important}
-      input:focus,select:focus,textarea:focus{border-color:var(--accent)!important;outline:none!important}
-      /* dialog-backdrop already uses flex-start */
-      /* Ensure grid form fields go full width on mobile */
-      [style*="gridTemplateColumns"]{grid-template-columns:1fr!important}
-      [style*="grid-template-columns"]{grid-template-columns:1fr!important}
-      [style*="gridColumn: span 2"],[style*="gridColumn:span 2"]{grid-column:span 1!important}
-
-      /* ── REPAYMENTS COMMAND CENTER MOBILE ── */
-      .topbar-actions {
-        display: grid !important;
-        grid-template-columns: 1fr 1fr !important;
-        width: 100%;
-        gap: 8px !important;
-      }
-      .topbar-actions > button {
-        height: 44px;
-        display: flex;
-        justify-content: center;
-        align-items: center;
-        font-size: 13px !important;
-      }
-      .rcc-header {
-        flex-direction: column !important;
-        gap: 12px;
-      }
+      /* Repayments Hub / Dashboard Grid fixes */
       .rcc-summary-bar {
-        grid-template-columns: repeat(4, 1fr) !important;
+        grid-template-columns: 1fr 1fr !important;
         gap: 8px !important;
       }
-      .rcc-summary-bar > div {
-        padding: 10px !important;
-        text-align: center;
-      }
-      .rcc-summary-bar > div > div:first-child {
-        font-size: 9px !important;
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
-      }
-      .rcc-summary-bar > div > div:nth-child(2) {
-        font-size: 14px !important;
-      }
-      /* Fifth button drops down and spans full width */
-      .rcc-summary-bar > div:nth-child(5) {
-        grid-column: 1 / -1;
-      }
-      .rcc-calendar-grid {
-        gap: 2px !important;
-      }
-      .rcc-calendar-grid > div {
-        font-size: 10px !important;
-      }
-      .rcc-side-panel {
-        position: fixed !important;
-        top: 0 !important;
-        left: 0 !important;
-        width: 100% !important;
-        height: 100% !important;
-        max-height: 100% !important;
-        z-index: 9999 !important;
-        border-radius: 0 !important;
-        border: none !important;
+      .rcc-calendar-grid > div { font-size: 10px !important; }
+    }
+    border: none !important;
       }
 
     }
