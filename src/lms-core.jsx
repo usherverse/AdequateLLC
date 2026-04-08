@@ -962,32 +962,23 @@ export default function App() {
       const hasWarmPayments = !!(cache?.payments?.length);
       const anyErrorFast = !!(lFast.error || cFast.error || pFast.error);
 
-      const loansToSet = (!lFast.error && nextLoansFast.length > 0) ? nextLoansFast
-        : (hasWarmLoans ? null : nextLoansFast); // null = skip
-      const customersToSet = (!cFast.error && nextCustomersFast.length > 0) ? nextCustomersFast
-        : (hasWarmCustomers ? null : nextCustomersFast);
-      const paymentsToSet = (!pFast.error && nextPaymentsFast.length > 0) ? nextPaymentsFast
-        : (hasWarmPayments ? null : nextPaymentsFast);
+      // Guard state against connectivity wipes: Only update if fetch succeeded and returned data.
+      if (!lFast.error && nextLoansFast.length > 0) setLoans(nextLoansFast);
+      if (!cFast.error && nextCustomersFast.length > 0) setCustomers(nextCustomersFast);
+      if (!pFast.error && nextPaymentsFast.length > 0) setPayments(nextPaymentsFast);
 
-      if (loansToSet !== null) setLoans(loansToSet);
-      if (customersToSet !== null) setCustomers(customersToSet);
-      if (paymentsToSet !== null) setPayments(paymentsToSet);
-
-      if (!anyErrorFast && (loansToSet?.length || customersToSet?.length || paymentsToSet?.length)) {
+      if (!anyErrorFast && (nextLoansFast.length || nextCustomersFast.length || nextPaymentsFast.length)) {
         writeCache({
-          loans: loansToSet ?? cache?.loans ?? [],
-          customers: customersToSet ?? cache?.customers ?? [],
-          payments: paymentsToSet ?? cache?.payments ?? [],
+          loans: (!lFast.error && nextLoansFast.length) ? nextLoansFast : (cache?.loans || []),
+          customers: (!cFast.error && nextCustomersFast.length) ? nextCustomersFast : (cache?.customers || []),
+          payments: (!pFast.error && nextPaymentsFast.length) ? nextPaymentsFast : (cache?.payments || []),
         });
-      } else if (!anyErrorFast && !(loansToSet || customersToSet || paymentsToSet)) {
-        // All tables returned 0 and cache has data — RLS or network issue, keep cache
-        console.warn('[load] All fast-fetch returned empty; keeping warm cache to avoid data wipe.');
       }
 
       // Backfill missing customers referenced by loans (preserves previous behavior)
       if (!lFast.error && !cFast.error) {
-        const ll = lFast.data?.length ? lFast.data : [];
-        const lc = cFast.data?.length ? cFast.data : [];
+        const ll = lFast.data || [];
+        const lc = cFast.data || [];
         const cids = new Set(lc.map(c => c.id));
         const missing = [];
         ll.forEach(l => {
