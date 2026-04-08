@@ -938,7 +938,11 @@ export default function App() {
 
       const [lFast, cFast, pFast, wR] = await Promise.all([
         supabase.from('loans').select('*').order('created_at', { ascending: false }).range(0, LOANS_FAST - 1),
-        supabase.from('customers').select('*').order('created_at', { ascending: false }).range(0, CUSTOMERS_FAST - 1),
+        // Selective fetch for customers to avoid "statement timeout" on large tables (excludes binary/JSON fields)
+        supabase.from('customers')
+          .select('id,name,phone,id_no,business_name,business_type,business_location,risk,status,assigned_officer,created_at')
+          .order('created_at', { ascending: false })
+          .range(0, CUSTOMERS_FAST - 1),
         supabase.from('payments').select('*').order('date', { ascending: false }).range(0, PAYMENTS_FAST - 1),
         supabase.from('workers').select('*').order('name'),
       ]);
