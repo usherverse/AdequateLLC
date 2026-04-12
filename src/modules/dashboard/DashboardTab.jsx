@@ -27,16 +27,17 @@ const LiveClock = () => {
       border: `1px solid ${T.accent}30`,
       borderRadius: 16,
       padding: '10px 18px',
+      minWidth: 160,
       backdropFilter: 'blur(10px)',
       boxShadow: `0 8px 32px ${T.accent}10`,
       transition: 'all 0.3s ease'
     }}>
       <Clock size={16} color={T.accent} />
       <div style={{ display: 'flex', flexDirection: 'column' }}>
-        <div style={{ color: T.txt, fontSize: 18, fontWeight: 900, fontFamily: T.head, letterSpacing: -0.5, lineHeight: 1 }}>
+        <div style={{ color: T.txt, fontSize: 18, fontWeight: 900, fontFamily: T.mono, letterSpacing: -0.5, lineHeight: 1 }}>
           {time.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
         </div>
-        <div style={{ color: T.accent, fontSize: 9, fontWeight: 900, textTransform: 'uppercase', letterSpacing: 1.2, marginTop: 2, opacity: 0.8 }}>
+        <div style={{ color: T.accent, fontSize: 9, fontWeight: 900, textTransform: 'uppercase', letterSpacing: 1.2, marginTop: 4, opacity: 0.8 }}>
           Real-time System
         </div>
       </div>
@@ -299,14 +300,16 @@ const DashboardTab = ({adminUser,loans,setLoans,customers,setCustomers,payments,
           }}>
             {todayStr}
           </div>
-          <div style={{
-            fontFamily: T.head,
-            color: T.txt,
-            fontSize: 36,
-            fontWeight: 950,
-            letterSpacing: '-0.04em',
-            lineHeight: 1.1
-          }}>
+          <div 
+            className="hero-txt"
+            style={{
+              fontFamily: T.head,
+              color: T.txt,
+              fontSize: 36,
+              fontWeight: 950,
+              letterSpacing: '-0.04em',
+              lineHeight: 1.1
+            }}>
             {(() => {
               const hr = new Date().getHours();
               let greeting = "Good afternoon";

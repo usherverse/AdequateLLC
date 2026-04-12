@@ -556,6 +556,21 @@ export const Styles = () => (
       .mob-grid1{grid-template-columns:1fr!important}.mob-grid1>*{grid-column:span 1!important}
       .admin-content{padding:12px 10px!important}
       
+      /* Typography Adjustments */
+      .hero-txt { font-size: 24px !important; letter-spacing: -0.02em !important; }
+      h1, .h1 { font-size: 22px !important; }
+      h2, .h2 { font-size: 18px !important; }
+      p, div { font-size: 13.5px !important; }
+      
+      /* Layout stability */
+      body, html { 
+        overflow-x: hidden !important; 
+        position: relative; 
+        width: 100%; 
+        touch-action: manipulation; /* disable double tap zoom */
+      }
+      * { max-width: 100vw; word-wrap: break-word; }
+
       /* Clean Status Bar (Top Bar) for Mobile */
       .topbar-actions {
         display: flex !important;
@@ -581,9 +596,22 @@ export const Styles = () => (
 
       /* Card & Element Spacing */
       .sfx-card { padding: 14px 16px !important; }
-
-      /* Card & Element Spacing */
-      .sfx-card { padding: 14px 16px !important; }
+    }
+    
+    .port-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+      gap: 28px;
+    }
+    @media (max-width: 600px) {
+      .port-grid {
+        grid-template-columns: repeat(2, 1fr) !important;
+        gap: 12px !important;
+      }
+      .port-grid > div {
+        transform: scale(0.9);
+        margin: -10px;
+      }
     }
   `}</style>
 );
@@ -6128,13 +6156,7 @@ export const LivePortfolioChart = ({
         </div>
       </div>
       <div style={{ padding: "20px 18px" }}>
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "repeat(auto-fill,minmax(200px,1fr))",
-            gap: 28,
-          }}
-        >
+        <div className="port-grid">
           {charts.map((c, i) => (
             <DonutChart
               key={c.label}
