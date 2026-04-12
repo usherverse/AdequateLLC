@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "dev:ngrok": "concurrently \"npm run dev\" \"npm --prefix server run dev\" \"npx ngrok http 3001\"",
     "build": "vite build",
     "preview": "vite preview",
     "lint": "eslint src --ext .js,.jsx"
@@ -25,6 +26,7 @@
     "eslint-plugin-react": "^7.34.2",
     "eslint-plugin-react-hooks": "^4.6.2",
     "eslint-plugin-react-refresh": "^0.4.7",
-    "vite": "^5.2.13"
+    "vite": "^5.2.13",
+    "concurrently": "^8.2.2"
   }
 }

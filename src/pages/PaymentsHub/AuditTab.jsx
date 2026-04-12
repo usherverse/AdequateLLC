@@ -83,16 +83,16 @@ const AuditTab = () => {
         </Btn>
       </div>
 
-      <div style={{ overflowX: 'auto', border: `1px solid ${T.border}`, borderRadius: 12, background: T.card }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
+      <div style={{ overflowX: 'auto', border: `1px solid ${T.border}`, borderRadius: 12, background: T.card, width: '100%' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', minWidth: 800 }}>
           <thead>
             <tr style={{ background: T.surface, borderBottom: `1px solid ${T.border}` }}>
-              <th style={{ padding: '14px 20px', color: T.muted, fontSize: 11, fontWeight: 800, textTransform: 'uppercase', letterSpacing: 1 }}>Timestamp</th>
-              <th style={{ padding: '14px 20px', color: T.muted, fontSize: 11, fontWeight: 800, textTransform: 'uppercase', letterSpacing: 1 }}>Type</th>
-              <th style={{ padding: '14px 20px', color: T.muted, fontSize: 11, fontWeight: 800, textTransform: 'uppercase', letterSpacing: 1 }}>Customer</th>
-              <th style={{ padding: '14px 20px', color: T.muted, fontSize: 11, fontWeight: 800, textTransform: 'uppercase', letterSpacing: 1 }}>Amount</th>
-              <th style={{ padding: '14px 20px', color: T.muted, fontSize: 11, fontWeight: 800, textTransform: 'uppercase', letterSpacing: 1 }}>Receipt/ID</th>
-              <th style={{ padding: '14px 20px', color: T.muted, fontSize: 11, fontWeight: 800, textTransform: 'uppercase', letterSpacing: 1 }}>Status</th>
+              <th style={{ padding: '14px clamp(12px, 2vw, 20px)', color: T.muted, fontSize: 11, fontWeight: 800, textTransform: 'uppercase', letterSpacing: 1 }}>Timestamp</th>
+              <th style={{ padding: '14px clamp(12px, 2vw, 20px)', color: T.muted, fontSize: 11, fontWeight: 800, textTransform: 'uppercase', letterSpacing: 1 }}>Type</th>
+              <th style={{ padding: '14px clamp(12px, 2vw, 20px)', color: T.muted, fontSize: 11, fontWeight: 800, textTransform: 'uppercase', letterSpacing: 1 }}>Customer</th>
+              <th style={{ padding: '14px clamp(12px, 2vw, 20px)', color: T.muted, fontSize: 11, fontWeight: 800, textTransform: 'uppercase', letterSpacing: 1 }}>Amount</th>
+              <th style={{ padding: '14px clamp(12px, 2vw, 20px)', color: T.muted, fontSize: 11, fontWeight: 800, textTransform: 'uppercase', letterSpacing: 1 }}>Receipt/ID</th>
+              <th style={{ padding: '14px clamp(12px, 2vw, 20px)', color: T.muted, fontSize: 11, fontWeight: 800, textTransform: 'uppercase', letterSpacing: 1 }}>Status</th>
             </tr>
           </thead>
           <tbody>
@@ -103,22 +103,22 @@ const AuditTab = () => {
             ) : (
               txs.map((tx) => (
                 <tr key={tx.id} style={{ borderBottom: `1px solid ${T.border}`, transition: 'background 0.2s' }}>
-                  <td style={{ padding: '16px 20px', fontSize: 12, color: T.muted, fontFamily: T.mono }}>
+                  <td style={{ padding: '16px clamp(12px, 2vw, 20px)', fontSize: 12, color: T.muted, fontFamily: T.mono }}>
                     {new Date(tx.created_at).toLocaleString('en-KE')}
                   </td>
-                  <td style={{ padding: '16px 20px' }}>
-                    <span style={{ fontSize: 10, fontWeight: 800, textTransform: 'uppercase', color: T.dim, background: T.surface, padding: '2px 8px', borderRadius: 6, border: `1px solid ${T.border}` }}>
+                  <td style={{ padding: '16px clamp(12px, 2vw, 20px)' }}>
+                    <span style={{ fontSize: 10, fontWeight: 800, textTransform: 'uppercase', color: T.dim, background: T.surface, padding: '2px 8px', borderRadius: 6, border: `1px solid ${T.border}`, whiteSpace: 'nowrap' }}>
                       {tx.type.replace('_', ' ')}
                     </span>
                   </td>
-                  <td style={{ padding: '16px 20px', fontSize: 14, fontWeight: 700, color: T.txt }}>
+                  <td style={{ padding: '16px clamp(12px, 2vw, 20px)', fontSize: 14, fontWeight: 700, color: T.txt }}>
                     {tx.customers?.name || <span style={{ color: T.muted, fontWeight: 400, opacity: 0.6 }}>Manual Entry</span>}
                   </td>
-                  <td style={{ padding: '16px 20px', fontWeight: 900, color: T.accent }}>{fmt(tx.amount)}</td>
-                  <td style={{ padding: '16px 20px', fontSize: 11, fontFamily: T.mono, color: T.dim }}>
+                  <td style={{ padding: '16px clamp(12px, 2vw, 20px)', fontWeight: 900, color: T.accent }}>{fmt(tx.amount)}</td>
+                  <td style={{ padding: '16px clamp(12px, 2vw, 20px)', fontSize: 11, fontFamily: T.mono, color: T.dim }}>
                     {tx.mpesa_receipt_no || tx.mpesa_transaction_id || '-'}
                   </td>
-                  <td style={{ padding: '16px 20px' }}>
+                  <td style={{ padding: '16px clamp(12px, 2vw, 20px)' }}>
                     <Badge color={statusColors[tx.status] || T.muted}>{tx.status?.toUpperCase()}</Badge>
                   </td>
                 </tr>

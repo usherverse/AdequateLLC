@@ -14,7 +14,8 @@ import {
   CreditCard, LayoutDashboard, Users, UserPlus, 
   Settings, LogOut, Calendar, BarChart3, HelpCircle, 
   Phone, Mail, MapPin, Briefcase, FileText, Check, X,
-  Database
+  Database, Activity, RefreshCw, UserCheck, AlertTriangle, Globe,
+  ShieldAlert, History, MessageSquare, Gavel, Ban, Bell, Flame, Zap
 } from "lucide-react";
 import {
   _hashPw,
@@ -213,7 +214,12 @@ export const useToast = () => {
 export const Styles = () => (
   <style>{`
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=Outfit:wght@400;500;600;700;800;900&display=swap');
-    *{box-sizing:border-box;margin:0;padding:0}
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+    input, select, textarea { transition: none !important; }
     /* v1.7.2 UX — skip link */
     .skip-link{position:absolute;top:-999px;left:8px;background:#00D4AA;color:#060A10;padding:6px 14px;border-radius:0 0 8px 8px;font-weight:700;font-size:13px;z-index:999999;text-decoration:none;}
     .skip-link:focus{top:0;}
@@ -248,20 +254,20 @@ export const Styles = () => (
       --purple: #8B5CF6;
       --p-lo: #8B5CF60D;
       --txt: #0F172A;
-      --dim: #475569;
-      --muted: #94A3B8;
-      --glass-bg: rgba(255, 255, 255, 0.72);
-      --glass-border: rgba(226, 232, 240, 0.6);
-      --glass-blur: 10px;
+      --dim: #334155;
+      --muted: #64748b;
+      --glass-bg: rgba(255, 255, 255, 0.85);
+      --glass-border: rgba(15, 23, 42, 0.08);
+      --glass-blur: 16px;
     }
 
-    [data-theme='dark'] {
-      --bg: #0B0F17;
-      --surface: #121826;
-      --card: #1A2234;
-      --card2: #242D42;
-      --border: #2D3748;
-      --hi: #4A5568;
+    [data-theme='dim'] {
+      --bg: #0F172A;
+      --surface: #1E293B;
+      --card: #1e293b;
+      --card2: #334155;
+      --border: #334155;
+      --hi: #475569;
       --accent: #00D4AA;
       --a-lo: #00D4AA15;
       --a-mid: #00D4AA30;
@@ -280,12 +286,61 @@ export const Styles = () => (
       --txt: #F1F5F9;
       --dim: #94A3B8;
       --muted: #64748B;
-      --glass-bg: var(--card);
-      --glass-border: var(--border);
-      --glass-blur: 0px;
+      --glass-bg: rgba(30, 41, 59, 0.7);
+      --glass-border: rgba(255, 255, 255, 0.08);
+      --glass-blur: 16px;
     }
 
-    html,body{background:var(--bg);color:var(--txt);font-family:-apple-system,BlinkMacSystemFont,'Inter','SF Pro Display','Helvetica Neue',Arial,sans-serif;min-height:100%;overflow-x:hidden;-webkit-font-smoothing:antialiased;scrollbar-gutter:stable}
+    [data-theme='dark'] {
+      --bg: #000000;
+      --surface: #0A0A0A;
+      --card: #111111;
+      --card2: #1A1A1A;
+      --border: #222222;
+      --hi: #333333;
+      --accent: #00D4AA;
+      --a-lo: #00D4AA15;
+      --a-mid: #00D4AA30;
+      --gold: #F5C518;
+      --g-lo: #F5C51815;
+      --warn: #F59E0B;
+      --w-lo: #F59E0B15;
+      --danger: #EF4444;
+      --d-lo: #EF444415;
+      --ok: #10B981;
+      --o-lo: #10B98115;
+      --blue: #3B82F6;
+      --b-lo: #3B82F615;
+      --purple: #8B5CF6;
+      --p-lo: #8B5CF615;
+      --txt: #FFFFFF;
+      --dim: #A1A1AA;
+      --muted: #71717A;
+      --glass-bg: rgba(0, 0, 0, 0.82);
+      --glass-border: rgba(255, 255, 255, 0.1);
+      --glass-blur: 20px;
+    }
+
+    body, html {
+      margin: 0; padding: 0;
+      min-height: 100%;
+      background: var(--bg);
+      color: var(--txt);
+      font-family: -apple-system, BlinkMacSystemFont, 'Inter', 'SF Pro Display', 'Helvetica Neue', Arial, sans-serif;
+      -webkit-font-smoothing: antialiased;
+    }
+    #root { height: auto; min-height: 100%; display: flex; flex-direction: column; }
+
+    /* Modern Scrollbars */
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.08); border-radius: 10px; }
+    ::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.15); }
+
+    .glass {
+        /* transitions removed for instant theme switching */
+    }
+
     /* v1.7.1 — body scroll lock applied by useModalLock while any overlay is open */
     body.modal-open{overflow:hidden!important;position:fixed;width:100%;}
     /* Lock the inner AdminPanel scroll container when any modal is open */
@@ -324,12 +379,18 @@ export const Styles = () => (
     @keyframes slideInRight{from{opacity:0;transform:translateX(48px)}to{opacity:1;transform:translateX(0)}}
     .panel-in{animation:slideInRight .28s cubic-bezier(.22,1,.36,1) both}
 
-    .fu {animation:fadeUp .38s cubic-bezier(.22,1,.36,1) both}
-    .fu1{animation-delay:.05s}.fu2{animation-delay:.1s}
-    .fu3{animation-delay:.15s}.fu4{animation-delay:.2s}.fu5{animation-delay:.25s}
+    .fu {animation:fadeUp .8s cubic-bezier(.22,1,.36,1) both}
+    .fu1, .fu2, .fu3, .fu4, .fu5 { animation-delay: 0s !important; }
+    .glass {
+      background: var(--glass-bg) !important;
+      backdrop-filter: blur(var(--glass-blur)) !important;
+      -webkit-backdrop-filter: blur(var(--glass-blur)) !important;
+      border: 1px solid var(--glass-border) !important;
+      box-shadow: 0 10px 40px 0 rgba(0, 0, 0, 0.15) !important;
+    }
     .pop{animation:scaleIn .22s cubic-bezier(.22,1,.36,1) both}
     .fade{animation:fadeIn .22s ease both}
-    .dialog-backdrop{animation:blurIn .2s ease both}
+    .dialog-backdrop{animation:fadeIn .2s ease both; backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); background: rgba(0,0,0,0.6) !important;}
     .toast-enter{animation:slideUp .28s cubic-bezier(.22,1,.36,1) both}
 
     .nb:hover{background:var(--a-lo)!important;color:var(--accent)!important}
@@ -341,19 +402,29 @@ export const Styles = () => (
     .kpi-btn{cursor:pointer;transition:all .25s cubic-bezier(0.2, 0.8, 0.2, 1)}
     .kpi-btn:hover{transform:translateY(-4px);box-shadow:0 12px 30px rgba(0,0,0,0.06)}
     
-    input,select,textarea{
-      background: var(--card)!important;
-      border: 1px solid var(--border)!important;
-      color: var(--txt)!important;
-      border-radius: 8px!important;
-      transition: border-color .2s, box-shadow .2s!important;
+    input, select, textarea {
+      background: var(--card) !important;
+      border: 1px solid var(--border) !important;
+      color: var(--txt) !important;
+      border-radius: 12px !important;
+      padding: 12px 16px !important;
+      font-size: 14px !important;
+      font-weight: 500 !important;
+      transition: all 0.25s cubic-bezier(0.2, 0.8, 0.2, 1) !important;
+      box-shadow: inset 0 2px 4px rgba(0,0,0,0.02) !important;
     }
-    input:focus,select:focus,textarea:focus{
-      border-color: var(--accent)!important;
-      box-shadow: 0 0 0 3px var(--a-mid)!important;
-      outline: none!important;
+    input:hover, select:hover, textarea:hover {
+      border-color: var(--accent) !important;
+      background: var(--surface) !important;
     }
-    select option{background:var(--card);color:var(--txt)}
+    input:focus, select:focus, textarea:focus {
+      border-color: var(--accent) !important;
+      background: var(--surface) !important;
+      box-shadow: 0 0 0 4px var(--a-lo), 0 10px 20px -10px rgba(0,0,0,0.1) !important;
+      transform: translateY(-1px) !important;
+      outline: none !important;
+    }
+    select option { background: var(--surface); color: var(--txt); }
 
     /* ── Apple-like hover/click animations ── */
     .sfx-card{transition:transform .18s cubic-bezier(.22,1,.36,1),box-shadow .18s,border-color .22s,background .18s}
@@ -375,7 +446,107 @@ export const Styles = () => (
     .refresh-btn{transition:all .15s;display:inline-flex;align-items:center;gap:6px;background:transparent;border:1px solid var(--border);color:var(--dim);border-radius:9px;padding:6px 13px;font-size:13px;font-weight:600;cursor:pointer}
     .refresh-btn:hover{background:var(--a-lo);color:var(--accent);border-color:var(--a-mid)}
     .refresh-btn svg{transition:transform .7s cubic-bezier(.22,1,.36,1)}
-    @media(max-width:600px){
+
+    /* ── Modern DatePicker Styles ── */
+    @keyframes calPopIn {
+      from { opacity: 0; transform: translateY(10px) scale(0.95); }
+      to { opacity: 1; transform: translateY(0) scale(1); }
+    }
+    .cal-pop {
+      position: absolute;
+      top: 100%;
+      left: 0;
+      z-index: 15000;
+      margin-top: 8px;
+      width: 320px !important;
+      padding: 24px !important;
+      border-radius: 28px !important;
+      background: var(--surface) !important;
+      border: 1px solid var(--glass-border);
+      box-shadow: 0 50px 100px -20px rgba(0,0,0,0.6);
+      opacity: 1 !important;
+      animation: calPopIn 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+    .cal-sel-wrap {
+      display: flex;
+      gap: 6px;
+      background: var(--surface);
+      padding: 4px;
+      border-radius: 12px;
+      border: 1px solid var(--glass-border);
+    }
+    .cal-sel {
+      background: none;
+      border: none;
+      color: var(--txt);
+      font-size: 13px;
+      font-weight: 800;
+      outline: none;
+      cursor: pointer;
+      padding: 4px 8px;
+      border-radius: 8px;
+    }
+    .cal-sel:hover { background: var(--hi); }
+    
+    .cal-grid {
+      display: grid !important;
+      grid-template-columns: repeat(7, 1fr) !important;
+      gap: 2px !important;
+      text-align: center !important;
+    }
+    .cal-head-day {
+      font-size: 10px;
+      font-weight: 900;
+      color: var(--muted);
+      padding: 10px 0;
+      text-transform: uppercase;
+      letter-spacing: 1.5px;
+    }
+    .cal-day {
+      font-size: 13px;
+      font-weight: 700;
+      height: 36px;
+      border-radius: 12px;
+      cursor: pointer;
+      transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      position: relative;
+    }
+    .cal-day:hover:not(.empty) {
+      background: var(--a-mid);
+      color: var(--accent);
+      transform: scale(1.1);
+      z-index: 2;
+    }
+    .cal-day.active {
+      background: var(--accent) !important;
+      color: #000 !important;
+      box-shadow: 0 8px 20px var(--a-mid);
+    }
+    .cal-day.today::after {
+      content: '';
+      position: absolute;
+      bottom: 4px;
+      width: 4px;
+      height: 4px;
+      background: var(--accent);
+      border-radius: 50%;
+    }
+    .cal-day.today.active::after { background: #000; }
+    .cal-day.empty {
+      cursor: default;
+      opacity: 0.1;
+    }
+    /* Hide native picker icon */
+    input[type="date"]::-webkit-inner-spin-button,
+    input[type="date"]::-webkit-calendar-picker-indicator {
+        display: none;
+        -webkit-appearance: none;
+    }
+
+    @media(max-width:600px){
       .kpi-row{flex-direction:column!important}
       .kpi-row>*{min-width:0!important;flex:none!important;width:100%!important}
       .hide-mob{display:none!important}
@@ -411,16 +582,8 @@ export const Styles = () => (
       /* Card & Element Spacing */
       .sfx-card { padding: 14px 16px !important; }
 
-      /* Repayments Hub / Dashboard Grid fixes */
-      .rcc-summary-bar {
-        grid-template-columns: 1fr 1fr !important;
-        gap: 8px !important;
-      }
-      .rcc-calendar-grid > div { font-size: 10px !important; }
-    }
-    border: none !important;
-      }
-
+      /* Card & Element Spacing */
+      .sfx-card { padding: 14px 16px !important; }
     }
   `}</style>
 );
@@ -573,7 +736,7 @@ export const calculateLoanStatus = (loan, asOfDate, paid) => {
   // (b) undated loan that is not Approved/Settled — we cannot verify it is current
   const isWrittenOff = !isSettled && (
     totalDays > 90 ||
-    (isUndated && !['Approved', 'Application submitted', 'worker-pending'].includes(loan.status))
+    (isUndated && !['Approved', 'Disbursing', 'Application submitted', 'worker-pending'].includes(loan.status))
   );
   
   let status = loan.status || "Active";
@@ -622,12 +785,25 @@ export const calculateLoanStatus = (loan, asOfDate, paid) => {
  * ─────────────────────────────
  * Central logic for checking if a customer is eligible for disbursement.
  */
+/**
+ * hasRegFee — SINGLE SOURCE OF TRUTH
+ * Checks: 1) mpesa_registered flag in DB (set by STK callback or manual admin),
+ *          2) any payment in ledger with is_reg_fee=true for this customer,
+ *          3) repeat customers (already have loans) are exempt.
+ */
 export const hasRegFee = (cust, payments = []) => {
   if (!cust) return false;
-  // Repeat customers (loans > 0) don't need a new fee
-  if (cust.loans > 0) return true;
-  // Search payments Ledger for isRegFee flag
-  return payments.some(p => p.customerId === cust.id && p.isRegFee);
+  // Repeat customers exempt from registration fee
+  if ((cust.loans || 0) > 0) return true;
+  // DB flag — set by STK callback OR manual admin payment
+  if (cust.mpesaRegistered === true) return true;
+  // Fallback: scan the in-memory payments ledger for a reg fee entry
+  return payments.some(p =>
+    p.customerId === cust.id &&
+    (p.isRegFee === true ||
+     (p.amount >= 1 && typeof p.note === 'string' &&
+      (p.note.toLowerCase().includes('registration') || p.note.toLowerCase().includes('reg fee'))))
+  );
 };
 export const calcP = (bal, d, amount = 0) => {
   const stub = {
@@ -681,205 +857,8 @@ export const dlCSV = (filename, csvContent) => {
   }
 };
 
-// ── Report Export Utilities ───────────────────────────────────
 
-export const dlReportCSV = (rData) => {
-  const headers = rData.cols.map(c => c.l);
-  const rows = rData.rows.map(r => rData.cols.map(c => {
-    const val = r[c.k];
-    return typeof val === 'number' ? val : (val || '');
-  }));
-  dlCSV(`${rData.title.toLowerCase().replace(/\s+/g, '-')}-${now()}.csv`, toCSV(headers, rows));
-};
 
-export const dlReportPDF = (rData) => {
-  const html = `
-    <!DOCTYPE html>
-    <html>
-    <head>
-      <meta charset="utf-8">
-      <title>${rData.title}</title>
-      <style>
-        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; color: #111827; padding: 40px; }
-        .header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 30px; border-bottom: 2px solid #3b82f6; padding-bottom: 20px; }
-        .company { font-weight: 900; font-size: 20px; color: #3b82f6; }
-        .title { font-size: 24px; font-weight: 800; margin-top: 5px; }
-        .meta { color: #6b7280; font-size: 13px; text-align: right; }
-        table { width: 100%; border-collapse: collapse; margin-top: 20px; }
-        th { text-align: left; background: #f3f4f6; padding: 12px 15px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: #4b5563; border: 1px solid #e5e7eb; }
-        td { padding: 10px 15px; font-size: 13px; border: 1px solid #e5e7eb; vertical-align: top; }
-        tr:nth-child(even) { background: #f9fafb; }
-        .summary { margin-top: 30px; padding: 20px; background: #f0f9ff; border-radius: 8px; border: 1px solid #bae6fd; display: flex; gap: 40px; }
-        .stat { display: flex; flex-direction: column; }
-        .stat-l { font-size: 10px; text-transform: uppercase; color: #0369a1; font-weight: 700; }
-        .stat-v { font-size: 18px; font-weight: 800; color: #0c4a6e; }
-        @media print { .no-print { display: none; } }
-      </style>
-    </head>
-    <body class="fu">
-      <div class="header">
-        <div>
-          <div class="company">ADEQUATE CAPITAL</div>
-          <div class="title">${rData.title}</div>
-        </div>
-        <div class="meta">
-          <div>Generated on ${new Date().toLocaleString('en-KE')}</div>
-          <div>Total Records: ${rData.rows.length}</div>
-        </div>
-      </div>
-      
-      <table>
-        <thead>
-          <tr>${rData.cols.map(c => `<th>${c.l}</th>`).join('')}</tr>
-        </thead>
-        <tbody>
-          ${rData.rows.map(r => `
-            <tr>
-              ${rData.cols.map(c => {
-                let v = r[c.k];
-                if (c.k === 'amount' || c.k === 'balance' || c.k === 'principal') return `<td>KES ${Number(v).toLocaleString()}</td>`;
-                return `<td>${v || ''}</td>`;
-              }).join('')}
-            </tr>
-          `).join('')}
-        </tbody>
-      </table>
-
-      <div class="summary">
-        <div class="stat">
-          <span class="stat-l">Report Date</span>
-          <span class="stat-v">${now()}</span>
-        </div>
-        <div class="stat">
-          <span class="stat-l">Record Count</span>
-          <span class="stat-v">${rData.rows.length} Items</span>
-        </div>
-      </div>
-
-      <script>
-        window.onload = () => {
-          setTimeout(() => {
-            window.print();
-          }, 500);
-        };
-      </script>
-    </body>
-    </html>
-  `;
-  const win = window.open('', '_blank');
-  win.document.open();
-  win.document.write(html);
-  win.document.close();
-};
-
-export const dlReportWord = (rData) => {
-  const tableHtml = `
-    <table border="1" style="border-collapse:collapse;width:100%;font-family:Arial,sans-serif;">
-      <tr style="background:#f3f4f6;">
-        ${rData.cols.map(c => `<th style="padding:10px;text-align:left;">${c.l}</th>`).join('')}
-      </tr>
-      ${rData.rows.map(r => `
-        <tr>
-          ${rData.cols.map(c => `<td style="padding:8px;">${r[c.k] || ''}</td>`).join('')}
-        </tr>
-      `).join('')}
-    </table>
-  `;
-  
-  const content = `
-    <html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org/TR/REC-html40'>
-    <head><meta charset='utf-8'><title>${rData.title}</title>
-    <style>
-      body { font-family: Arial, sans-serif; }
-      h1 { color: #3b82f6; font-size: 24pt; margin-bottom: 5pt; }
-      p.meta { color: #666; font-size: 10pt; margin-bottom: 20pt; }
-    </style>
-    </head>
-    <body>
-      <h1>${rData.title}</h1>
-      <p class="meta">Adequate Capital LMS · Generated ${new Date().toLocaleString()}</p>
-      ${tableHtml}
-    </body>
-    </html>
-  `;
-
-  const blob = new Blob(['\ufeff', content], { type: 'application/msword' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = `${rData.title.toLowerCase().replace(/\s+/g, '-')}-${now()}.doc`;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  URL.revokeObjectURL(url);
-};
-
-export const buildReportData = (id, { loans = [], customers = [], payments = [], workers = [], auditLog = [] }, { startDate = null, endDate = null } = {}) => {
-  const commonCols = {
-    loan: [
-      {k:'id', l:'ID'},
-      {k:'customer', l:'Customer'},
-      {k:'amount', l:'Principal'},
-      {k:'id', l:'Total Due', r:(_,r,p)=>fmt(calculateLoanStatus(r,null,p.filter(x=>x.loanId===r.id).reduce((a,b)=>a+b.amount,0)).totalPayable)},
-      {k:'id', l:'Remaining', r:(_,r,p)=>fmt(calculateLoanStatus(r,null,p.filter(x=>x.loanId===r.id).reduce((a,b)=>a+b.amount,0)).totalAmountDue)},
-      {k:'status', l:'Status'},
-      {k:'officer', l:'Officer'},
-      {k:'disbursed', l:'Disbursed'}
-    ],
-    payment: [
-      {k:'id', l:'ID'},
-      {k:'customer', l:'Customer'},
-      {k:'amount', l:'Amount'},
-      {k:'mpesa', l:'M-Pesa'},
-      {k:'date', l:'Date'},
-      {k:'status', l:'Status'}
-    ]
-  };
-
-  const isBetween = (d, s, e) => {
-    if (!d) return false;
-    let dr = String(d);
-    if (dr.includes('T')) dr = dr.split('T')[0];
-    else if (dr.includes(' ')) dr = dr.split(' ')[0];
-    return (!s || dr >= s) && (!e || dr <= e);
-  };
-  const isUpTo = (d, e) => {
-    if (!d) return false;
-    const date = d.split('T')[0];
-    return !e || date <= e;
-  };
-
-  if (id === 'loan-portfolio') return { title: 'Loan Portfolio', cols: commonCols.loan, rows: loans.filter(l => isUpTo(l.disbursed, endDate)) };
-  if (id === 'active-loans') return { title: 'Active Loans', cols: commonCols.loan, rows: loans.filter(l => l.status === 'Active' && isUpTo(l.disbursed, endDate)) };
-  if (id === 'overdue') return { title: 'Overdue Report', cols: [...commonCols.loan, {k:'daysOverdue', l:'Days Overdue'}], rows: loans.filter(l => l.status === 'Overdue' && isUpTo(l.disbursed, endDate)) };
-  
-  const pRows = payments.filter(p => isBetween(p.date, startDate, endDate));
-  if (id === 'payments-today' || id === 'payments') return { title: 'Payment Records', cols: commonCols.payment, rows: pRows };
-  
-  if (id === 'customers') return { title: 'Customer List', cols: [{k:'id', l:'ID'}, {k:'name', l:'Name'}, {k:'phone', l:'Phone'}, {k:'business', l:'Business'}, {k:'location', l:'Location'}, {k:'risk', l:'Risk'}], rows: customers.filter(c => isUpTo(c.joined, endDate)) };
-  if (id === 'staff') return { title: 'Staff Performance', cols: [{k:'name', l:'Name'}, {k:'role', l:'Role'}, {k:'status', l:'Status'}, {k:'phone', l:'Phone'}], rows: workers.filter(w => isUpTo(w.joined, endDate)) };
-  if (id === 'audit') return { title: 'System Audit Log', cols: [{k:'ts', l:'Timestamp'}, {k:'user', l:'User'}, {k:'action', l:'Action'}, {k:'target', l:'Target'}, {k:'detail', l:'Details'}], rows: auditLog.filter(a => isBetween(a.ts, startDate, endDate)) };
-  
-  if (id === 'due-today') {
-    const todayRows = loans.filter(l => {
-      if (!l.disbursed || l.status === 'Settled' || l.status === 'Rejected') return false;
-      const sched = computeLoanSchedule(l, payments);
-      return sched.slots.some(s => isBetween(s.date, startDate, endDate) && s.status !== 'paid');
-    });
-    return { title: 'Due Within Period', cols: commonCols.loan, rows: todayRows };
-  }
-
-  if (id === 'missed-partial') {
-    const missedRows = loans.filter(l => {
-      if (!l.disbursed || l.status === 'Settled' || l.status === 'Rejected') return false;
-      const sched = computeLoanSchedule(l, payments);
-      return sched.slots.some(s => (s.status === 'missed' || s.status === 'partial') && isBetween(s.date, startDate, endDate));
-    });
-    return { title: 'Missed & Partial (Detailed)', cols: commonCols.loan, rows: missedRows };
-  }
-
-  return { title: 'Report', cols: [], rows: [] };
-};
 
 
 export const buildFullBackup = ({
@@ -1176,11 +1155,13 @@ export const KPI = ({ label, value, sub, color, delay = 0, onClick, icon: Icon }
         backdropFilter: "var(--glass-blur)",
         WebkitBackdropFilter: "var(--glass-blur)",
         borderRadius: 16,
-        border: `1px solid ${hov ? c + "40" : "var(--glass-border)"}`,
+        borderTop: `1px solid ${hov ? c + "40" : "var(--glass-border)"}`,
+        borderRight: `1px solid ${hov ? c + "40" : "var(--glass-border)"}`,
+        borderBottom: `1px solid ${hov ? c + "40" : "var(--glass-border)"}`,
         borderLeft: `4px solid ${c}`,
         padding: "20px 18px",
         cursor: onClick ? "pointer" : "default",
-        transition: "all .2s cubic-bezier(0.2, 0.8, 0.2, 1)",
+        transition: "all .4s cubic-bezier(0.2, 0.8, 0.2, 1)",
         transform: hov && onClick ? "translateY(-4px)" : "translateY(0)",
         boxShadow: hov && onClick 
           ? `0 12px 30px ${c}15, 0 4px 12px rgba(0,0,0,0.03)` 
@@ -1190,7 +1171,7 @@ export const KPI = ({ label, value, sub, color, delay = 0, onClick, icon: Icon }
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 12 }}>
         <div style={{ color: T.dim, fontSize: 10.5, fontWeight: 700, letterSpacing: "0.05em", textTransform: "uppercase" }}>{label}</div>
         <div style={{ color: c, opacity: hov ? 1 : 0.6, transition: "opacity .2s" }}>
-          {Icon ? <Icon size={18} strokeWidth={2.5} /> : (onClick && <ArrowUpRight size={16} strokeWidth={2.5} />)}
+          {Icon ? (React.isValidElement(Icon) ? Icon : <Icon size={18} strokeWidth={2.5} />) : (onClick && <ArrowUpRight size={16} strokeWidth={2.5} />)}
         </div>
       </div>
       <div style={{ color: T.txt, fontSize: 24, fontWeight: 800, fontFamily: T.head, lineHeight: 1.1, letterSpacing: "-0.02em", marginBottom: sub ? 6 : 0 }}>{value}</div>
@@ -1208,6 +1189,7 @@ export const Card = ({ children, style: sx, className }) => (
       border: `1px solid var(--glass-border)`,
       borderRadius: 16,
       boxShadow: "0 4px 24px -1px rgba(0, 0, 0, 0.04), 0 2px 8px -1px rgba(0, 0, 0, 0.02)",
+      transition: "background 0.6s cubic-bezier(0.16, 1, 0.3, 1), border-color 0.6s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.6s cubic-bezier(0.16, 1, 0.3, 1)",
       ...sx,
     }}
   >
@@ -1678,6 +1660,71 @@ export const NumericInput = ({
 };
 
 // Enhanced FI with red-star required validation
+const ModernDatePicker = ({ value, onChange, onClose, T }) => {
+  const [viewDate, setViewDate] = useState(value ? new Date(value) : new Date());
+  const month = viewDate.getMonth();
+  const year = viewDate.getFullYear();
+
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const startDay = new Date(year, month, 1).getDay(); // 0-6 (Sun-Sat)
+  
+  const setMonth = (m) => setViewDate(new Date(year, parseInt(m), 1));
+  const setYear = (y) => setViewDate(new Date(parseInt(y), month, 1));
+  const prevMonth = () => setViewDate(new Date(year, month - 1, 1));
+  const nextMonth = () => setViewDate(new Date(year, month + 1, 1));
+
+  const selectDay = (d) => {
+    const selected = new Date(year, month, d);
+    const offset = selected.getTimezoneOffset();
+    const adjusted = new Date(selected.getTime() - (offset * 60 * 1000));
+    onChange(adjusted.toISOString().split('T')[0]);
+    onClose();
+  };
+
+  const monthNames = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+  const days = ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"];
+  const years = Array.from({ length: 21 }, (_, i) => year - 10 + i);
+
+  return (
+    <div className="cal-pop pop" onClick={e => e.stopPropagation()}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+        <div className="cal-sel-wrap">
+          <select value={month} onChange={e => setMonth(e.target.value)} className="cal-sel">
+            {monthNames.map((m, i) => <option key={m} value={i}>{m}</option>)}
+          </select>
+          <select value={year} onChange={e => setYear(e.target.value)} className="cal-sel">
+            {years.map(y => <option key={y} value={y}>{y}</option>)}
+          </select>
+        </div>
+        <div style={{ display: 'flex', gap: 2 }}>
+          <button onClick={prevMonth} className="btn-icon" style={{ padding: 6, color: T.dim }}><ChevronLeft size={16} /></button>
+          <button onClick={nextMonth} className="btn-icon" style={{ padding: 6, color: T.dim, transform: 'rotate(180deg)' }}><ChevronLeft size={16} /></button>
+        </div>
+      </div>
+      <div className="cal-grid">
+        {days.map(d => <div key={d} className="cal-head-day">{d}</div>)}
+        {Array.from({ length: startDay }).map((_, i) => <div key={`e-${i}`} className="cal-day empty" />)}
+        {Array.from({ length: daysInMonth }).map((_, i) => {
+          const d = (i + 1).toString().padStart(2, '0');
+          const m = (month + 1).toString().padStart(2, '0');
+          const dateStr = `${year}-${m}-${d}`;
+          const isToday = now() === dateStr;
+          const isActive = value === dateStr;
+          return (
+            <div 
+              key={i} 
+              className={`cal-day ${isToday ? 'today' : ''} ${isActive ? 'active' : ''}`}
+              onClick={() => selectDay(i + 1)}
+            >
+              {i + 1}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+};
+
 export const FI = ({
   label,
   value,
@@ -1692,85 +1739,125 @@ export const FI = ({
   min,
   max,
 }) => {
+  const [showPicker, setShowPicker] = useState(false);
+  const [isFocused, setIsFocused] = useState(false);
+  const containerRef = useRef(null);
+
+  useEffect(() => {
+    if (!showPicker) return;
+    const clickOut = (e) => {
+      if (containerRef.current && !containerRef.current.contains(e.target)) setShowPicker(false);
+    };
+    document.addEventListener('mousedown', clickOut);
+    return () => document.removeEventListener('mousedown', clickOut);
+  }, [showPicker]);
+
   const hasErr = error && required && !value;
   const s = {
     width: "100%",
-    background: T.surface,
     border: `1px solid ${hasErr ? T.danger : T.border}`,
-    borderRadius: 8,
-    padding: "10px 12px",
-    color: T.txt,
-    fontSize: 14,
-    outline: "none",
-    fontFamily: T.body,
-    transition: "border-color .2s",
+    transition: "all .2s cubic-bezier(0.2, 0.8, 0.2, 1)",
+    position: 'relative'
   };
+
   const handleChange = (e) => {
-    // fire error SFX if this is a number type and a non-numeric char was typed
     onChange(e.target.value);
   };
+
   return (
     <div
+      ref={containerRef}
       style={{
         marginBottom: 12,
         gridColumn: half ? "span 1" : "span 2",
         minWidth: 0,
+        position: 'relative'
       }}
     >
       {label && (
         <label
           style={{
             display: "block",
-            color: hasErr ? T.danger : T.dim,
+            color: hasErr ? T.danger : isFocused ? T.accent : T.dim,
             fontSize: 11,
-            fontWeight: 600,
+            fontWeight: 800,
             marginBottom: 5,
-            letterSpacing: 0.7,
+            letterSpacing: 1,
             textTransform: "uppercase",
+            transition: 'color 0.2s',
           }}
         >
           {label}
           {required && <span style={{ color: T.danger }}> ★</span>}
         </label>
       )}
-      {type === "select" ? (
-        <select
-          value={value}
-          onChange={(e) => onChange(e.target.value)}
-          style={s}
-        >
-          <option value="">— Select —</option>
-          {(options || []).map((o) => (
-            <option key={o} value={o}>
-              {o}
-            </option>
-          ))}
-        </select>
-      ) : type === "textarea" ? (
-        <textarea
-          value={value}
-          onChange={handleChange}
-          placeholder={placeholder}
-          rows={3}
-          style={{ ...s, resize: "vertical" }}
-        />
-      ) : (
-        <input
-          type={type}
-          value={value}
-          onChange={handleChange}
-          placeholder={placeholder}
-          autoComplete={type === "password" ? "new-password" : undefined}
-          style={{ ...s, WebkitTextFillColor: T.txt, caretColor: T.txt }}
-        />
-      )}
+
+      <div style={{ position: 'relative' }}>
+        {type === "date" ? (
+          <div style={{ position: 'relative' }}>
+            <input
+              type="text"
+              readOnly
+              value={value || ''}
+              onClick={() => setShowPicker(!showPicker)}
+              placeholder={placeholder || 'Select date...'}
+              style={{ ...s, cursor: 'pointer', paddingRight: 40 }}
+            />
+            <div 
+              style={{ position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none', color: T.accent, opacity: 0.8 }}
+            >
+              <Calendar size={18} />
+            </div>
+            {showPicker && <ModernDatePicker value={value} onChange={onChange} onClose={() => setShowPicker(false)} T={T} />}
+          </div>
+        ) : type === "select" ? (
+          <select
+            value={value}
+            onChange={(e) => onChange(e.target.value)}
+            onFocus={() => setIsFocused(true)}
+            onBlur={() => setIsFocused(false)}
+            style={s}
+          >
+            <option value="">— Select —</option>
+            {(options || []).map((o) => (
+              <option key={o} value={o}>
+                {o}
+              </option>
+            ))}
+          </select>
+        ) : type === "textarea" ? (
+          <textarea
+            value={value}
+            onChange={handleChange}
+            placeholder={placeholder}
+            rows={3}
+            onFocus={() => setIsFocused(true)}
+            onBlur={() => setIsFocused(false)}
+            style={{ ...s, resize: "vertical" }}
+          />
+        ) : (
+          <input
+            type={type}
+            value={value}
+            onChange={handleChange}
+            placeholder={placeholder}
+            autoComplete={type === "password" ? "new-password" : undefined}
+            onFocus={() => setIsFocused(true)}
+            onBlur={() => setIsFocused(false)}
+            onFocus={() => setIsFocused(true)}
+            onBlur={() => setIsFocused(false)}
+            style={{ ...s, WebkitTextFillColor: T.txt, caretColor: T.txt }}
+          />
+        )}
+      </div>
+
       {hasErr && (
-        <div style={{ color: T.danger, fontSize: 11, marginTop: 3 }}>
-          ⚠ This field is required
+        <div style={{ color: T.danger, fontSize: 11, marginTop: 4, fontWeight: 700 }}>
+          ⚠ Required field
         </div>
       )}
       {hint && !hasErr && (
-        <div style={{ color: T.muted, fontSize: 11, marginTop: 3 }}>{hint}</div>
+        <div style={{ color: T.muted, fontSize: 11, marginTop: 4, fontWeight: 500 }}>{hint}</div>
       )}
     </div>
   );
@@ -2082,6 +2169,84 @@ export const Dialog = ({
   );
 };
 
+export const WaitingOverlay = ({ title, message, sub, type = 'info', onClose }) => {
+  useModalLock();
+  const isErr = type === 'danger';
+  const isOk = type === 'success';
+  
+  return (
+    <div style={{ 
+      position: 'fixed', inset: 0, zIndex: 99999, 
+      background: 'rgba(2, 4, 8, 0.82)', backdropFilter: 'blur(16px)', 
+      display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 
+    }}>
+      <div 
+        className="pop" 
+        style={{ 
+          maxWidth: 400, width: '100%', 
+          background: 'linear-gradient(135deg, rgba(25, 28, 35, 0.95), rgba(15, 17, 22, 0.98))', 
+          borderRadius: 32, border: `1px solid ${isErr ? T.danger + '40' : isOk ? T.ok + '40' : T.hi}`, 
+          padding: '48px 32px', textAlign: 'center', 
+          boxShadow: '0 40px 100px rgba(0,0,0,0.8), inset 0 0 0 1px rgba(255,255,255,0.05)' 
+        }}
+      >
+        <div style={{ marginBottom: 32, position: 'relative', display: 'inline-block' }}>
+           {isErr ? (
+             <div style={{ width: 80, height: 80, borderRadius: '50%', background: `${T.danger}15`, display: 'flex', alignItems: 'center', justifyContent: 'center', color: T.danger, fontSize: 32, border: `1px solid ${T.danger}30` }}>
+               <X size={40} strokeWidth={3} />
+             </div>
+           ) : isOk ? (
+              <div style={{ width: 80, height: 80, borderRadius: '50%', background: `${T.ok}15`, display: 'flex', alignItems: 'center', justifyContent: 'center', color: T.ok, fontSize: 32, border: `1px solid ${T.ok}30` }}>
+                <Check size={40} strokeWidth={3} />
+              </div>
+           ) : (
+             <>
+               <div style={{ position: 'absolute', inset: -12, border: `2px solid ${T.accent}20`, borderRadius: '50%' }} />
+               <div style={{ position: 'absolute', inset: -12, border: `2px solid ${T.accent}`, borderTopColor: 'transparent', borderRadius: '50%', animation: 'spin 0.8s cubic-bezier(0.4, 0, 0.2, 1) infinite' }} />
+               <div style={{ width: 80, height: 80, borderRadius: '50%', background: `${T.accent}10`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 32 }}>
+                  ⚡
+               </div>
+             </>
+           )}
+        </div>
+
+        <h2 style={{ 
+          color: '#fff', fontSize: 18, fontWeight: 900, 
+          fontFamily: T.head, margin: '0 0 8px', 
+          textTransform: 'uppercase', letterSpacing: 2 
+        }}>
+          {title}
+        </h2>
+        
+        <div style={{ color: isErr ? T.danger : isOk ? T.ok : T.txt, fontSize: 15, fontWeight: 500, lineHeight: 1.6, marginBottom: 32 }}>
+           {message}
+           {sub && <div style={{ color: T.muted, fontSize: 12, marginTop: 12, fontFamily: T.mono, opacity: 0.7 }}>{sub}</div>}
+        </div>
+
+        {isErr || isOk ? (
+          <Btn onClick={onClose} full v={isErr ? 'danger' : 'ok'} style={{ height: 54, borderRadius: 16, fontSize: 14, fontWeight: 800 }}>
+            {isErr ? 'DISMISS & RETRY' : 'DONE'}
+          </Btn>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+            <div style={{ color: T.muted, fontSize: 10, textTransform: 'uppercase', letterSpacing: 2, fontWeight: 900, opacity: 0.5 }}>
+              Waiting for Safaricom Integration...
+            </div>
+            {onClose && (
+               <Btn onClick={onClose} v='secondary' sm style={{ background: 'transparent', border: 'none', color: T.muted }}>
+                 Cancel Request
+               </Btn>
+            )}
+          </div>
+        )}
+      </div>
+      <style>{`
+        @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+      `}</style>
+    </div>
+  );
+};
+
 // Side panel — slides in from right, feels part of the page
 const Panel = ({
   title,
@@ -2299,7 +2464,7 @@ const DTHead = ({ cols }) => (
 // Shared row renderer — used by all three DT variants
 const DTRow = ({ cols, row, idx, onRow }) => (
   <tr
-    className={onRow ? "row-hover" : ""}
+    className={`fu ${onRow ? "row-hover" : ""}`}
     onClick={() => onRow && onRow(row)}
     style={{
       borderBottom: `1px solid ${T.border}18`,
@@ -2641,7 +2806,7 @@ export const Search = ({ value, onChange, placeholder, debounceMs = 180 }) => {
   // Debounce: only call onChange after user stops typing
   useEffect(() => {
     const t = setTimeout(() => {
-      if (local !== value) onChange(local);
+      if (local !== value && typeof onChange === "function") onChange(local);
     }, debounceMs);
     return () => clearTimeout(t);
   }, [local, debounceMs]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -2690,21 +2855,34 @@ export const Search = ({ value, onChange, placeholder, debounceMs = 180 }) => {
   );
 };
 export const Pills = ({ opts, val, onChange }) => (
-  <div style={{ display: "flex", gap: 5, flexWrap: "wrap" }}>
+  <div style={{ 
+    display: "inline-flex", 
+    background: T.surface, 
+    padding: 4, 
+    borderRadius: 14, 
+    gap: 4,
+    border: `1px solid ${T.border}`,
+    overflowX: 'auto',
+    maxWidth: '100%'
+  }}>
     {opts.map((o) => (
       <button
         key={o}
         onClick={() => onChange(o)}
         style={{
-          background: val === o ? T.accent : T.card2,
+          background: val === o ? T.accent : 'transparent',
           color: val === o ? "#060A10" : T.muted,
-          border: `1px solid ${val === o ? T.accent : T.border}`,
-          borderRadius: 99,
-          padding: "5px 12px",
+          border: 'none',
+          borderRadius: 10,
+          padding: "8px 16px",
           fontSize: 12,
-          fontWeight: 600,
+          fontWeight: 800,
           cursor: "pointer",
-          transition: "all .15s",
+          transition: "all 0.2s cubic-bezier(0.2, 0.8, 0.2, 1)",
+          whiteSpace: 'nowrap',
+          display: 'flex',
+          alignItems: 'center',
+          gap: 6
         }}
       >
         {o}
@@ -4068,12 +4246,18 @@ export const LoanForm = ({
   const cust = customers.find((c) => c.id === f.cid);
   const interest = Math.round(Number(f.amount || 0) * 0.3);
   const total = Number(f.amount || 0) + interest;
-  const isNewCust = cust && cust.loans === 0;
+  const isNewCust = cust && (cust.loans || 0) === 0;
   const fee = isNewCust ? 500 : 0;
-  const hasRegFee =
-    isNewCust &&
-    payments &&
-    payments.some((p) => p.customerId === cust.id && p.isRegFee);
+  // SINGLE SOURCE OF TRUTH — checks DB flag first, then ledger
+  const hasRegFee = !isNewCust || !cust ? true : (
+    cust.mpesaRegistered === true ||
+    (payments || []).some(p =>
+      p.customerId === cust.id &&
+      (p.isRegFee === true ||
+        (p.amount >= 500 && typeof p.note === 'string' &&
+          (p.note.toLowerCase().includes('registration') || p.note.toLowerCase().includes('reg fee'))))
+    )
+  );
 
   const REQUIRED_DOC_KEYS = ["id_front", "id_back", "passport"];
   const allLoansArr = loans || [];
@@ -4664,24 +4848,17 @@ export const useReminders = () => {
   return { reminders, add, done, remove, update, firing, dismissFiring };
 };
 
-export const ReminderAlertModal = ({ reminder, onDismiss, onDone }) => (
+export const ReminderAlertModal = ({ reminder, onDismiss, onDone }) => {
+  const isHigh = reminder.priority === 'High';
+  return (
   <div
     className="dialog-backdrop"
     style={{
-      position: "fixed",
-      top: 0,
-      left: 0,
-      right: 0,
-      bottom: 0,
-      zIndex: 99998,
-      display: "flex",
-      alignItems: "flex-start",
-      justifyContent: "center",
-      paddingTop: MODAL_TOP_OFFSET + 30,
-      paddingLeft: 20,
-      paddingRight: 20,
-      background: "rgba(4,8,16,0.8)",
-      backdropFilter: "var(--glass-blur)",
+      position: "fixed", top: 0, left: 0, right: 0, bottom: 0,
+      zIndex: 99998, display: "flex", alignItems: "flex-start",
+      justifyContent: "center", paddingTop: MODAL_TOP_OFFSET + 30,
+      paddingLeft: 20, paddingRight: 20,
+      background: "rgba(4,8,16,0.8)", backdropFilter: "var(--glass-blur)",
       overflow: "hidden",
     }}
   >
@@ -4689,37 +4866,32 @@ export const ReminderAlertModal = ({ reminder, onDismiss, onDone }) => (
       className="pop"
       style={{
         background: T.card,
-        border: `2px solid ${T.gold}`,
-        borderRadius: 22,
-        padding: "28px 26px",
+        border: `2px solid ${isHigh ? T.danger : T.gold}`,
+        borderRadius: 24,
+        padding: "32px 28px",
         width: "100%",
         maxWidth: 380,
-        boxShadow: `0 0 60px ${T.gold}30,0 40px 80px #000000D0`,
+        boxShadow: `0 0 60px ${isHigh ? T.danger : T.gold}25, 0 40px 90px #000000`,
+        textAlign: 'center'
       }}
     >
-      <div style={{ textAlign: "center", marginBottom: 18 }}>
-        <div
-          style={{
-            fontSize: 44,
-            marginBottom: 10,
-            animation: "pulse 1s infinite",
-          }}
-        >
-          ⏰
+      <div style={{ marginBottom: 20 }}>
+        <div style={{ 
+          marginBottom: 16, 
+          animation: isHigh ? 'shake 1.5s infinite' : 'pulse 1.8s infinite',
+          color: isHigh ? T.danger : T.gold,
+          display: 'flex', justifyContent: 'center'
+        }}>
+          {isHigh ? <ShieldAlert size={50} strokeWidth={2.5} /> : <Bell size={50} strokeWidth={2.5} />}
         </div>
-        <div
-          style={{
-            fontFamily: T.head,
-            color: T.gold,
-            fontSize: 18,
-            fontWeight: 900,
-          }}
-        >
-          Reminder
+        <div style={{ 
+          fontFamily: T.head, 
+          color: isHigh ? T.danger : T.gold, 
+          fontSize: 13, fontWeight: 900, textTransform: 'uppercase', letterSpacing: 1.5 
+        }}>
+          {isHigh ? 'Urgent Alert' : 'Reminder Notification'}
         </div>
-        <div
-          style={{ color: T.txt, fontWeight: 700, fontSize: 15, marginTop: 6 }}
-        >
+        <div style={{ color: T.txt, fontWeight: 800, fontSize: 18, marginTop: 8 }}>
           {reminder.title}
         </div>
         <div style={{ color: T.muted, fontSize: 12, marginTop: 4 }}>
@@ -4757,7 +4929,8 @@ export const ReminderAlertModal = ({ reminder, onDismiss, onDone }) => (
       </div>
     </div>
   </div>
-);
+  );
+};
 
 // FIX C — ReminderCard hoisted to module scope.
 // Previously defined INSIDE RemindersPanel's render body, meaning React saw a new
@@ -4767,114 +4940,92 @@ const PC_COLORS = { High: T.danger, Medium: T.gold, Low: T.ok };
 const ReminderCard = ({ r, onClick, onDone, onRemove }) => {
   const due = new Date(`${r.dueDate}T${r.dueTime}:00`);
   const overdue = !r.done && due < new Date();
+  
+  const Icon = r.done ? CheckCircle : (overdue ? AlertTriangle : (r.priority === 'High' ? Flame : (r.priority === 'Medium' ? Bell : Zap)));
+  const accent = r.done ? T.ok : (overdue ? T.danger : (r.priority === 'High' ? T.danger : (r.priority === 'Medium' ? T.warn : T.blue)));
+
   return (
     <div
       onClick={onClick}
       style={{
-        background: T.surface,
-        border: `1px solid ${overdue ? T.danger : PC_COLORS[r.priority] + "30"}`,
-        borderRadius: 12,
-        padding: "13px 15px",
+        background: T.card,
+        border: `1px solid ${overdue ? `${T.danger}30` : `${accent}15`}`,
+        borderRadius: 18,
+        padding: "16px",
         cursor: "pointer",
-        transition: "all .15s",
-        marginBottom: 8,
+        transition: "all .3s cubic-bezier(0.16, 1, 0.3, 1)",
+        marginBottom: 12,
+        position: 'relative',
+        overflow: 'hidden',
+        boxShadow: `0 4px 12px ${accent}08`
       }}
+      onMouseEnter={(e)=>{e.currentTarget.style.transform='translateY(-2px)';e.currentTarget.style.boxShadow=`0 12px 24px ${accent}12`;e.currentTarget.style.borderColor=`${accent}40`;}}
+      onMouseLeave={(e)=>{e.currentTarget.style.transform='none';e.currentTarget.style.boxShadow=`0 4px 12px ${accent}08`;e.currentTarget.style.borderColor=`${overdue ? `${T.danger}30` : `${accent}15`}`;}}
     >
-      <div
-        style={{
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "flex-start",
-          gap: 8,
-        }}
-      >
+      {r.priority === 'High' && !r.done && (
+        <div style={{ position: 'absolute', top: 0, left: 0, bottom: 0, width: 4, background: `linear-gradient(to bottom, ${T.danger}, ${T.warn})` }} />
+      )}
+      
+      <div style={{ display: "flex", gap: 14, alignItems: "flex-start" }}>
+        <div style={{ 
+          padding: '10px', borderRadius: 14, background: `${accent}10`, color: accent,
+          display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+          border: `1px solid ${accent}20`,
+          animation: (overdue || r.priority === 'High') && !r.done ? 'pulse 2s infinite' : 'none'
+        }}>
+          <Icon size={18} strokeWidth={2.5} />
+        </div>
+        
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div
-            style={{
-              color: r.done ? T.muted : T.txt,
-              fontWeight: 700,
-              fontSize: 13,
-              marginBottom: 3,
-              textDecoration: r.done ? "line-through" : "none",
-              overflow: "hidden",
-              textOverflow: "ellipsis",
-              whiteSpace: "nowrap",
-            }}
-          >
+          <div style={{
+            color: r.done ? T.muted : T.txt,
+            fontWeight: 800, fontSize: 14, marginBottom: 4,
+            textDecoration: r.done ? "line-through" : "none",
+            letterSpacing: '-0.01em'
+          }}>
             {r.title}
           </div>
-          <div style={{ color: T.muted, fontSize: 11 }}>
-            {r.dueDate} · {r.dueTime}
+          <div style={{ color: T.dim, fontSize: 11, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 6, opacity: 0.8 }}>
+             <Clock size={11} strokeWidth={2.5} /> {new Date(r.dueDate).toLocaleDateString('en-GB', { day:'numeric', month:'short' })} · {r.dueTime}
+             {overdue && <span style={{ color: T.danger, fontWeight: 900, textTransform: 'uppercase', fontSize: 9 }}>· Overdue</span>}
           </div>
           {r.note && (
-            <div
-              style={{
-                color: T.dim,
-                fontSize: 12,
-                marginTop: 4,
-                overflow: "hidden",
-                textOverflow: "ellipsis",
-                display: "-webkit-box",
-                WebkitLineClamp: 2,
-                WebkitBoxOrient: "vertical",
-              }}
-            >
+            <div style={{
+              color: T.muted, fontSize: 12, marginTop: 8, opacity: 0.8,
+              lineHeight: 1.5, overflow: "hidden", textOverflow: "ellipsis",
+              display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical"
+            }}>
               {r.note}
             </div>
           )}
         </div>
-        <div
-          style={{
-            display: "flex",
-            flexDirection: "column",
-            alignItems: "flex-end",
-            gap: 5,
-            flexShrink: 0,
-          }}
-        >
-          <Badge color={PC_COLORS[r.priority] || T.muted}>{r.priority}</Badge>
-          {overdue && <Badge color={T.danger}>Overdue</Badge>}
+        
+        <div style={{ flexShrink: 0 }}>
+          <Badge sm color={accent}>{r.priority}</Badge>
         </div>
       </div>
-      <div style={{ display: "flex", gap: 6, marginTop: 10 }}>
+
+      <div style={{ display: "flex", gap: 8, marginTop: 16 }}>
         {!r.done && (
           <button
-            onClick={(e) => {
-              e.stopPropagation();
-              onDone(r.id);
-              SFX.save();
-            }}
+            onClick={(e) => { e.stopPropagation(); onDone(r.id); SFX.save(); }}
             style={{
-              background: T.oLo,
-              border: `1px solid ${T.ok}38`,
-              color: T.ok,
-              borderRadius: 7,
-              padding: "4px 10px",
-              fontSize: 11,
-              fontWeight: 700,
-              cursor: "pointer",
+              background: T.accent, border: 'none', color: '#000',
+              borderRadius: 10, padding: "6px 14px", fontSize: 11, fontWeight: 850, cursor: "pointer",
+              boxShadow: `0 4px 10px ${T.accent}30`
             }}
           >
-            ✓ Done
+            Mark Done
           </button>
         )}
         <button
-          onClick={(e) => {
-            e.stopPropagation();
-            onRemove(r.id);
-          }}
+          onClick={(e) => { e.stopPropagation(); onRemove(r.id); }}
           style={{
-            background: T.dLo,
-            border: `1px solid ${T.danger}38`,
-            color: T.danger,
-            borderRadius: 7,
-            padding: "4px 10px",
-            fontSize: 11,
-            fontWeight: 700,
-            cursor: "pointer",
+            background: 'none', border: `1px solid ${T.border}`, color: T.dim,
+            borderRadius: 10, padding: "6px 14px", fontSize: 11, fontWeight: 700, cursor: "pointer"
           }}
         >
-          Delete
+          {r.done ? 'Delete' : 'Dismiss'}
         </button>
       </div>
     </div>
@@ -5753,10 +5904,23 @@ export const deriveDashboardMetrics = (loans, payments, customers) => {
     ? ((coll / totalExpectedVolume) * 100).toFixed(1) 
     : "0.0";
 
+  const activeBorrowerIds = new Set();
+  loans.forEach(l => {
+    const p = paidMap[l.id] || 0;
+    const e = calculateLoanStatus(l, null, p);
+    if (!['Settled', 'Written off', 'Approved', 'Application submitted', 'worker-pending'].includes(e.badgeStatus)) {
+      if (l.customerId) activeBorrowerIds.add(l.customerId);
+    }
+  });
+  const activeBorrowersCount = activeBorrowerIds.size;
+
+  const pendingApprovals = loans.filter(l => l.status === 'Application submitted' || l.status === 'worker-pending').length;
+
   return { 
     book, active, overdue, written, approved, totalDisb, coll, ovAmt, unalloc, 
     settledVolume, writtenVolume, approvedVolume, par1, par7, par30, parTotal, healthyCount, 
-    totalExpectedVolume, paidMap, activeList, ovList, collRate 
+    totalExpectedVolume, paidMap, activeList, ovList, collRate, activeBorrowersCount,
+    pendingApprovals
   };
 };
 
@@ -8420,30 +8584,7 @@ export const RepayTracker = ({ loans, payments }) => {
 // ═══════════════════════════════════════════
 //  CUSTOMER EDIT FORM
 // ═══════════════════════════════════════════
-export const CustomerEditForm = ({ customer, workers, onSave, onClose }) => {
-  const standardTypes = [
-    "Butchery", "Carpentry", "Charcoal/firewood seller", "Clothes & Accessories", 
-    "Food kiosk", "Fruits & Vegetables", "General shop", "Juakali artisan", 
-    "Milk ATM", "Rentals/accommodation", "Agrovet", "Autospares", 
-    "Animal feeds", "Bakery", "Boutique", "Salon/Kinyozi", 
-    "Poultry", "Second hand items", "Photo studio", "DSTV/Video show", 
-    "Health centre", "Electrical shop", "Bags", "Bookshop", 
-    "Pharmacy", "Beauty & cosmetics", "Welding", "Wines & spirits", 
-    "Money agent", "Fish seller", "Shoeshiner/repair", "Cereals", 
-    "Malimali", "Movie shop", "Soaps & detergents", "Cyber cafe", 
-    "Events & entertainment", "Gas cylinders", "Poshio mill", "Murtura base", 
-    "Pond table", "School", "Baller & sand", "Glass", 
-    "Garage", "Computer college", "Dry cleaner", "Carpet seller", 
-    "Car wash", "Timberyard", "Sugarcane", "Tailor", 
-    "Bar & restaurant", "School uniforms", "Brick seller", "Bakery & weaving", 
-    "Egg seller", "Gas shop", "Gym", "Shoe seller", 
-    "Day care", "Security firm", "Curtains", "Ice cream", 
-    "Maize", "Massage spa", "Chemicals", "Curios", 
-    "Detergent supplier", "Electronics", "Loans on item", "Optician", 
-    "Packaging material", "Potato seller", "Other", "Add option"
-  ];
-  const isCustomType = customer.businessType && !standardTypes.includes(customer.businessType);
-  
+export const CustomerEditForm = ({ customer, workers, allCustomers = [], onSave, onClose }) => {
   const [f, setF] = useState({
     name: customer.name || "",
     dob: customer.dob || "",
@@ -8453,13 +8594,9 @@ export const CustomerEditForm = ({ customer, workers, onSave, onClose }) => {
     altPhone: customer.altPhone || "",
     residence: customer.residence || "",
     businessName: customer.businessName || customer.business || "",
-    businessType: isCustomType ? "Other" : (customer.businessType || "Retail"),
-    customBusinessType: isCustomType ? customer.businessType : "",
-    businessLocation:
-      customer.businessLocation ||
-      customer.location ||
-      customer.businessLoc ||
-      "",
+    businessType: (customer.businessType && !["Butchery", "Carpentry", "Charcoal/firewood seller", "Clothes & Accessories", "Food kiosk", "Fruits & Vegetables", "General shop", "Juakali artisan", "Milk ATM", "Rentals/accommodation", "Agrovet", "Autospares", "Animal feeds", "Bakery", "Boutique", "Salon/Kinyozi", "Poultry", "Second hand items", "Photo studio", "DSTV/Video show", "Health centre", "Electrical shop", "Bags", "Bookshop", "Pharmacy", "Beauty & cosmetics", "Welding", "Wines & spirits", "Money agent", "Fish seller", "Shoeshiner/repair", "Cereals", "Malimali", "Movie shop", "Soaps & detergents", "Cyber cafe", "Events & entertainment", "Gas cylinders", "Poshio mill", "Murtura base", "Pond table", "School", "Baller & sand", "Glass", "Garage", "Computer college", "Dry cleaner", "Carpet seller", "Car wash", "Timberyard", "Sugarcane", "Tailor", "Bar & restaurant", "School uniforms", "Brick seller", "Bakery & weaving", "Egg seller", "Gas shop", "Gym", "Shoe seller", "Day care", "Security firm", "Curtains", "Ice cream", "Maize", "Massage spa", "Chemicals", "Curios", "Detergent supplier", "Electronics", "Loans on item", "Optician", "Packaging material", "Potato seller", "Other", "Add option"].includes(customer.businessType)) ? "Other" : (customer.businessType || "Retail"),
+    customBusinessType: (customer.businessType && !["Butchery", "Carpentry", "Charcoal/firewood seller", "Clothes & Accessories", "Food kiosk", "Fruits & Vegetables", "General shop", "Juakali artisan", "Milk ATM", "Rentals/accommodation", "Agrovet", "Autospares", "Animal feeds", "Bakery", "Boutique", "Salon/Kinyozi", "Poultry", "Second hand items", "Photo studio", "DSTV/Video show", "Health centre", "Electrical shop", "Bags", "Bookshop", "Pharmacy", "Beauty & cosmetics", "Welding", "Wines & spirits", "Money agent", "Fish seller", "Shoeshiner/repair", "Cereals", "Malimali", "Movie shop", "Soaps & detergents", "Cyber cafe", "Events & entertainment", "Gas cylinders", "Poshio mill", "Murtura base", "Pond table", "School", "Baller & sand", "Glass", "Garage", "Computer college", "Dry cleaner", "Carpet seller", "Car wash", "Timberyard", "Sugarcane", "Tailor", "Bar & restaurant", "School uniforms", "Brick seller", "Bakery & weaving", "Egg seller", "Gas shop", "Gym", "Shoe seller", "Day care", "Security firm", "Curtains", "Ice cream", "Maize", "Massage spa", "Chemicals", "Curios", "Detergent supplier", "Electronics", "Loans on item", "Optician", "Packaging material", "Potato seller", "Other", "Add option"].includes(customer.businessType)) ? customer.businessType : "",
+    businessLocation: customer.businessLocation || customer.location || customer.businessLoc || "",
     officer: customer.officer || "",
     risk: customer.risk || "Low",
     n1n: customer.n1n || "",
@@ -8472,6 +8609,16 @@ export const CustomerEditForm = ({ customer, workers, onSave, onClose }) => {
     n3p: customer.n3p || "",
     n3r: customer.n3r || "",
   });
+
+  const duplicateCheck = useMemo(() => {
+    if (!allCustomers?.length) return null;
+    const phoneMatch = allCustomers.find(c => c.id !== customer.id && c.phone === f.phone);
+    if (phoneMatch) return { type: 'Phone', name: phoneMatch.name };
+    const idMatch = allCustomers.find(c => c.id !== customer.id && c.idNo === f.idNo);
+    if (idMatch) return { type: 'ID Number', name: idMatch.name };
+    return null;
+  }, [f.phone, f.idNo, allCustomers, customer.id]);
+
   const [docs, setDocs] = useState(customer.docs || []);
   const [tab, setTab] = useState("personal");
   const [err, setErr] = useState([]);
@@ -8557,6 +8704,30 @@ export const CustomerEditForm = ({ customer, workers, onSave, onClose }) => {
               ★ {e}
             </div>
           ))}
+        </div>
+      )}
+      {duplicateCheck && (
+        <div
+          style={{
+            background: T.wLo,
+            border: `1px solid ${T.warn}38`,
+            borderRadius: 12,
+            padding: "12px 16px",
+            marginBottom: 16,
+            display: "flex",
+            alignItems: "center",
+            gap: 12,
+          }}
+        >
+          <div style={{ fontSize: 24 }}>⚠</div>
+          <div>
+            <div style={{ color: T.warn, fontWeight: 800, fontSize: 13 }}>
+              DUPLICATE {duplicateCheck.type.toUpperCase()} DETECTED
+            </div>
+            <div style={{ color: T.txt, fontSize: 12, marginTop: 2 }}>
+              This {duplicateCheck.type} is already registered to <b>{duplicateCheck.name}</b>.
+            </div>
+          </div>
         </div>
       )}
       <div
@@ -8818,8 +8989,8 @@ export const CustomerEditForm = ({ customer, workers, onSave, onClose }) => {
           borderTop: `1px solid ${T.border}`,
         }}
       >
-        <Btn onClick={save} full>
-          ✓ Save Changes
+        <Btn onClick={save} full disabled={!!duplicateCheck}>
+          {duplicateCheck ? 'Duplicate Detected' : '✓ Save Changes'}
         </Btn>
         <Btn v="secondary" onClick={onClose}>
           Cancel
@@ -9733,7 +9904,7 @@ export const LoanModal = ({
     const cust = customers.find(
       (c) => c.id === loan.customerId || c.name === loan.customer,
     ) || { name: loan.customer };
-    const pays = payments.filter((p) => p.loanId === loan.id);
+    const pays = payments.filter((p) => p.loanId === loan.id && p.status === 'Allocated');
     const ints = (interactions || []).filter((i) =>
       i.loanId === loan.id ||
       i.customerId === loan.customerId ||
@@ -9788,31 +9959,30 @@ export const LoanModal = ({
       aria-label={`Loan ${loan.id} — ${loan.customer}`}
       style={{
         position: "fixed",
-        top: 0,
-        left: 0,
-        right: 0,
-        bottom: 0,
+        inset: 0,
         zIndex: 9900,
-        display: "flex",
-        alignItems: "flex-start",
-        justifyContent: "flex-end",
         backdropFilter: "var(--glass-blur)",
         WebkitBackdropFilter: "var(--glass-blur)",
         background: "rgba(4,8,16,0.55)",
-        overflow: "hidden",
       }}
     >
+      {/* Panel pinned directly to the viewport via position:fixed so it is
+          never clipped by ancestor overflow:hidden or transform contexts */}
       <div
         style={{
-          background: T.card,
-          borderLeft: `1px solid ${T.hi}`,
+          position: "fixed",
+          top: 0,
+          right: 0,
+          bottom: 0,
           width: "100%",
           maxWidth: 520,
-          height: "100%",
+          background: T.card,
+          borderLeft: `1px solid ${T.hi}`,
           display: "flex",
           flexDirection: "column",
           boxShadow: "-20px 0 60px #00000080",
           overflow: "hidden",
+          zIndex: 9901,
         }}
       >
         <div
@@ -9863,7 +10033,7 @@ export const LoanModal = ({
             ✕
           </button>
         </div>
-        <div style={{ flex: 1, padding: "18px 20px 32px", overflowY: "auto" }}>
+        <div style={{ flex: 1, padding: "18px 20px 32px", overflowY: "auto", minHeight: 0, WebkitOverflowScrolling: 'touch' }}>
           {/* Status + customer link */}
           <div
             style={{
@@ -11728,7 +11898,9 @@ export const toSupabaseCustomer = (c) => ({
   n3_phone: c.n3p || null,
   n3_relation: c.n3r || null,
   documents: c.docs || [],
-  created_at: c.joined || c.createdAt || null,
+  // Write to the dedicated `joined` column — NOT `created_at` which is server-managed
+  // and will silently ignore or overwrite whatever we supply.
+  joined: c.joined || c.createdAt || null,
 });
 export const fromSupabaseCustomer = (r) => ({
   id: r.id,
@@ -11742,15 +11914,18 @@ export const fromSupabaseCustomer = (r) => ({
   businessLocation: r.business_location || r.location,
   location: r.business_location || r.location,
   residence: r.residence || r.address,
-  officer: r.officer,
+  officer: r.assigned_officer || r.officer,
   loans: r.loans || 0,
-  risk: r.risk || r.risk || "Medium",
+  risk: r.risk || 'Medium',
   gender: r.gender,
-  dob: r.dob || r.dob,
-  blacklisted: r.blacklisted || r.status === "Blacklisted",
+  dob: r.dob,
+  blacklisted: r.blacklisted || r.status === 'Blacklisted',
   blReason: r.bl_reason,
   fromLead: r.from_lead,
   status: r.status,
+  // ── Registration Fee — SINGLE SOURCE OF TRUTH ──
+  mpesaRegistered: r.mpesa_registered === true,
+  // ── Next of Kin ──
   n1n: r.n1_name,
   n1p: r.n1_phone,
   n1r: r.n1_relation,
@@ -11760,7 +11935,9 @@ export const fromSupabaseCustomer = (r) => ({
   n3n: r.n3_name,
   n3p: r.n3_phone,
   n3r: r.n3_relation,
-  joined: r.created_at || r.joined,
+  // Read `joined` first (the canonical manual field), fall back to `created_at`
+  // only for records that predate the dedicated column.
+  joined: r.joined || r.created_at,
   createdAt: r.created_at,
   docs: r.documents || [],
 });
@@ -11940,27 +12117,31 @@ export const saveSecConfig = (cfg) => {
 
 // -- Navigation Constants ------------------------------------------
 export const ADMIN_NAV = [
-  { id: "dashboard", l: "Dashboard", i: LayoutDashboard },
-  { id: "calendar", l: "Calendar", i: Calendar },
-  { id: "loans", l: "Loans", i: CreditCard },
-  { id: "customers", l: "Customers", i: Users },
-  { id: "leads", l: "Leads", i: UserPlus },
-  { id: "collections", l: "Collections", i: Phone },
-  { id: "payments", l: "Payments", i: CheckCircle },
-  { id: "paymentshub", l: "Payments Hub", i: ShieldCheck },
-  { id: "workers", l: "Team", i: Users },
-  { id: "securitysettings", l: "Security Settings", i: Settings },
-  { id: "database", l: "Database", i: Database },
-  { id: "reports", l: "Reports", i: BarChart3 },
-  { id: "audit", l: "Audit Trail", i: FileText },
+  { cat: "General", id: "dashboard", l: "Dashboard", i: LayoutDashboard, c: '#06AED4' },
+  { cat: "General", id: "calendar", l: "Calendar", i: Calendar, c: '#FFB020' },
+  
+  { cat: "CRM", id: "customers", l: "Customers", i: Users, c: '#7C3AED' },
+  { cat: "CRM", id: "leads", l: "Leads", i: UserPlus, c: '#F04438' },
+  
+  { cat: "Financials", id: "loans", l: "Loans", i: CreditCard, c: '#2E90FA' },
+  { cat: "Financials", id: "collections", l: "Collections", i: Phone, c: '#F79009' },
+  { cat: "Financials", id: "payments", l: "Payments", i: CheckCircle, c: '#12B76A' },
+  { cat: "Financials", id: "paymentshub", l: "Payments Hub", i: ShieldCheck, c: '#6699FF' },
+  
+  { cat: "Organization", id: "workers", l: "Team", i: Users, c: '#FB6514' },
+  { cat: "Organization", id: "reports", l: "Reports", i: BarChart3, c: '#EE46BC' },
+  
+  { cat: "System", id: "securitysettings", l: "Security Settings", i: Settings, c: '#667085' },
+  { cat: "System", id: "database", l: "Platform Health", i: Database, c: '#D92D20' },
+  { cat: "System", id: "audit", l: "Security Logs", i: FileText, c: '#98A2B3' },
 ];
 
 export const WORKER_NAV = [
-  { id: "overview", l: "Overview", i: LayoutDashboard },
-  { id: "loans", l: "Loans", i: CreditCard },
-  { id: "customers", l: "Users", i: Users },
-  { id: "leads", l: "Leads", i: UserPlus },
-  { id: "documents", l: "Documents", i: FileText },
+  { id: "overview", l: "Overview", i: LayoutDashboard, c: T.accent },
+  { id: "loans", l: "Loans", i: CreditCard, c: T.blue },
+  { id: "customers", l: "Users", i: Users, c: T.purple },
+  { id: "leads", l: "Leads", i: UserPlus, c: T.accent },
+  { id: "documents", l: "Documents", i: FileText, c: T.dim },
 ];
 
 export const dataUrlToBlob = (dataUrl) => {
@@ -12098,78 +12279,72 @@ export const DateRangePicker = ({
   onStartChange,
   onEndChange,
   onSearch,
-}) => (
-  <div
-    style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}
-  >
-    <div
+}) => {
+  const [active, setActive] = useState(null); // 'start' or 'end'
+  const ref = useRef(null);
+
+  useEffect(() => {
+    if (!active) return;
+    const clickOut = (e) => {
+      if (ref.current && !ref.current.contains(e.target)) setActive(null);
+    };
+    document.addEventListener('mousedown', clickOut);
+    return () => document.removeEventListener('mousedown', clickOut);
+  }, [active]);
+
+  const DateTrigger = ({ label, val, type }) => (
+    <div 
+      onClick={() => setActive(active === type ? null : type)}
       style={{
-        display: "flex",
-        gap: 10,
-        alignItems: "center",
-        background: T.card,
-        padding: "6px 12px",
-        borderRadius: 12,
-        border: `1px solid ${T.border}`,
+        display: "flex", flexDirection: "column", cursor: 'pointer',
+        padding: "4px 12px", borderRadius: 10,
+        background: active === type ? T.aLo : 'transparent',
+        transition: 'all .2s'
       }}
     >
-      <div style={{ display: "flex", flexDirection: "column" }}>
-        <label
-          style={{
-            fontSize: 9,
-            fontWeight: 800,
-            color: T.muted,
-            textTransform: "uppercase",
-          }}
-        >
-          From
-        </label>
-        <input
-          type="date"
-          value={start}
-          onChange={(e) => onStartChange(e.target.value)}
-          style={{
-            background: "transparent",
-            border: "none",
-            color: T.txt,
-            fontSize: 12,
-            outline: "none",
-            maxWidth: 115,
-          }}
-        />
-      </div>
-      <div style={{ color: T.border, fontSize: 16 }}>→</div>
-      <div style={{ display: "flex", flexDirection: "column" }}>
-        <label
-          style={{
-            fontSize: 9,
-            fontWeight: 800,
-            color: T.muted,
-            textTransform: "uppercase",
-          }}
-        >
-          To
-        </label>
-        <input
-          type="date"
-          value={end}
-          onChange={(e) => onEndChange(e.target.value)}
-          style={{
-            background: "transparent",
-            border: "none",
-            color: T.txt,
-            fontSize: 12,
-            outline: "none",
-            maxWidth: 115,
-          }}
-        />
+      <label style={{ fontSize: 9, fontWeight: 800, color: T.muted, textTransform: "uppercase", marginBottom: 2 }}>{label}</label>
+      <div style={{ fontSize: 13, fontWeight: 700, color: T.txt, display: 'flex', alignItems: 'center', gap: 6 }}>
+        {val || '—'} <Calendar size={12} color={T.accent} opacity={0.6} />
       </div>
     </div>
-    <Btn onClick={onSearch} v="primary" sm style={{ height: 38, padding: "0 16px" }}>
-      Search
-    </Btn>
-  </div>
-);
+  );
+
+  return (
+    <div ref={ref} style={{ display: "flex", gap: 10, alignItems: "center", position: 'relative' }}>
+      <div
+        style={{
+          display: "flex", gap: 6, alignItems: "center",
+          background: T.card, padding: "4px", borderRadius: 14, border: `1px solid ${T.border}`,
+          boxShadow: '0 4px 12px rgba(0,0,0,0.05)'
+        }}
+      >
+        <DateTrigger label="From" val={start} type="start" />
+        <div style={{ width: 1, height: 24, background: T.border }} />
+        <DateTrigger label="To" val={end} type="end" />
+        
+        {active && (
+          <div style={{ 
+            position: 'absolute', 
+            top: 'calc(100% + 4px)', 
+            left: 0, 
+            zIndex: 20000 
+          }}>
+             <ModernDatePicker 
+               value={active === 'start' ? start : end} 
+               onChange={active === 'start' ? onStartChange : onEndChange} 
+               onClose={() => setActive(null)} 
+               T={T} 
+             />
+          </div>
+        )}
+      </div>
+
+      <Btn onClick={onSearch} v="primary" sm style={{ height: 40, width: 40, borderRadius: 12, padding: 0 }}>
+        <SearchIcon size={18} strokeWidth={2.5} />
+      </Btn>
+    </div>
+  );
+};
 
 // ── Module Header (Combined Title + Search + Date + Export) ──
 export const ModuleHeader = ({
@@ -12182,7 +12357,7 @@ export const ModuleHeader = ({
   refreshProps,
   pillsProps,
 }) => (
-  <div className="fu" style={{ marginBottom: 20 }}>
+  <div className="fu" style={{ marginBottom: 20, position: "relative", zIndex: 1200 }}>
     <div
       className="mob-stack"
       style={{
@@ -12233,6 +12408,9 @@ export const ModuleHeader = ({
         padding: "12px 14px",
         borderRadius: 16,
         border: `1px solid ${T.border}`,
+        position: "relative",
+        zIndex: 100,
+        overflow: "visible",
       }}
     >
       {search && (
@@ -12312,4 +12490,130 @@ export const generateCollectionLetterHTML = (type, loan, customer, officer, true
     "</body></html>",
   ];
   return parts.join("\n");
+};
+
+export const dlBlob = (content, filename, mime) => {
+  try {
+    const blob = new Blob([content], {type: mime});
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement('a');
+    a.href = url; a.download = filename;
+    document.body.appendChild(a); a.click();
+    document.body.removeChild(a);
+    setTimeout(()=>URL.revokeObjectURL(url), 1000);
+  } catch(e) { console.error('Download failed', e); }
+};
+
+export const buildReportData = (type, {loans, customers, payments, workers, auditLog}, filters = {}) => {
+  let lList = loans || [];
+  let pList = payments || [];
+  const { startDate, endDate } = filters;
+  
+  if (startDate && endDate) {
+    lList = loans.filter(l => l.disbursed >= startDate && l.disbursed <= endDate);
+    pList = payments.filter(p => p.date >= startDate && p.date <= endDate);
+  }
+
+  if(type==='loan-portfolio') {
+    const hdr = ['Loan ID','Customer','Principal','Base Remaining','Status','Days Overdue','Penalty','Remaining','Total Due','Officer','Disbursed','Repay Type'];
+    const rows = lList.map(l=>{const e=calculateLoanStatus(l);return [l.id,l.customer,l.amount,e.baseBalance,l.status,l.daysOverdue,e.penalty,e.totalAmountDue,e.totalPayable,l.officer,l.disbursed||'N/A',l.repaymentType];});
+    return {name:'loan-portfolio', title:'Loan Portfolio Report', hdr, rows};
+  }
+  if(type==='financial') {
+    const tb  = lList.reduce((s,l)=>s+l.amount,0);
+    const out = lList.filter(l => !calculateLoanStatus(l).isSettled).reduce((s,l)=>s+l.balance,0);
+    const col = pList.filter(p=>p.status==='Allocated').reduce((s,p)=>s+p.amount,0);
+    const ov  = lList.filter(l => {
+      const e = calculateLoanStatus(l);
+      return e.overdueDays > 0 && !e.isSettled;
+    }).reduce((s,l)=>s+l.balance,0);
+    return {name:'financial-summary', title:'Financial Summary Report', hdr:['Metric','KES'],
+      rows:[['Total Disbursed',tb],['Total Outstanding',out],['Total Collected',col],['Total Overdue',ov],
+            ['Collection Rate %', tb>0?((col/tb)*100).toFixed(2):0]]};
+  }
+  if(type==='active-loans') {
+    const act = lList.filter(l => l.status === 'Active');
+    return {name:'active-loans', title:'Active Exposure Report', 
+      hdr:['Loan ID','Customer','Principal','Balance','Arrears','Next Repayment','Officer'],
+      rows: act.map(l => [l.id, l.customer, l.amount, l.balance, l.daysOverdue || 0, l.nextRepayment || 'N/A', l.officer])};
+  }
+  if(type==='due-today') {
+    const today = new Date().toISOString().split('T')[0];
+    const due = lList.filter(l => l.nextRepayment === today);
+    return {name:'due-today', title:'Due Today Report',
+      hdr:['Loan ID','Customer','Phone','Amount Due','Status','Officer'],
+      rows: due.map(l => [l.id, l.customer, l.phone, l.balance, l.status, l.officer])};
+  }
+  if(type==='payments-today') {
+    return {name:'payments', title:'Transaction Ledger',
+      hdr:['ID','Customer','Loan ID','Amount','M-Pesa Code','Date','Status','Allocated By'],
+      rows:pList.map(p=>[p.id,p.customer,p.loanId||'N/A',p.amount,p.mpesa||'',p.date,p.status,p.allocatedBy||''])};
+  }
+  if(type==='customers') {
+    return {name:'customers', title:'Customer Report',
+      hdr:['ID','Name','Phone','Business','Location','Officer','Loans','Risk','Joined','Blacklisted'],
+      rows:customers.map(c=>[c.id,c.name,c.phone,c.business||'',c.location||'',c.officer||'',c.loans,c.risk,c.joined,c.blacklisted?'Yes':'No'])};
+  }
+  if(type==='audit') {
+    const aList = auditLog || [];
+    const filteredAudit = (startDate && endDate) 
+        ? aList.filter(a => a.ts.split('T')[0] >= startDate && a.ts.split('T')[0] <= endDate)
+        : aList;
+    return {name:'audit-log', title:'Audit Log Report',
+      hdr:['Timestamp','User','Action','Target','Details'],
+      rows:filteredAudit.map(e=>[e.ts,e.user,e.action,e.target,e.detail||''])};
+  }
+  if(type==='overdue') {
+    const ov = lList.filter(l => {
+      const e = calculateLoanStatus(l);
+      return e.overdueDays > 0 && !e.isSettled;
+    });
+    return {name:'overdue-report', title:'Overdue Loans Report',
+      hdr:['Loan ID','Customer','Base Remaining','Days Overdue','Penalty','Remaining','Total Due','Risk','Officer'],
+      rows:ov.map(l=>{const e=calculateLoanStatus(l);return [l.id,l.customer,e.baseBalance,l.overdueDays,e.penalty,e.totalAmountDue,e.totalPayable,l.risk,l.officer];})};
+  }
+  if(type==='staff') {
+    const wList = workers || [];
+    return {name:'staff-performance', title:'Staff Performance Report',
+      hdr:['ID','Name','Role','Status','Loans','Book KES','Overdue %'],
+      rows:wList.map(w=>{
+        const wl=lList.filter(l => l.officer===w.name);
+        const bk=wl.reduce((s,l)=>s+l.balance,0);
+        const od=wl.filter(l => {
+          const e = calculateLoanStatus(l);
+          return e.overdueDays > 0 && !e.isSettled;
+        }).length;
+        return [w.id,w.name,w.role,w.status,wl.length,bk,wl.length?((od/wl.length)*100).toFixed(1):0];
+      })};
+  }
+  return {name:'report', title:'Report', hdr:[], rows:[]};
+};
+
+export const dlReportCSV = ({name, hdr, rows}) => {
+  dlBlob(toCSV(hdr, rows), `${name}-${now()}.csv`, 'text/csv;charset=utf-8;');
+};
+
+export const dlReportPDF = ({title, hdr, rows}) => {
+  const esc = s => String(s??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>${esc(title)}</title>
+<style>body{font-family:Arial,sans-serif;font-size:11px;padding:20px}h1{font-size:15px;margin:0 0 4px}p{color:#666;font-size:10px;margin:0 0 14px}table{width:100%;border-collapse:collapse}th{background:#1a2740;color:#fff;padding:6px 10px;text-align:left;font-size:10px}td{padding:5px 10px;border-bottom:1px solid #e2e8f0;font-size:10px}tr:nth-child(even)td{background:#f8fafc}@media print{body{padding:8px}}</style>
+</head><body><h1>${esc(title)}</h1><p>Generated: ${new Date().toLocaleString('en-KE')} - Adequate Capital Ltd</p>
+<table><thead><tr>${hdr.map(h=>`<th>${esc(h)}</th>`).join('')}</tr></thead>
+<tbody>${rows.map(r=>`<tr>${r.map(c=>`<td>${esc(c)}</td>`).join('')}</tr>`).join('')}</tbody></table>
+</body></html>`;
+  dlBlob(html, `${title.replace(/\s+/g,'-')}-${now()}.html`, 'text/html;charset=utf-8;');
+};
+
+export const dlReportWord = ({title, hdr, rows}) => {
+  const esc = s => String(s??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  const headerRow = `<w:tr>${hdr.map(h=>`<w:tc><w:p><w:r><w:rPr><w:b/></w:rPr><w:t>${esc(h)}</w:t></w:r></w:p></w:tc>`).join('')}</w:tr>`;
+  const tableRows = rows.map(r=>`<w:tr>${r.map(c=>`<w:tc><w:p><w:r><w:t>${esc(c)}</w:t></w:r></w:p></w:tc>`).join('')}</w:tr>`).join('');
+  const xml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><?mso-application progid="Word.Document"?>
+<w:wordDocument xmlns:w="http://schemas.microsoft.com/office/word/2003/wordml">
+<w:body>
+<w:p><w:r><w:rPr><w:b/><w:sz w:val="28"/></w:rPr><w:t>${esc(title)}</w:t></w:r></w:p>
+<w:p><w:r><w:t>Generated: ${new Date().toLocaleString('en-KE')} - Adequate Capital Ltd</w:t></w:r></w:p>
+<w:tbl><w:tblPr><w:tblW w:w="0" w:type="auto"/></w:tblPr>${headerRow}${tableRows}</w:tbl>
+</w:body></w:wordDocument>`;
+  dlBlob(xml, `${title.replace(/\s+/g,'-')}-${now()}.doc`, 'application/msword');
 };

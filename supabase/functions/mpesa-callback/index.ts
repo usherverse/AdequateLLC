@@ -11,114 +11,145 @@ serve(async (req: Request) => {
   }
 
   try {
-    const payload = await req.json();
-    console.log("M-Pesa Callback Payload Received:", JSON.stringify(payload, null, 2));
+    const data = await req.json();
+    console.log("[M-Pesa Edge] Callback Received:", JSON.stringify(data, null, 2));
 
-    let mpesaReceiptNumber = null;
-    let amount = null;
-    let phoneNumber = null;
+    // Support both C2B Simulation/Real Callback and STK Push Callback formats
+    let TransID, TransAmount, MSISDN, FirstName, MiddleName, LastName, BillRefNumber;
 
-    // Type 1: STK Push Callback (C2B)
-    if (payload.Body?.stkCallback) {
-      const cb = payload.Body.stkCallback;
-      if (cb.ResultCode === 0) {
-        const items = cb.CallbackMetadata?.Item || [];
-        for (const item of items) {
-          if (item.Name === 'Amount') amount = item.Value;
-          if (item.Name === 'MpesaReceiptNumber') mpesaReceiptNumber = item.Value;
-          if (item.Name === 'PhoneNumber') phoneNumber = String(item.Value);
-        }
-      } else {
-        console.log(`STK Push Failed with ResultCode: ${cb.ResultCode}`, cb.ResultDesc);
-        return new Response(JSON.stringify({ ResultCode: 0, ResultDesc: "Acknowledged failure" }), { status: 200 });
-      }
-    } 
-    // Type 2: Standard C2B Webhook
-    else if (payload.TransID) {
-      mpesaReceiptNumber = payload.TransID;
-      amount = payload.TransAmount;
-      phoneNumber = String(payload.MSISDN);
+    if (data.Body?.stkCallback) {
+      // STK Push Format
+      const cb = data.Body.stkCallback;
+      if (cb.ResultCode !== 0) return new Response(JSON.stringify({ ResultCode: 0, ResultDesc: "Failure ignored" }));
+      
+      const items = cb.CallbackMetadata?.Item || [];
+      TransID = items.find((i: any) => i.Name === 'MpesaReceiptNumber')?.Value;
+      TransAmount = items.find((i: any) => i.Name === 'Amount')?.Value;
+      MSISDN = String(items.find((i: any) => i.Name === 'PhoneNumber')?.Value);
+      BillRefNumber = 'STK_PUSH'; // Usually not provided in STK
+    } else {
+      // Standard C2B Format
+      ({ TransID, TransAmount, MSISDN, FirstName, MiddleName, LastName, BillRefNumber } = data);
     }
 
-    if (!mpesaReceiptNumber || !amount) {
-      throw new Error(`Missing required fields. Receipt: ${mpesaReceiptNumber}, Amount: ${amount}`);
+    if (!TransID) throw new Error("Missing TransID");
+
+    const amount = parseFloat(String(TransAmount));
+    const displayName = `${FirstName || ''} ${MiddleName || ''} ${LastName || ''}`.trim();
+    const phone = String(MSISDN);
+
+    // --- 0. Idempotency Check ---
+    const { data: existing } = await supabase.from('payments').select('id').eq('mpesa', TransID).maybeSingle();
+    if (existing) {
+      console.log(`[M-Pesa Edge] Skipping duplicate TxID: ${TransID}`);
+      await supabase.from('unallocated_payments').delete().eq('transaction_id', TransID);
+      return new Response(JSON.stringify({ ResultCode: 0, ResultDesc: "Duplicate Ignored" }));
     }
 
-    // Attempt to map to a customer based on phone number
-    let customerId = null;
-    let loanId = null;
+    // --- 1. Matching Logic ---
+    let matchedCustomer = null;
+    let targetLoanId = null;
 
-    if (phoneNumber) {
-      // Find customer by matching phone number format roughly
-      let phoneQuery = phoneNumber;
-      if (phoneNumber.startsWith("254")) {
-         phoneQuery = `0${phoneNumber.substring(3)}`; // Map 2547... to 07... 
+    // 1.1 Match by BillRefNumber
+    if (BillRefNumber && BillRefNumber !== 'STK_PUSH') {
+      const ref = String(BillRefNumber).trim();
+      const { data: loanMatch } = await supabase.from('loans').select('id, customer_id').eq('id', ref).maybeSingle();
+      if (loanMatch) {
+        targetLoanId = loanMatch.id;
+        const { data: cus } = await supabase.from('customers').select('id, name').eq('id', loanMatch.customer_id).single();
+        if (cus) matchedCustomer = cus;
       }
-      const { data: cData } = await supabase
-        .from('customers')
-        .select('id, name')
-        .or(`phone.eq.${phoneNumber},phone.eq.${phoneQuery}`)
-        .limit(1)
-        .single();
-
-      if (cData) {
-        customerId = cData.id;
-        
-        // Find their most recent active loan to allocate the payment to
-        const { data: lData } = await supabase
-          .from('loans')
-          .select('id')
-          .eq('customer_id', customerId)
-          .in('status', ['Active', 'Overdue'])
-          .order('created_at', { ascending: false })
-          .limit(1)
-          .single();
-
-        if (lData) {
-          loanId = lData.id;
-        }
+      if (!matchedCustomer) {
+        const { data: cusMatch } = await supabase.from('customers').select('id, name').eq('id', ref).maybeSingle();
+        if (cusMatch) matchedCustomer = cusMatch;
       }
     }
 
-    // Insert payment record
-    const paymentRecord = {
-      id: `PAY-${Date.now().toString(36).toUpperCase()}`,
-      customer_id: customerId,
-      loan_id: loanId,
-      amount: Number(amount),
-      mpesa_code: mpesaReceiptNumber,
-      date: new Date().toISOString(),
-      status: 'Paid',
-      allocated_by: 'M-Pesa System'
-    };
-
-    const { error: dbErr } = await supabase.from('payments').insert([paymentRecord]);
-    
-    if (dbErr) {
-       console.error("Database Insert Error:", dbErr);
-       throw dbErr;
+    // 1.2 Match by Phone Suffix
+    if (!matchedCustomer && MSISDN) {
+      const phoneSuffix = String(MSISDN).slice(-9);
+      const { data: phoneMatch } = await supabase.from('customers').select('id, name').like('phone', `%${phoneSuffix}`).limit(1).maybeSingle();
+      if (phoneMatch) matchedCustomer = phoneMatch;
     }
 
-    // Log the automated interaction
-    if (customerId) {
-       await supabase.from('interactions').insert([{
-         id: `SYS-${Date.now().toString(36)}`,
-         customer_id: customerId,
-         worker_id: null,
-         type: 'System Note',
-         notes: `Automated M-Pesa payment of KES ${amount} (${mpesaReceiptNumber})`
-       }]);
+    // 1.3 Match by Name (Fuzzy matching)
+    if (!matchedCustomer && displayName) {
+      const { data: allCus } = await supabase.from('customers').select('id, name');
+      if (allCus) {
+        const dName = displayName.toLowerCase();
+        const match = allCus.find(c => {
+          const cName = (c.name || '').toLowerCase();
+          return cName === dName || (FirstName && cName.includes(FirstName.toLowerCase()) && LastName && cName.includes(LastName.toLowerCase()));
+        });
+        if (match) matchedCustomer = match;
+      }
     }
 
-    // Safaricom expects a success acknowledgment
-    return new Response(JSON.stringify({ 
-      ResultCode: 0, 
-      ResultDesc: "Data received and saved successfully" 
-    }), { headers: { "Content-Type": "application/json" }, status: 200 });
+    // --- 2. Allocation Logic ---
+    if (matchedCustomer) {
+      let activeLoan = null;
+      if (targetLoanId) {
+        const { data } = await supabase.from('loans').select('id, balance, status').eq('id', targetLoanId).maybeSingle();
+        activeLoan = data;
+      }
+      if (!activeLoan) {
+        const { data } = await supabase.from('loans').select('id, balance, status').eq('customer_id', matchedCustomer.id).eq('status', 'Active').order('created_at', { ascending: false }).limit(1).maybeSingle();
+        activeLoan = data;
+      }
+
+      // Record in payments table
+      const { error: payErr } = await supabase.from('payments').insert([{
+        customer_id: matchedCustomer.id,
+        loan_id: activeLoan?.id || null,
+        customer_name: matchedCustomer.name,
+        amount,
+        mpesa: TransID,
+        date: new Date().toISOString().split('T')[0],
+        status: activeLoan ? 'Allocated' : 'Unallocated',
+        allocated_by: activeLoan ? 'M-Pesa Edge Service' : null,
+        allocated_at: activeLoan ? new Date().toISOString() : null,
+        note: (activeLoan ? `Auto-allocated to loan ${activeLoan.id} ` : 'Matched to customer but no active loan found ') + `from ${displayName} (${phone})`
+      }]);
+
+      if (payErr) console.error("[M-Pesa Edge] Payment Insert Error:", payErr.message);
+
+      // Update Loan Balance
+      if (activeLoan) {
+        const newBal = Math.max(0, parseFloat(activeLoan.balance) - amount);
+        const newStatus = newBal <= 0 ? 'Settled' : activeLoan.status;
+        await supabase.from('loans').update({ balance: newBal, status: newStatus }).eq('id', activeLoan.id);
+      }
+
+      // Cleanup unallocated
+      await supabase.from('unallocated_payments').delete().eq('transaction_id', TransID);
+
+      // Audit Log
+      await supabase.from('audit_log').insert([{
+        user_name: 'M-Pesa System',
+        action: 'C2B Payment Allocated',
+        target_id: matchedCustomer.id,
+        detail: `Payment ${TransID} of KES ${amount} from ${displayName} (${phone}) allocated to ${matchedCustomer.name}.${activeLoan ? ` Applied to loan ${activeLoan.id}.` : ''}`
+      }]);
+
+    } else {
+      // --- 3. Totally Unallocated ---
+      const { data: existingUnalloc } = await supabase.from('unallocated_payments').select('id').eq('transaction_id', TransID).maybeSingle();
+      if (!existingUnalloc) {
+        await supabase.from('unallocated_payments').insert([{
+          transaction_id: TransID,
+          amount,
+          msisdn: MSISDN,
+          first_name: FirstName || 'Unknown',
+          last_name: LastName || '',
+          status: 'Unallocated'
+        }]);
+      }
+    }
+
+    return new Response(JSON.stringify({ ResultCode: 0, ResultDesc: "Success" }), { status: 200, headers: { "Content-Type": "application/json" } });
 
   } catch (err) {
-    console.error("Webhook processing error:", err);
-    // Even on error, return 200 so Safaricom doesn't repeatedly retry indefinitely unless it's a catastrophic network issue
-    return new Response(JSON.stringify({ ResultCode: 1, ResultDesc: "Error processing payload" }), { headers: { "Content-Type": "application/json" }, status: 200 });
+    console.error("[M-Pesa Edge] Critical Error:", err.message);
+    return new Response(JSON.stringify({ ResultCode: 1, ResultDesc: err.message }), { status: 200, headers: { "Content-Type": "application/json" } });
   }
 });

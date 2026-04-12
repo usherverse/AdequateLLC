@@ -50,9 +50,16 @@ export const useModuleFilter = ({
           }
 
           if (startDate || endDate) {
-            if (!itemDate) return false; 
-            if (startDate && itemDate < startDate) return false;
-            if (endDate && itemDate > endDate) return false;
+            // If we have a date range, usually we hide items with no date.
+            // FIX: If the user is SEARCHING, we should allow items with no date to show up
+            // if they match the search query, rather than hiding them permanently.
+            if (!itemDate) {
+              if (lq) { /* continue to search check */ } 
+              else return false;
+            } else {
+              if (startDate && itemDate < startDate) return false;
+              if (endDate && itemDate > endDate) return false;
+            }
           }
         }
 

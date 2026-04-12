@@ -2,7 +2,7 @@ import React, { useState, useMemo, useEffect, useRef, useCallback, memo } from '
 import { KeyRound, Lock, Fingerprint, Ban, CheckCircle, Hourglass, Smartphone, ShieldAlert, Check, AlertTriangle, EyeOff, Eye } from 'lucide-react';
 import { T, SC, RC, SFX, Card, CH, KPI, DT, Btn, Badge, Av, Bar, BackBtn, RefreshBtn,
   FI, PhoneInput, NumericInput, Search, Pills, Alert, Dialog, ConfirmDialog, ToastContainer,
-  LoanModal, LoanForm, RepayTracker,
+  LoanModal, LoanForm, RepayTracker, ModuleHeader,
   fmt, fmtM, now, uid, ts, escHtml, toCSV, dlCSV, buildFullBackup,
   calculateLoanStatus,
   sbWrite, sbInsert,
@@ -13,299 +13,234 @@ import { T, SC, RC, SFX, Card, CH, KPI, DT, Btn, Badge, Av, Bar, BackBtn, Refres
 import { _checkPw } from '@/data/seedData';
 
 
-const SecuritySettingsTab = ({auditLog, addAudit, showToast}) => {
+const SecuritySettingsTab = ({ adminUser, setAdminUser, auditLog, addAudit, showToast }) => {
   const [cfg, setCfgState] = useState(getSecConfig);
-  const [verifyPw, setVerifyPw] = useState('');
-  const [verified, setVerified] = useState(true); // open by default — no password gate
-  const [verifyErr, setVerifyErr] = useState('');
+  const [verifyPw, setVerifyPw] = useState("");
+  const [verified, setVerified] = useState(true);
+  const [verifyErr, setVerifyErr] = useState("");
   const [showChangePw, setShowChangePw] = useState(false);
-  const [curPw, setCurPw] = useState('');       // current password before changing
-  const [curPwErr, setCurPwErr] = useState('');
-  const [newPw, setNewPw] = useState('');
-  const [newPw2, setNewPw2] = useState('');
-  const [pwErr, setPwErr] = useState('');
-  const [showCurPw, setShowCurPw] = useState(false);   // eye toggle for current pw
-  const [showNewPw, setShowNewPw] = useState(false);   // eye toggle for new pw
-  const [showNewPw2, setShowNewPw2] = useState(false); // eye toggle for confirm pw
-  const [otpPhone, setOtpPhone] = useState(cfg.adminPhone||'');
-
+  const [curPw, setCurPw] = useState("");
+  const [curPwErr, setCurPwErr] = useState("");
+  const [newPw, setNewPw] = useState("");
+  const [newPw2, setNewPw2] = useState("");
+  const [pwErr, setPwErr] = useState("");
+  const [showCurPw, setShowCurPw] = useState(false);
+  const [showNewPw, setShowNewPw] = useState(false);
+  const [showNewPw2, setShowNewPw2] = useState(false);
+  const [otpPhone, setOtpPhone] = useState(cfg.adminPhone || "");
 
   const saveCfg = (patch) => {
-    const next = {...cfg,...patch};
+    const next = { ...cfg, ...patch };
     setCfgState(next);
     saveSecConfig(next);
   };
 
-  // Verify current admin password before allowing changes
   const doVerify = async () => {
-    if(!verifyPw) { setVerifyErr('Please enter your password.'); return; }
-    // Re-read config fresh from storage so we always have the latest hash
+    if (!verifyPw) { setVerifyErr("Required"); return; }
     const latestCfg = getSecConfig();
     const stored = latestCfg.adminPwHash;
     let ok = false;
     try {
-      if(!stored) {
-        // No password has ever been set — compare against hardcoded default
-        ok = verifyPw === DEFAULT_ADMIN_PW;
-      } else {
-        // Try SHA-256 first, then fall back to legacy djb2 for older records
+      if (!stored) ok = verifyPw === DEFAULT_ADMIN_PW;
+      else {
         ok = await checkPwAsync(verifyPw, stored);
-        if(!ok) ok = _checkPw(verifyPw, stored);
+        if (!ok) ok = _checkPw(verifyPw, stored);
       }
-    } catch(e) {
-      // SubtleCrypto unavailable (non-HTTPS context) — fall back gracefully
-      ok = !stored ? (verifyPw === DEFAULT_ADMIN_PW) : _checkPw(verifyPw, stored);
+    } catch (e) {
+      ok = !stored ? verifyPw === DEFAULT_ADMIN_PW : _checkPw(verifyPw, stored);
     }
-    if(ok) {
+    if (ok) {
       setVerified(true);
-      setVerifyPw('');
-      setVerifyErr('');
-      try { addAudit('Security Settings Accessed','Admin','Password verified'); } catch(e){}
-      try { SFX.login(); } catch(e){}
+      setVerifyPw("");
+      setVerifyErr("");
+      SFX.login();
     } else {
-      setVerifyErr('Incorrect password. Default is: admin123');
-      try { SFX.error(); } catch(e){}
+      setVerifyErr("Incorrect password");
+      SFX.error();
     }
   };
 
   const doChangePw = async () => {
-    // Step 1: verify current password
     const latestCfg = getSecConfig();
     const stored = latestCfg.adminPwHash;
     let curOk = false;
     try {
-      curOk = !stored ? (curPw === DEFAULT_ADMIN_PW) : (await checkPwAsync(curPw, stored) || _checkPw(curPw, stored));
-    } catch(e) {
-      curOk = !stored ? (curPw === DEFAULT_ADMIN_PW) : _checkPw(curPw, stored);
+      curOk = !stored ? curPw === DEFAULT_ADMIN_PW : (await checkPwAsync(curPw, stored) || _checkPw(curPw, stored));
+    } catch (e) {
+      curOk = !stored ? curPw === DEFAULT_ADMIN_PW : _checkPw(curPw, stored);
     }
-    if(!curOk) { setCurPwErr('Current password is incorrect.'); try{SFX.error();}catch(e){} return; }
-    setCurPwErr('');
-    // Step 2: validate new password
-    if(newPw.length < 6) { setPwErr('Password must be at least 6 characters.'); return; }
-    if(newPw !== newPw2) { setPwErr('Passwords do not match.'); return; }
+    if (!curOk) { setCurPwErr("Incorrect current password."); SFX.error(); return; }
+    if (newPw.length < 6) { setPwErr("Min 6 characters."); return; }
+    if (newPw !== newPw2) { setPwErr("No match."); return; }
     const hash = await hashPwAsync(newPw);
-    saveCfg({adminPwHash: hash});
-    addAudit('Admin Password Changed','Admin','Password updated via Security Settings');
-    showToast('✅ Password changed successfully','ok');
-    setShowChangePw(false); setCurPw(''); setNewPw(''); setNewPw2(''); setPwErr(''); setCurPwErr('');
-  };
-
-
-  const doSaveOtpPhone = () => {
-    if(!otpPhone) { showToast('⚠ Enter a phone number first','warn'); return; }
-    saveCfg({otpEnabled:false, adminPhone:otpPhone}); // OTP disabled — keeping phone number saved for future use
-    addAudit('OTP Enabled','Admin',`OTP SMS will go to ${otpPhone}`);
-    showToast(`✅ OTP enabled — codes will be sent to ${otpPhone}`,'ok');
+    saveCfg({ adminPwHash: hash });
+    showToast("✅ Password updated", "ok");
+    setShowChangePw(false); setCurPw(""); setNewPw(""); setNewPw2("");
   };
 
   const toggleFeature = (key) => {
-    saveCfg({[key]:!cfg[key]});
-    addAudit(`Security Feature Toggled`,key,`→ ${!cfg[key]?'Enabled':'Disabled'}`);
-    showToast(`${key.replace('Enabled','')} ${!cfg[key]?'enabled':'disabled'}`,'info');
+    saveCfg({ [key]: !cfg[key] });
+    showToast(`${key.replace("Enabled", "")} ${!cfg[key] ? "enabled" : "disabled"}`, "info");
   };
 
-  const features = [
-    {key:'passwordEnabled', icon:<KeyRound size={28} />, label:'Password Login', desc:'Require admin password to log in. Cannot be disabled while biometric is off.', canDisable: cfg.biometricEnabled},
-    // SMS OTP disabled — uncomment once SMS provider (Vonage/Twilio) is configured in Supabase:
-    // {key:'otpEnabled', icon:'📱', label:'SMS OTP', desc:'Send a one-time code to the registered phone number as an additional login step.', canDisable: true},
-  ];
-
   return (
-    <div className='fu'>
-      <div style={{fontFamily:T.head,color:T.txt,fontSize:20,fontWeight:800,marginBottom:4,display:'flex',alignItems:'center',gap:8}}><Lock size={20}/> Security Settings</div>
-      <div style={{color:T.muted,fontSize:13,marginBottom:20}}>Configure authentication methods for admin login.</div>
+    <div className="fu">
+      <ModuleHeader 
+        title={<><Lock size={22} style={{verticalAlign:'middle', marginRight:10, marginTop:-4}}/> Security & Access</>}
+        sub="Protect your account with multi-factor authentication and session controls."
+      />
 
-      {/* Password verification gate */}
-      {!verified&&(
-        <Card style={{marginBottom:16,border:`1px solid ${T.warn}30`}}>
-          <div style={{padding:'16px 18px'}}>
-            <div style={{color:T.warn,fontWeight:700,fontSize:14,marginBottom:6,display:'flex',alignItems:'center',gap:6}}><Lock size={14}/> Verify your identity to make changes</div>
-            <div style={{color:T.muted,fontSize:12,marginBottom:14}}>Enter your current admin password to unlock security settings.</div>
-            <div style={{display:'flex',gap:9,alignItems:'flex-end',flexWrap:'wrap'}}>
-              <div style={{flex:1,minWidth:180}}>
-                <label style={{display:'block',color:T.dim,fontSize:11,fontWeight:600,marginBottom:5,letterSpacing:.7,textTransform:'uppercase'}}>
-                  Current Password
-                </label>
-                <input
-                  type='password'
-                  value={verifyPw}
-                  onChange={e=>setVerifyPw(e.target.value)}
-                  onKeyDown={e=>e.key==='Enter'&&doVerify()}
-                  placeholder='Enter current password'
-                  autoComplete='current-password'
-                  style={{width:'100%',background:T.surface,border:`1px solid ${verifyErr?T.danger:T.border}`,borderRadius:8,padding:'10px 12px',color:T.txt,fontSize:14,outline:'none',fontFamily:T.body,boxSizing:'border-box'}}
-                />
-                {verifyErr&&<div style={{color:T.danger,fontSize:12,marginTop:5}}>⚠ {verifyErr}</div>}
-              </div>
-              <Btn onClick={doVerify}>Unlock Settings</Btn>
+      {!verified && (
+        <Card style={{ marginBottom: 24, padding: 24, border: `2px solid ${T.warn}40`, background: `${T.warn}05` }}>
+            <div style={{ display: 'flex', gap: 16, alignItems: 'center' }}>
+                <div style={{ width: 48, height: 48, borderRadius: 14, background: `${T.warn}20`, display: 'flex', alignItems: 'center', justifyContent: 'center', color: T.warn }}>
+                    <ShieldAlert size={24} />
+                </div>
+                <div style={{ flex: 1 }}>
+                    <div style={{ color: T.txt, fontWeight: 800, fontSize: 16 }}>Authentication Required</div>
+                    <div style={{ color: T.muted, fontSize: 13, marginTop: 2 }}>Sensitive settings are locked. Please verify your password.</div>
+                </div>
+                <div style={{ display: 'flex', gap: 10 }}>
+                   <input
+                        type="password"
+                        value={verifyPw}
+                        onChange={e => setVerifyPw(e.target.value)}
+                        placeholder="Admin Password"
+                        style={{ background: T.surface, border: `1px solid ${verifyErr ? T.danger : T.border}`, borderRadius: 10, padding: '10px 14px', color: T.txt, fontSize: 14, outline: 'none' }}
+                    />
+                    <Btn onClick={doVerify} v="primary">Unlock</Btn>
+                </div>
             </div>
-            <div style={{color:T.muted,fontSize:11,marginTop:10}}>
-              Default password: <b style={{color:T.accent,letterSpacing:1}}>admin123</b>
-            </div>
-          </div>
+            {verifyErr && <div style={{ color: T.danger, fontSize: 11, fontWeight: 700, marginTop: 8, paddingLeft: 64 }}>⚠ {verifyErr}</div>}
         </Card>
       )}
 
-      {/* Auth method toggles */}
-      <div style={{display:'flex',flexDirection:'column',gap:10,marginBottom:16,opacity:verified?1:0.45,pointerEvents:verified?'auto':'none'}}>
-        {features.map(feat=>(
-          <Card key={feat.key} style={{border:`1px solid ${cfg[feat.key]?T.ok+'38':T.border}`}}>
-            <div style={{padding:'14px 16px',display:'flex',alignItems:'center',gap:14,flexWrap:'wrap'}}>
-              <div style={{fontSize:28,flexShrink:0}}>{feat.icon}</div>
-              <div style={{flex:1,minWidth:160}}>
-                <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:3}}>
-                  <span style={{color:T.txt,fontWeight:700,fontSize:14}}>{feat.label}</span>
-                  <Badge color={cfg[feat.key]?T.ok:T.muted}>{cfg[feat.key]?'Enabled':'Disabled'}</Badge>
+      <div style={{ opacity: verified ? 1 : 0.5, pointerEvents: verified ? 'auto' : 'none' }}>
+        
+        <Card style={{ marginBottom: 24 }}>
+          <CH title="Admin Identity" sub="Manage how you appear in the system and audit logs" />
+          <div style={{ padding: 20, display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: 20 }}>
+            <FI 
+              label="Display Name" 
+              value={adminUser.name} 
+              onChange={v => setAdminUser(u => ({ ...u, name: v, ini: v.split(' ').map(x=>x[0]).join('').slice(0,2).toUpperCase() }))} 
+              placeholder="e.g. Don Administrator"
+              hint="This name appears in greetings and audit trails."
+            />
+            <FI 
+              label="System Role / Organization" 
+              value={adminUser.role} 
+              onChange={v => setAdminUser(u => ({ ...u, role: v }))} 
+              placeholder="e.g. Super Admin"
+              hint="Displayed in your sidebar profile."
+            />
+          </div>
+          <div style={{ padding: '0 20px 20px', display: 'flex', justifyContent: 'flex-end' }}>
+             <Btn v="accent" onClick={() => { addAudit('Profile Update', 'Admin', `Changed name to ${adminUser.name}`); showToast('✅ Profile updated', 'ok'); }}>Save Identity</Btn>
+          </div>
+        </Card>
+
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(400px, 1fr))', gap: 20, marginBottom: 24 }}>
+          
+          <Card>
+            <CH title="Authentication Methods" sub="Standard login providers" />
+            <div style={{ padding: 20, display: 'flex', flexDirection: 'column', gap: 16 }}>
+              {[
+                { key: 'passwordEnabled', icon: <KeyRound />, label: 'Standard Password', desc: 'Secure login via alphanumeric password.', can: cfg.biometricEnabled },
+                { key: 'otpEnabled', icon: <Smartphone />, label: '2-Step Verification', desc: 'Require a unique code sent to your device.', can: true }
+              ].map(f => (
+                <div key={f.key} style={{ display: 'flex', alignItems: 'center', gap: 14, padding: 12, borderRadius: 14, background: T.surface, border: `1px solid ${T.border}` }}>
+                  <div style={{ padding: 10, borderRadius: 10, background: cfg[f.key] ? `${T.ok}15` : T.card2, color: cfg[f.key] ? T.ok : T.muted }}>
+                    {React.cloneElement(f.icon, { size: 20 })}
+                  </div>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ color: T.txt, fontWeight: 750, fontSize: 14 }}>{f.label}</div>
+                    <div style={{ color: T.dim, fontSize: 12 }}>{f.desc}</div>
+                  </div>
+                  <button 
+                    onClick={() => toggleFeature(f.key)}
+                    style={{ background: cfg[f.key] ? T.aLo : T.card2, border: 'none', width: 44, height: 24, borderRadius: 20, cursor: 'pointer', position: 'relative', transition: 'all .3s' }}
+                  >
+                    <div style={{ position: 'absolute', top: 3, left: cfg[f.key] ? 22 : 3, width: 18, height: 18, background: cfg[f.key] ? T.accent : T.muted, borderRadius: '50%', transition: 'all .3s' }} />
+                  </button>
                 </div>
-                <div style={{color:T.muted,fontSize:12}}>{feat.desc}</div>
-              </div>
-              <button
-                onClick={()=>{ if(!feat.canDisable&&cfg[feat.key]){showToast('⚠ Enable at least one other factor before disabling password.','warn');return;} toggleFeature(feat.key); }}
-                style={{background:cfg[feat.key]?T.dLo:T.oLo, border:`1px solid ${cfg[feat.key]?T.danger+'38':T.ok+'38'}`, color:cfg[feat.key]?T.danger:T.ok, borderRadius:8, padding:'7px 16px', cursor:'pointer', fontWeight:700, fontSize:12, flexShrink:0}}>
-                {cfg[feat.key]?'Disable':'Enable'}
-              </button>
+              ))}
             </div>
           </Card>
-        ))}
-      </div>
 
-      {/* Change password section */}
-      {verified&&(
-        <>
-        <Card style={{marginBottom:12}}>
-          <CH title={<div style={{display:'flex',alignItems:'center',gap:8}}><KeyRound size={18}/> Change Admin Password</div>}/>
-          <div style={{padding:'14px 16px'}}>
-            {!showChangePw
-              ?<Btn onClick={()=>setShowChangePw(true)}>Change Password →</Btn>
-              :<div>
-                {/* Current password */}
-                <label style={{display:'block',color:T.dim,fontSize:11,fontWeight:600,marginBottom:5,letterSpacing:.7,textTransform:'uppercase'}}>Current Password</label>
-                <div style={{position:'relative',marginBottom:10}}>
-                  <input type={showCurPw?'text':'password'} value={curPw} onChange={e=>{setCurPw(e.target.value);setCurPwErr('');}} placeholder='Enter current password' autoComplete='current-password'
-                    style={{width:'100%',background:T.surface,border:`1px solid ${curPwErr?T.danger:T.border}`,borderRadius:8,padding:'10px 40px 10px 12px',color:T.txt,fontSize:14,outline:'none',fontFamily:T.body,boxSizing:'border-box'}}/>
-                  <button onClick={()=>setShowCurPw(v=>!v)} tabIndex={-1}
-                    style={{position:'absolute',right:10,top:'50%',transform:'translateY(-50%)',background:'none',border:'none',cursor:'pointer',color:T.muted,lineHeight:0,padding:'4px',display:'flex',alignItems:'center',justifyContent:'center'}}>
-                    {showCurPw?<EyeOff size={16}/>:<Eye size={16}/>}
-                  </button>
-                </div>
-                {curPwErr&&<div style={{color:T.danger,fontSize:12,marginBottom:8}}>⚠ {curPwErr}</div>}
+          <Card>
+            <CH title="Biometrics & Hardware" sub="Fast & secure device access" />
+            <div style={{ padding: 20 }}>
+                {window.PublicKeyCredential ? (
+                    <div style={{ background: T.surface, padding: 16, borderRadius: 14, border: `1px solid ${cfg.bioCredId ? `${T.ok}30` : T.border}`, display: 'flex', gap: 16, alignItems: 'center' }}>
+                        <div style={{ width: 44, height: 44, borderRadius: 12, background: cfg.bioCredId ? `${T.ok}15` : T.aLo, color: cfg.bioCredId ? T.ok : T.accent, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                            <Fingerprint size={24} />
+                        </div>
+                        <div style={{ flex: 1 }}>
+                            <div style={{ color: T.txt, fontWeight: 750, fontSize: 14 }}>Fingerprint / FaceID</div>
+                            <div style={{ color: T.dim, fontSize: 12 }}>{cfg.bioCredId ? "Hardware key registered." : "Not configured on this device."}</div>
+                        </div>
+                        {cfg.bioCredId 
+                            ? <Btn v="secondary" sm onClick={() => saveCfg({ bioCredId: null, biometricEnabled: false })}>Remove</Btn> 
+                            : <Btn v="accent" sm onClick={async () => {
+                                try {
+                                    const challenge = crypto.getRandomValues(new Uint8Array(32));
+                                    const userId = crypto.getRandomValues(new Uint8Array(16));
+                                    const credential = await navigator.credentials.create({ publicKey: { challenge, rp: { name: 'Adequate LMS', id: window.location.hostname }, user: { id: userId, name: 'Admin', displayName: 'Admin' }, pubKeyCredParams: [{ type: 'public-key', alg: -7 }], authenticatorSelection: { userVerification: 'required' }, timeout: 60000 } });
+                                    saveCfg({ bioCredId: Array.from(new Uint8Array(credential.rawId)), biometricEnabled: true });
+                                    showToast("✅ Biometric Active", "ok");
+                                } catch(e) { showToast("Hardware Error", "danger"); }
+                            }}>Setup</Btn>
+                        }
+                    </div>
+                ) : (
+                    <Alert type="info">Biometrics unavailable on this browser/connection.</Alert>
+                )}
+            </div>
+          </Card>
 
-                {/* New password */}
-                <label style={{display:'block',color:T.dim,fontSize:11,fontWeight:600,marginBottom:5,letterSpacing:.7,textTransform:'uppercase'}}>New Password</label>
-                <div style={{position:'relative',marginBottom:10}}>
-                  <input type={showNewPw?'text':'password'} value={newPw} onChange={e=>setNewPw(e.target.value)} placeholder='Minimum 6 characters' autoComplete='new-password'
-                    style={{width:'100%',background:T.surface,border:`1px solid ${T.border}`,borderRadius:8,padding:'10px 40px 10px 12px',color:T.txt,fontSize:14,outline:'none',fontFamily:T.body,boxSizing:'border-box'}}/>
-                  <button onClick={()=>setShowNewPw(v=>!v)} tabIndex={-1}
-                    style={{position:'absolute',right:10,top:'50%',transform:'translateY(-50%)',background:'none',border:'none',cursor:'pointer',color:T.muted,lineHeight:0,padding:'4px',display:'flex',alignItems:'center',justifyContent:'center'}}>
-                    {showNewPw?<EyeOff size={16}/>:<Eye size={16}/>}
-                  </button>
-                </div>
+        </div>
 
-                {/* Confirm new password */}
-                <label style={{display:'block',color:T.dim,fontSize:11,fontWeight:600,marginBottom:5,letterSpacing:.7,textTransform:'uppercase'}}>Confirm New Password</label>
-                <div style={{position:'relative',marginBottom:10}}>
-                  <input type={showNewPw2?'text':'password'} value={newPw2} onChange={e=>setNewPw2(e.target.value)} onKeyDown={e=>e.key==='Enter'&&doChangePw()} placeholder='Repeat new password' autoComplete='new-password'
-                    style={{width:'100%',background:T.surface,border:`1px solid ${newPw&&newPw2&&newPw!==newPw2?T.danger:T.border}`,borderRadius:8,padding:'10px 40px 10px 12px',color:T.txt,fontSize:14,outline:'none',fontFamily:T.body,boxSizing:'border-box'}}/>
-                  <button onClick={()=>setShowNewPw2(v=>!v)} tabIndex={-1}
-                    style={{position:'absolute',right:10,top:'50%',transform:'translateY(-50%)',background:'none',border:'none',cursor:'pointer',color:T.muted,lineHeight:0,padding:'4px',display:'flex',alignItems:'center',justifyContent:'center'}}>
-                    {showNewPw2?<EyeOff size={16}/>:<Eye size={16}/>}
-                  </button>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(400px, 1fr))', gap: 20 }}>
+            
+            <Card>
+                <CH title="Recovery Contacts" sub="Secondary access fallbacks" />
+                <div style={{ padding: 20, display: 'flex', flexDirection: 'column', gap: 16 }}>
+                    <FI label="Admin Email" type="email" value={cfg.adminEmail || ""} onChange={v => saveCfg({ adminEmail: v })} />
+                    <PhoneInput label="Recovery SMS" value={cfg.adminRecoveryPhone || ""} onChange={v => saveCfg({ adminRecoveryPhone: v })} />
                 </div>
-                {newPw&&newPw2&&newPw!==newPw2&&<div style={{color:T.danger,fontSize:12,marginBottom:6}}>⚠ Passwords do not match</div>}
-                {newPw&&newPw.length>0&&newPw.length<6&&<div style={{color:T.warn,fontSize:12,marginBottom:6}}>⚠ At least 6 characters required</div>}
-                {pwErr&&<div style={{color:T.danger,fontSize:12,marginBottom:8}}>⚠ {pwErr}</div>}
-                <div style={{display:'flex',gap:8}}>
-                  <Btn onClick={doChangePw} full><span style={{display:'flex',alignItems:'center',justifyContent:'center',gap:6}}><Check size={16}/> Save New Password</span></Btn>
-                  <Btn v='secondary' onClick={()=>{setShowChangePw(false);setPwErr('');setCurPwErr('');setCurPw('');setNewPw('');setNewPw2('');}}>Cancel</Btn>
-                </div>
-              </div>
-            }
-          </div>
-        </Card>
-
-        {/* Biometric — WebAuthn fingerprint registration */}
-        {(()=>{
-          const [bioStatus,setBioStatus]=useState('idle');
-          const [bioMsg,setBioMsg]=useState('');
-          const hasCred=!!cfg.bioCredId;
-          useEffect(()=>{
-            if(!window.PublicKeyCredential){setBioStatus('unsupported');return;}
-            window.PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable()
-              .then(avail=>{if(!avail){setBioStatus('unsupported');setBioMsg('No fingerprint sensor or Face ID detected.');}else setBioStatus(hasCred?'ok':'idle');})
-              .catch(()=>{setBioStatus('unsupported');setBioMsg('Could not detect biometric hardware.');});
-          // eslint-disable-next-line react-hooks/exhaustive-deps
-          },[]);
-          const doRegister=async()=>{
-            setBioStatus('registering');setBioMsg('');
-            try{
-              if(!window.PublicKeyCredential) throw new Error('WebAuthn not supported.');
-              const avail=await window.PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable();
-              if(!avail) throw new Error('No fingerprint/Face ID sensor found.');
-              const challenge=crypto.getRandomValues(new Uint8Array(32));
-              const userId=crypto.getRandomValues(new Uint8Array(16));
-              const credential=await navigator.credentials.create({publicKey:{challenge,rp:{name:'Adequate Capital LMS',id:window.location.hostname||'localhost'},user:{id:userId,name:cfg.adminEmail||'admin',displayName:'Admin'},pubKeyCredParams:[{type:'public-key',alg:-7},{type:'public-key',alg:-257}],authenticatorSelection:{authenticatorAttachment:'platform',userVerification:'required',residentKey:'preferred'},timeout:60000,attestation:'none'}});
-              const credId=Array.from(new Uint8Array(credential.rawId));
-              saveCfg({biometricEnabled:true,bioCredId:credId});
-              setBioStatus('ok');setBioMsg('');
-              addAudit('Biometric Registered','Admin','Fingerprint/FaceID registered');
-              showToast('✅ Fingerprint registered — biometric login is now active','ok',4000);
-              try{SFX.save();}catch(e){}
-            }catch(e){
-              if(e.name==='AbortError'||e.message?.includes('cancel')){setBioStatus(hasCred?'ok':'idle');setBioMsg('Registration cancelled.');}
-              else{setBioStatus('error');setBioMsg(e.message||'Registration failed. Ensure app is on HTTPS.');try{SFX.error();}catch(ex){}}
-            }
-          };
-          const doRemove=()=>{saveCfg({biometricEnabled:false,bioCredId:null});setBioStatus('idle');setBioMsg('');addAudit('Biometric Removed','Admin','Fingerprint removed');showToast('Fingerprint removed','warn');};
-          return(
-            <Card style={{marginBottom:12,border:`1px solid ${bioStatus==='ok'?T.ok+'40':bioStatus==='unsupported'?T.border:T.accent+'30'}`}}>
-              <CH title={<div style={{display:'flex',alignItems:'center',gap:8}}><Fingerprint size={18}/> Fingerprint / Face ID Login</div>}/>
-              <div style={{padding:'14px 16px'}}>
-                {bioStatus==='unsupported'&&(<div style={{display:'flex',gap:12,alignItems:'flex-start'}}><div style={{display:'flex'}}><Ban size={28} color={T.muted}/></div><div><div style={{color:T.warn,fontWeight:700,fontSize:13,marginBottom:4}}>Not supported on this device</div><div style={{color:T.muted,fontSize:12,lineHeight:1.6}}>{bioMsg||'Requires a device with fingerprint/Face ID on Chrome, Edge, or Safari over HTTPS.'}</div></div></div>)}
-                {bioStatus!=='unsupported'&&(<div style={{display:'flex',gap:14,alignItems:'flex-start'}}><div style={{flexShrink:0,marginTop:2,display:'flex'}}>{bioStatus==='ok'?<CheckCircle size={32} color={T.ok}/>:bioStatus==='registering'?<Hourglass size={32} color={T.accent}/>:<Fingerprint size={32} color={T.muted}/>}</div><div style={{flex:1}}>
-                  {bioStatus==='ok'&&(<><div style={{color:T.ok,fontWeight:700,fontSize:14,marginBottom:4}}>Fingerprint registered on this device</div><div style={{color:T.muted,fontSize:12,marginBottom:14,lineHeight:1.6}}>Biometric login is active as a second factor on this device.</div><div style={{display:'flex',gap:8}}><Btn onClick={doRegister} v='secondary' sm>↺ Re-register</Btn><Btn onClick={doRemove} v='danger' sm>✕ Remove</Btn></div></>)}
-                  {(bioStatus==='idle'||bioStatus==='error')&&(<><div style={{color:T.txt,fontWeight:700,fontSize:14,marginBottom:4}}>Register your fingerprint</div><div style={{color:T.muted,fontSize:12,marginBottom:10,lineHeight:1.6}}>Use your device fingerprint reader or Face ID as a second login factor.</div>{bioStatus==='error'&&<Alert type='danger' style={{marginBottom:10}}>{bioMsg}</Alert>}{bioStatus==='idle'&&bioMsg&&<div style={{color:T.muted,fontSize:12,marginBottom:8}}>{bioMsg}</div>}<Btn onClick={doRegister} full><span style={{display:'flex',alignItems:'center',justifyContent:'center',gap:6}}><Fingerprint size={16}/> Register Fingerprint / Face ID</span></Btn></>)}
-                  {bioStatus==='registering'&&(<div style={{display:'flex',gap:10,alignItems:'center'}}><div style={{width:18,height:18,border:`2px solid ${T.border}`,borderTop:`2px solid ${T.accent}`,borderRadius:'50%',animation:'spin .8s linear infinite',flexShrink:0}}/><div style={{color:T.accent,fontSize:13,fontWeight:600}}>Waiting for fingerprint… touch the sensor now</div></div>)}
-                </div></div>)}
-              </div>
             </Card>
-          );
-        })()}
-                {/* OTP phone setup */}
-        <Card style={{marginBottom:12}}>
-          <CH title={<div style={{display:'flex',alignItems:'center',gap:8}}><Smartphone size={18}/> OTP Phone Number</div>}/>
-          <div style={{padding:'14px 16px'}}>
-            <div style={{color:T.muted,fontSize:12,marginBottom:12}}>When OTP is enabled, a 6-digit code will be shown here and you enter it to complete login. In production, this will be sent as an SMS.</div>
-            <div style={{display:'flex',gap:9,alignItems:'flex-end',flexWrap:'wrap'}}>
-              <div style={{flex:1,minWidth:180}}><PhoneInput label='Admin Phone for OTP' value={otpPhone} onChange={setOtpPhone}/></div>
-              <Btn onClick={doSaveOtpPhone} style={{marginBottom:12}}>Save & Enable OTP</Btn>
-            </div>
-            {cfg.adminPhone&&<div style={{color:T.ok,fontSize:12,marginTop:4,display:'flex',alignItems:'center',gap:4}}><Check size={12}/> OTP will go to: <b>{cfg.adminPhone}</b></div>}
-          </div>
-        </Card>
 
-        {/* Recovery contact setup */}
-        <Card style={{marginBottom:12,border:`1px solid ${T.warn}30`}}>
-          <CH title={<div style={{display:'flex',alignItems:'center',gap:8}}><ShieldAlert size={18}/> Account Recovery Contacts</div>} sub='Used to unlock your account after a lockout'/>
-          <div style={{padding:'14px 16px'}}>
-            <Alert type='warn' style={{marginBottom:12}}>Set at least one recovery method. Without this, a lockout can only be cleared by waiting 15 minutes.</Alert>
-            <FI label='Recovery Email' type='email' value={cfg.adminEmail||''} onChange={v=>saveCfg({adminEmail:v})} placeholder='admin@adequatecapital.co.ke'/>
-            <PhoneInput label='Recovery Phone (SMS)' value={cfg.adminRecoveryPhone||''} onChange={v=>saveCfg({adminRecoveryPhone:v})}/>
-            <div style={{color:T.ok,fontSize:12,marginTop:4}}>
-              {(cfg.adminEmail||cfg.adminRecoveryPhone)
-                ? <span style={{display:'flex',alignItems:'center',gap:4}}><Check size={12}/> Recovery available via: {[cfg.adminEmail&&'Email',cfg.adminRecoveryPhone&&'SMS'].filter(Boolean).join(' & ')}</span>
-                : <span style={{color:T.danger,display:'flex',alignItems:'center',gap:4}}><AlertTriangle size={12}/> No recovery contacts set</span>}
-            </div>
-          </div>
-        </Card>
-        </>
-      )}
+            <Card>
+                <CH title="Password Management" sub="Rotate your access credentials" />
+                <div style={{ padding: 20 }}>
+                    {!showChangePw ? (
+                        <div style={{ textAlign: 'center', padding: '10px 0' }}>
+                           <Btn v="secondary" full onClick={() => setShowChangePw(true)}>Change Admin Password</Btn>
+                           <div style={{ color: T.dim, fontSize: 11, marginTop: 12 }}>Last rotated: {now()}</div>
+                        </div>
+                    ) : (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                            <input type="password" placeholder="Current Password" value={curPw} onChange={e => setCurPw(e.target.value)} style={{ background: T.surface, border: `1px solid ${curPwErr ? T.danger : T.border}`, borderRadius: 10, padding: '10px 14px', color: T.txt }} />
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                                <input type="password" placeholder="New Password" value={newPw} onChange={e => setNewPw(e.target.value)} style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 10, padding: '10px 14px', color: T.txt }} />
+                                <input type="password" placeholder="Confirm" value={newPw2} onChange={e => setNewPw2(e.target.value)} style={{ background: T.surface, border: `1px solid ${newPw !== newPw2 ? T.danger : T.border}`, borderRadius: 10, padding: '10px 14px', color: T.txt }} />
+                            </div>
+                            {pwErr && <div style={{ color: T.danger, fontSize: 11 }}>{pwErr}</div>}
+                            <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
+                                <Btn v="primary" full onClick={doChangePw}>Save</Btn>
+                                <Btn v="ghost" onClick={() => setShowChangePw(false)}>Cancel</Btn>
+                            </div>
+                        </div>
+                    )}
+                </div>
+            </Card>
+
+        </div>
+      </div>
     </div>
   );
 };
-
-
-// LiveClock removed — it ran setInterval every second, causing AdminPanel to receive
-// re-render pressure. Removed per product requirements.
 
 export default SecuritySettingsTab;
 

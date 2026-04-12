@@ -12,7 +12,7 @@ router.post(
   '/registration-fee/stk-push',
   Middleware.authenticate,
   Middleware.authorize(['SUPER_ADMIN', 'FINANCE_ADMIN', 'LOAN_OFFICER']),
-  // (Optional: add validation middleware here)
+  Middleware.validate(Validators.stkPushSchema),
   Controller.triggerRegFeeStk
 );
 
@@ -30,6 +30,7 @@ router.post(
   Middleware.authenticate,
   Middleware.authorize(['SUPER_ADMIN', 'FINANCE_ADMIN']),
   Middleware.checkIdempotency,
+  Middleware.validate(Validators.disburseSchema),
   Controller.disburseLoan
 );
 
@@ -47,6 +48,7 @@ router.post(
   '/transactions/manual',
   Middleware.authenticate,
   Middleware.authorize(['SUPER_ADMIN', 'FINANCE_ADMIN']),
+  Middleware.validate(Validators.manualTransactionSchema),
   Controller.createManualTransaction
 );
 

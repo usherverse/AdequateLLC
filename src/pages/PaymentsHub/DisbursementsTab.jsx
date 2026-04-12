@@ -1,20 +1,19 @@
 import React, { useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { Check, X, AlertOctagon, FileText, ClipboardSignature, PackageOpen, Rocket, CheckCircle } from 'lucide-react';
+import { Check, X, AlertOctagon, FileText, ClipboardSignature, PackageOpen, Rocket, CheckCircle, Zap, ExternalLink, ShieldAlert, BadgeCheck, Plus } from 'lucide-react';
 import { 
-  T, Badge, Btn, fmt, Alert, FI, Dialog, 
+  T, Badge, Btn, fmt, Alert, FI, Dialog, WaitingOverlay, DT,
   hasRegFee, generateLoanAgreementHTML, generateAssetListHTML, downloadLoanDoc,
   sbWrite, toSupabaseLoan, now
 } from '@/lms-common';
 import { useDisbursements } from './hooks/useDisbursements';
 
-const DisbursementsTab = ({ loans = [], customers = [], payments = [], setLoans, addAudit, showToast }) => {
+const DisbursementsTab = ({ loans = [], customers = [], payments = [], setLoans, addAudit, showToast, onManualLog }) => {
   const [, setSearchParams] = useSearchParams();
   const [sel, setSel] = useState(null);
   const [disbF, setDisbF] = useState({ mpesa: '', phone: '', date: now() });
-  const { disburse, loading: disburseLoading } = useDisbursements();
+  const { disburse, loading: disburseLoading, waitingForCallback, status: disbStatus, isSuccess, failureReason, reset } = useDisbursements();
 
-  // Filter global loans for 'Approved' status
   const approvedLoans = loans.filter(l => l.status === 'Approved');
 
   const doManualDisburse = () => {
@@ -35,7 +34,7 @@ const DisbursementsTab = ({ loans = [], customers = [], payments = [], setLoans,
   const doMpesaDisburse = async () => {
     if (!sel) return;
     try {
-      await disburse(sel.id);
+      await disburse(sel.id, disbF.phone);
       addAudit('M-Pesa Disbursement Initiated', sel.id, `${fmt(sel.amount)} via Daraja`);
       showToast('🚀 Disbursement initiated via M-Pesa.', 'info');
       setSel(null);
@@ -45,133 +44,131 @@ const DisbursementsTab = ({ loans = [], customers = [], payments = [], setLoans,
   };
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+    <div className="fu" style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
         <div>
-          <h2 style={{ fontSize: 18, fontWeight: 800, color: T.txt, margin: 0 }}>Approved Loans Pending Disbursement</h2>
-          <p style={{ color: T.muted, fontSize: 13, marginTop: 4 }}>Verify eligibility and release funds</p>
+          <h2 style={{ fontSize: 18, fontWeight: 800, color: T.txt, margin: 0, display: 'flex', alignItems: 'center', gap: 8 }}>
+            <Zap size={20} color={T.accent} /> Disbursement Queue
+          </h2>
+          <p style={{ color: T.muted, fontSize: 13, marginTop: 4 }}>Review applications and authorize fund releases.</p>
         </div>
-        <div style={{ background: T.aLo, padding: '8px 16px', borderRadius: 10, border: `1px solid ${T.aMid}` }}>
-          <span style={{ color: T.accent, fontWeight: 800, fontSize: 13 }}>{approvedLoans.length} Loans Waiting</span>
+        <div style={{ background: T.aLo, padding: '8px 16px', borderRadius: 99, border: `1px solid ${T.accent}40`, display: 'flex', alignItems: 'center', gap: 8 }}>
+            <div style={{ width: 8, height: 8, borderRadius: '50%', background: T.accent, animation: 'pulse 2s infinite' }} />
+            <span style={{ color: T.accent, fontWeight: 800, fontSize: 13 }}>{approvedLoans.length} Pending Approval</span>
         </div>
       </div>
 
-      <div style={{ overflowX: 'auto', border: `1px solid ${T.border}`, borderRadius: 12, background: T.card }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
-          <thead>
-            <tr style={{ background: T.surface, borderBottom: `1px solid ${T.border}` }}>
-              <th style={{ padding: '14px 20px', color: T.muted, fontSize: 11, fontWeight: 800, textTransform: 'uppercase', letterSpacing: 1 }}>Customer</th>
-              <th style={{ padding: '14px 20px', color: T.muted, fontSize: 11, fontWeight: 800, textTransform: 'uppercase', letterSpacing: 1 }}>Amount</th>
-              <th style={{ padding: '14px 20px', color: T.muted, fontSize: 11, fontWeight: 800, textTransform: 'uppercase', letterSpacing: 1 }}>Reg. Fee</th>
-              <th style={{ padding: '14px 20px', color: T.muted, fontSize: 11, fontWeight: 800, textTransform: 'uppercase', letterSpacing: 1 }}>Action</th>
-            </tr>
-          </thead>
-          <tbody>
-            {approvedLoans.length === 0 ? (
-              <tr><td colSpan="4" style={{ textAlign: 'center', padding: '60px 0', color: T.muted }}>No approved loans pending. Approve loans in the Loans tab to see them here.</td></tr>
-            ) : (
-              approvedLoans.map((loan) => {
-                const cust = customers.find(c => c.id === loan.customerId);
+      <DT 
+        cols={[
+            { k: 'customer', l: 'Customer Entity', r: (v, row) => (
+                <div>
+                    <div style={{ fontWeight: 800, color: T.txt }}>{v}</div>
+                    <div style={{ fontSize: 10, color: T.muted, fontFamily: T.mono }}>ID: {row.id}</div>
+                </div>
+            )},
+            { k: 'amount', l: 'Principal', r: (v) => <span style={{ fontWeight: 900, color: T.accent, fontSize: 15 }}>{fmt(v)}</span> },
+            { k: 'registration', l: 'M-Pesa Registry', r: (v, row) => {
+                const cust = customers.find(c => c.id === row.customerId);
                 const feePaid = hasRegFee(cust, payments);
                 return (
-                  <tr key={loan.id} style={{ borderBottom: `1px solid ${T.border}`, transition: 'background 0.2s' }}>
-                    <td style={{ padding: '16px 20px' }}>
-                      <div style={{ fontWeight: 700, color: T.txt }}>{loan.customer}</div>
-                      <div style={{ fontSize: 11, color: T.muted, fontFamily: T.mono }}>{loan.id}</div>
-                    </td>
-                    <td style={{ padding: '16px 20px', fontWeight: 900, color: T.accent }}>{fmt(loan.amount)}</td>
-                    <td style={{ padding: '16px 20px' }}>
-                      <Badge color={feePaid ? T.ok : T.danger}>
+                    <Badge color={feePaid ? T.ok : T.danger}>
                         {feePaid 
-                          ? <span style={{display: 'inline-flex', alignItems: 'center', gap: 4}}><Check size={14} /> Paid</span>
-                          : <span style={{display: 'inline-flex', alignItems: 'center', gap: 4}}><X size={14} /> Unpaid</span>
+                          ? <><BadgeCheck size={12} /> Registered</>
+                          : <><ShieldAlert size={12} /> Unregistered</>
                         }
-                      </Badge>
-                    </td>
-                    <td style={{ padding: '16px 20px' }}>
-                      <Btn onClick={() => { setSel(loan); setDisbF(f=>({...f, phone: loan.phone || cust?.phone || ''})) }} v="primary" sm>Manage Disbursement</Btn>
-                    </td>
-                  </tr>
+                    </Badge>
                 );
-              })
+            }},
+            { k: 'action', l: 'Access Management', r: (v, row) => (
+                <Btn onClick={() => { setSel(row); setDisbF(f=>({...f, phone: row.phone || customers.find(c => c.id === row.customerId)?.phone || ''})) }} v="primary" sm icon={Rocket}>
+                    Authorize
+                </Btn>
             )}
-          </tbody>
-        </table>
-      </div>
+        ]}
+        rows={approvedLoans}
+        emptyMsg="The disbursement queue is currently clear. Approved loans will appear here."
+      />
 
       {sel && (() => {
         const cust = customers.find(c => c.id === sel.customerId);
         const feeOk = hasRegFee(cust, payments);
         return (
-          <Dialog title={`Disburse Loan · ${sel.id}`} onClose={() => setSel(null)} width={580}>
+          <Dialog title={`Authorize Disbursement · ${sel.id}`} onClose={() => setSel(null)} width={580}>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-              <Alert type='info'>
-                Releasing <b>{fmt(sel.amount)}</b> to <b>{sel.customer}</b>
-              </Alert>
+              <div style={{ background: T.card2, padding: '16px 20px', borderRadius: 16, border: `1px solid ${T.border}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div>
+                        <div style={{ color: T.muted, fontSize: 11, fontWeight: 800, textTransform: 'uppercase' }}>Target Entity</div>
+                        <div style={{ color: T.txt, fontSize: 18, fontWeight: 900, marginTop: 2 }}>{sel.customer}</div>
+                    </div>
+                    <div style={{ textAlign: 'right' }}>
+                        <div style={{ color: T.muted, fontSize: 11, fontWeight: 800, textTransform: 'uppercase' }}>Payout Volume</div>
+                        <div style={{ color: T.accent, fontSize: 18, fontWeight: 900, marginTop: 2 }}>{fmt(sel.amount)}</div>
+                    </div>
+              </div>
 
               {!feeOk && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                   <Alert type='danger'>
-                    <div style={{display: 'flex', alignItems: 'center', gap: 6}}>
-                      <AlertOctagon size={18} /> <b>Registration Fee (KES 500) missing.</b> Disbursement is blocked until the fee is recorded in the "Registration Fees" tab.
+                    <div style={{display: 'flex', alignItems: 'flex-start', gap: 10, lineHeight: 1.4}}>
+                      <ShieldAlert size={20} style={{marginTop: 2}} /> 
+                      <div>
+                        <b>Security Block: M-Pesa Registration Required.</b><br/>
+                        This customer has not paid their mandatory registration fee. Disbursement engine is locked.
+                      </div>
                     </div>
                   </Alert>
-                  <Btn 
-                    v='gold' 
-                    onClick={() => setSearchParams({ tab: 'registration-fee', customerId: sel.customerId })}
-                    full
-                  >
-                    <div style={{display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6}}>
-                      <FileText size={16} /> Go to Registration Fees →
-                    </div>
-                  </Btn>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                    <Btn v='gold' onClick={() => setSearchParams({ tab: 'registration-fee', customerId: sel.customerId })} full icon={ExternalLink}>Go to Registry</Btn>
+                    <Btn v='secondary' onClick={() => onManualLog(cust)} full icon={Plus} style={{ border: `1px dashed ${T.border}` }}>Log Fee Manually</Btn>
+                  </div>
                 </div>
               )}
 
-              <div style={{ background: T.surface, padding: 16, borderRadius: 12, border: `1px solid ${T.border}` }}>
-                <div style={{ fontSize: 12, fontWeight: 700, color: T.muted, marginBottom: 12, textTransform: 'uppercase' }}>Disbursement Details</div>
-                <FI label='M-Pesa Transaction Code' value={disbF.mpesa} onChange={v => setDisbF(f => ({ ...f, mpesa: v }))} required placeholder='e.g. QAB123456' />
-                <FI label='Target Phone Number' value={disbF.phone} onChange={v => setDisbF(f => ({ ...f, phone: v }))} required />
-                <FI label='Disbursement Date' type='date' value={disbF.date} onChange={v => setDisbF(f => ({ ...f, date: v }))} />
+              <div style={{ background: T.surface, padding: 18, borderRadius: 16, border: `1px solid ${T.border}` }}>
+                <div style={{ fontSize: 11, fontWeight: 850, color: T.dim, marginBottom: 14, textTransform: 'uppercase', letterSpacing: 1.5 }}>Configuration</div>
+                <FI label='M-Pesa Reference / TXN Code' value={disbF.mpesa} onChange={v => setDisbF(f => ({ ...f, mpesa: v }))} required placeholder='OAB1234567' />
+                <div style={{ height: 12 }} />
+                <FI label='Target Mobile Identity (MSISDN)' value={disbF.phone} onChange={v => setDisbF(f => ({ ...f, phone: v }))} required />
               </div>
 
-              <div style={{ marginTop: 8 }}>
-                <div style={{ fontSize: 12, fontWeight: 700, color: T.muted, marginBottom: 10, textTransform: 'uppercase' }}>Documents</div>
-                <div style={{ display: 'flex', gap: 8 }}>
-                  <Btn v='secondary' sm onClick={() => downloadLoanDoc(generateLoanAgreementHTML(sel, cust || { name: sel.customer }, sel.officer), 'loan-agreement-' + sel.id + '.html')}>
-                    <span style={{display: 'flex', alignItems: 'center', gap: 4}}><ClipboardSignature size={14} /> Agreement</span>
-                  </Btn>
-                  <Btn v='secondary' sm onClick={() => downloadLoanDoc(generateAssetListHTML(sel, cust || { name: sel.customer }, sel.officer), 'asset-list-' + sel.id + '.html')}>
-                    <span style={{display: 'flex', alignItems: 'center', gap: 4}}><PackageOpen size={14} /> Assets</span>
-                  </Btn>
+              <div>
+                <div style={{ fontSize: 11, fontWeight: 850, color: T.dim, marginBottom: 10, textTransform: 'uppercase', letterSpacing: 1.5 }}>Compliance Documents</div>
+                <div style={{ display: 'flex', gap: 10 }}>
+                  <Btn v='secondary' sm onClick={() => downloadLoanDoc(generateLoanAgreementHTML(sel, cust || { name: sel.customer }, sel.officer), 'loan-agreement-' + sel.id + '.html')} icon={ClipboardSignature}>Agreement</Btn>
+                  <Btn v='secondary' sm onClick={() => downloadLoanDoc(generateAssetListHTML(sel, cust || { name: sel.customer }, sel.officer), 'asset-list-' + sel.id + '.html')} icon={PackageOpen}>Assets</Btn>
                 </div>
               </div>
 
               <div style={{ display: 'flex', flexDirection: 'column', gap: 10, paddingTop: 16, borderTop: `1px solid ${T.border}`, marginTop: 8 }}>
-                <Btn 
-                  onClick={doMpesaDisburse} 
-                  v='primary' 
-                  full 
-                  disabled={!feeOk || disburseLoading}
-                >
-                  {disburseLoading ? 'Wait...' : <span style={{display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6}}><Rocket size={16} /> Disburse via M-Pesa B2C</span>}
+                <Btn onClick={doMpesaDisburse} v='primary' full disabled={!feeOk || disburseLoading} icon={Rocket}>
+                  {disburseLoading ? 'Sending API Request...' : 'Trigger M-Pesa B2C Payout'}
                 </Btn>
-                <div style={{ display: 'flex', gap: 8 }}>
-                  <Btn 
-                    onClick={doManualDisburse} 
-                    v='ok' 
-                    full 
-                    disabled={!feeOk || !disbF.mpesa || !disbF.phone}
-                  >
-                    <span style={{display: 'flex', alignItems: 'center', gap: 6}}><CheckCircle size={16} /> Manual Confirmation</span>
-                  </Btn>
-                  <Btn onClick={() => setSel(null)} v='secondary' full>Close Engine</Btn>
+                <div style={{ display: 'flex', gap: 12 }}>
+                  <Btn onClick={doManualDisburse} v='ok' full disabled={!feeOk || !disbF.mpesa || !disbF.phone} icon={CheckCircle}>Confirm Manual Payout</Btn>
+                  <Btn onClick={() => setSel(null)} v='secondary' style={{ minWidth: 100 }}>Close</Btn>
                 </div>
               </div>
             </div>
           </Dialog>
         );
       })()}
+
+      {waitingForCallback && (
+        <WaitingOverlay title="Funds Dispatch" message={`Releasing capital to ${sel?.customer}`} sub="Connecting to M-Pesa Secure Gateway..." onClose={reset} />
+      )}
+      {isSuccess && (
+        <WaitingOverlay type="success" title="Capital Dispatched" message={`The funds for ${sel?.customer} have been released successfully.`} onClose={reset} />
+      )}
+      {disbStatus === 'Failed' && failureReason && (
+        <WaitingOverlay type="danger" title="Disbursement Failed" message={failureReason} onClose={reset} />
+      )}
+      <style>{`
+          @keyframes pulse {
+              0% { opacity: 0.6; transform: scale(1); }
+              50% { opacity: 1; transform: scale(1.1); }
+              100% { opacity: 0.6; transform: scale(1); }
+          }
+      `}</style>
     </div>
   );
 };

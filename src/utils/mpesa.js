@@ -22,7 +22,9 @@ export async function initiateStkPush({ amount, phone_number, customer_id }) {
   }
 
   try {
-    const token = localStorage.getItem('supabase.auth.token'); // Resolve auth token if needed
+    const { data: { session } } = await supabase.auth.getSession();
+    const token = session?.access_token || '';
+
     const response = await fetch(`${import.meta.env.VITE_API_URL || ''}/api/v1/payments/registration-fee/stk-push`, {
       method: 'POST',
       headers: { 
@@ -53,7 +55,9 @@ export async function initiateB2cDisbursement(loan_id) {
   }
 
   try {
-    const token = localStorage.getItem('supabase.auth.token'); 
+    const { data: { session } } = await supabase.auth.getSession();
+    const token = session?.access_token || '';
+
     const response = await fetch(`${import.meta.env.VITE_API_URL || ''}/api/v1/payments/disbursements/${loan_id}/disburse`, {
       method: 'POST',
       headers: { 

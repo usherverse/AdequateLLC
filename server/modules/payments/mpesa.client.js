@@ -1,8 +1,6 @@
 import axios from 'axios';
 import crypto from 'crypto';
-import dotenv from 'dotenv';
 
-dotenv.config({ path: '../../.env' }); // Assuming it's in a parent directory
 
 const {
   MPESA_ENVIRONMENT,
@@ -12,17 +10,25 @@ const {
   MPESA_PASSKEY,
   MPESA_INITIATOR_NAME,
   MPESA_SECURITY_CREDENTIAL,
+  MPESA_INITIATOR_CREDENTIAL,
   MPESA_B2C_RESULT_URL,
   MPESA_B2C_TIMEOUT_URL,
   MPESA_C2B_CONFIRMATION_URL,
   MPESA_C2B_VALIDATION_URL,
   MPESA_STK_CALLBACK_URL,
-  MPESA_ENCRYPTION_KEY
+  MPESA_ENCRYPTION_KEY,
+  MPESA_B2C_SHORTCODE
 } = process.env;
 
 const BASE_URL = MPESA_ENVIRONMENT === 'production' 
   ? 'https://api.safaricom.co.ke' 
   : 'https://sandbox.safaricom.co.ke';
+
+if (!MPESA_CONSUMER_KEY || !MPESA_CONSUMER_SECRET) {
+  console.error('❌ M-Pesa Config Error: MPESA_CONSUMER_KEY or SECRET is missing in .env');
+} else {
+  console.log('✅ M-Pesa Client initialized in', MPESA_ENVIRONMENT, 'mode');
+}
 
 let tokenCache = {
   token: null,
@@ -82,11 +88,20 @@ const mpesaRequest = async (endpoint, data, options = {}, method = 'POST') => {
         method,
         url,
         data,
-        ...options
+        ...options,
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36',
+          ...(options.headers || {})
+        }
       });
       
       return response.data;
     } catch (error) {
+      if (error.response) {
+        console.error(`[M-Pesa API Error] ${endpoint}:`, JSON.stringify(error.response.data, null, 2));
+      } else {
+        console.error(`[M-Pesa Request Error] ${endpoint}:`, error.message);
+      }
       attempt++;
       if (attempt >= maxAttempts) {
         throw error;
@@ -172,10 +187,10 @@ export const b2cDisbursement = async (phone, amount, remarks, occasion) => {
   
   const payload = {
     InitiatorName: MPESA_INITIATOR_NAME,
-    SecurityCredential: MPESA_SECURITY_CREDENTIAL,
+    SecurityCredential: MPESA_SECURITY_CREDENTIAL || MPESA_INITIATOR_CREDENTIAL,
     CommandID: 'BusinessPayment',
     Amount: Math.round(amount),
-    PartyA: MPESA_SHORTCODE,
+    PartyA: MPESA_B2C_SHORTCODE || MPESA_SHORTCODE,
     PartyB: normalizePhone(phone),
     Remarks: remarks,
     QueueTimeOutURL: MPESA_B2C_TIMEOUT_URL,
@@ -183,6 +198,9 @@ export const b2cDisbursement = async (phone, amount, remarks, occasion) => {
     Occasion: occasion
   };
 
+  console.log('[M-Pesa] Sending B2C Request to PartyB:', payload.PartyB);
+  console.log('[M-Pesa] Using Timeout URL:', payload.QueueTimeOutURL);
+  
   return mpesaRequest('/mpesa/b2c/v1/paymentrequest', payload, {
     headers: { Authorization: `Bearer ${token}` }
   });
@@ -207,6 +225,25 @@ export const registerC2BUrls = async () => {
 };
 
 /**
+ * Simulate C2B Payment (Sandbox only)
+ */
+export const simulateC2B = async (amount, phone, ref) => {
+  const token = await getAccessToken();
+  
+  const payload = {
+    ShortCode: MPESA_SHORTCODE,
+    CommandID: 'CustomerPayBillOnline',
+    Amount: Math.round(amount),
+    Msisdn: normalizePhone(phone),
+    BillRefNumber: ref
+  };
+
+  return mpesaRequest('/mpesa/c2b/v1/simulate', payload, {
+    headers: { Authorization: `Bearer ${token}` }
+  });
+};
+
+/**
  * Query Transaction Status
  */
 export const queryTransactionStatus = async (transactionId) => {
@@ -214,7 +251,7 @@ export const queryTransactionStatus = async (transactionId) => {
   
   const payload = {
     Initiator: MPESA_INITIATOR_NAME,
-    SecurityCredential: MPESA_SECURITY_CREDENTIAL,
+    SecurityCredential: MPESA_SECURITY_CREDENTIAL || MPESA_INITIATOR_CREDENTIAL,
     CommandID: 'TransactionStatusQuery',
     TransactionID: transactionId,
     PartyA: MPESA_SHORTCODE,

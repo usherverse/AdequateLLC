@@ -1,16 +1,20 @@
 import CustomerProfile from "@/modules/customers/CustomerProfile";
 import React, { useState, useMemo } from 'react';
-import { Banknote, Hourglass, Check, X, CreditCard, FileText, PackageOpen } from 'lucide-react';
+import { 
+  Banknote, Hourglass, TrendingUp, AlertTriangle, Plus, Check, X, 
+  ChevronRight, CreditCard, FileText, PackageOpen, PieChart, Activity 
+} from 'lucide-react';
 import {
   T, SC, Card, DT, Btn, Search, Pills, Badge, FI, Alert, Dialog, ConfirmDialog, RefreshBtn,
-  LoanModal, LoanForm, fmt, now, uid, ts, generateLoanAgreementHTML, generateAssetListHTML, downloadLoanDoc,
+  LoanModal, LoanForm, fmt, fmtM, now, uid, ts, generateLoanAgreementHTML, generateAssetListHTML, downloadLoanDoc,
   sbWrite, sbInsert, toSupabaseLoan, toSupabaseCustomer, toSupabasePayment, useContactPopup, useToast,
-  ModuleHeader, calculateLoanStatus, hasRegFee
+  ModuleHeader, calculateLoanStatus, hasRegFee,
+  KPI, Av, Bar
 } from '@/lms-common';
 import { useModuleFilter } from '@/hooks/useModuleFilter';
 import { initiateB2cDisbursement } from '@/utils/mpesa';
 
-const LoansTab = ({ loans, setLoans, customers, setCustomers, payments, setPayments, interactions, setInteractions, workers, addAudit, showToast = () => { }, onNav }) => {
+const LoansTab = ({ loans, setLoans, customers, setCustomers, payments, setPayments, interactions, setInteractions, workers, addAudit, showToast = () => { }, onNav, onOpenCustomerProfile, onRefresh }) => {
   const { open: openContact, Popup: ContactPopup } = useContactPopup();
   const [sel, setSel] = useState(null);
   const [selCust, setSelCust] = useState(null);
@@ -19,7 +23,7 @@ const LoansTab = ({ loans, setLoans, customers, setCustomers, payments, setPayme
   const [payF, setPayF] = useState({ amount: '', mpesa: '', date: now(), isRegFee: false });
   const [loading, setLoading] = useState(false);
   
-  const statuses = ['All', 'Active', 'Overdue', 'Approved', 'Application submitted', 'worker-pending', 'Settled', 'Written off'];
+  const statuses = ['All', 'Active', 'Overdue', 'Settled', 'Written off'];
 
   const {
     q, setQ, tab: flt, setTab: setFlt,
@@ -86,6 +90,15 @@ const LoansTab = ({ loans, setLoans, customers, setCustomers, payments, setPayme
     const newPayment = { ...payEntry, customerId: custId, customer: payLoan.customer, loanId: payLoan.id, status: 'Allocated', allocatedBy: 'admin' };
     setPayments(ps => [...ps, newPayment]);
     sbInsert('payments', toSupabasePayment(newPayment));
+    
+    // Sync Customer Registration Fee Status if marked
+    if (payF.isRegFee) {
+      if (setCustomers) {
+        setCustomers(cs => cs.map(c => c.id === custId ? { ...c, mpesaRegistered: true } : c));
+      }
+      sbWrite('customers', { id: custId, mpesa_registered: true });
+    }
+
     addAudit('Payment Recorded', payLoan.id, `${fmt(amt)} via M-Pesa ${payF.mpesa || 'manual'}${payF.isRegFee ? ' [Reg Fee]' : ''}`);
     showToast(`✅ Payment of ${fmt(amt)} recorded` + (newBal <= 0 ? ' — Loan settled!' : '') + (payF.isRegFee ? ' · Registration fee marked' : ''), 'ok');
     setPayLoan(null); setSel(null); setPayF({ amount: '', mpesa: '', date: now(), isRegFee: false });
@@ -103,7 +116,7 @@ const LoansTab = ({ loans, setLoans, customers, setCustomers, payments, setPayme
     addAudit('Loan Approved', l.id, `Amount: ${fmt(l.amount)}`); 
     showToast(`✅ Loan ${l.id} approved! Proceed to Payments Hub to disburse.`, 'ok'); 
     setSel(null);
-    if (onNav) setTimeout(() => onNav('paymentshub'), 1500); // Auto-nav after 1.5s
+    if (onNav) setTimeout(() => onNav('paymentshub', { tab: 'disbursements' }), 1500); // Auto-nav after 1.5s
   };
 
   const doReject = l => { const upd = { ...l, status: 'Rejected', rejectedAt: now() }; setLoans(ls => ls.map(x => x.id === l.id ? upd : x)); sbWrite('loans', toSupabaseLoan(upd)); addAudit('Loan Rejected', l.id, `Amount: ${fmt(l.amount)}`); showToast(`Loan ${l.id} rejected`, 'warn'); setSel(null); };
@@ -122,16 +135,31 @@ const LoansTab = ({ loans, setLoans, customers, setCustomers, payments, setPayme
         acc[p.loanId] = (acc[p.loanId] || 0) + p.amount;
       return acc;
     }, {});
-    const total = loans.length;
-    let overdue = 0;
-    let approved = 0;
+    
+    let totalPrincipal = 0;
+    let overdueCount = 0;
+    let pendingCount = 0;
+    let activeCount = 0;
+    let settledThisMonth = 0;
+    const nowMonth = new Date().toISOString().slice(0, 7);
+
     loans.forEach((l) => {
       const p = paidMap[l.id] || 0;
       const e = calculateLoanStatus(l, null, p);
-      if (e.overdueDays > 0 && !e.isSettled && !e.isWrittenOff) overdue++;
-      if (l.status === "Approved") approved++;
+      if (e.badgeStatus === 'Overdue' || e.badgeStatus === 'Frozen') overdueCount++;
+      else if (['Application submitted', 'worker-pending'].includes(l.status)) pendingCount++;
+      else if (e.badgeStatus === 'Active') activeCount++;
+      else if (e.badgeStatus === 'Settled' && l.updatedAt?.startsWith(nowMonth)) settledThisMonth++;
+      
+      if (['Active', 'Overdue', 'Frozen'].includes(e.badgeStatus)) {
+        totalPrincipal += l.amount;
+      }
     });
-    return `${total} total · ${overdue} overdue · ${approved} pending`;
+
+    return { 
+      totalPrincipal, overdueCount, pendingCount, activeCount, settledThisMonth,
+      text: `${loans.length} total · ${activeCount} active · ${overdueCount} overdue`
+    };
   }, [loans, payments]);
 
   const exportCols = [
@@ -205,100 +233,92 @@ const LoansTab = ({ loans, setLoans, customers, setCustomers, payments, setPayme
         </div>
       )}
       <ModuleHeader
-        title={<div style={{display:'flex', alignItems:'center', gap:8}}><Banknote size={20}/> Loan Management</div>}
-        stats={stats}
-        refreshProps={{ onRefresh: () => { setQ(''); setFlt('All'); setSel(null); } }}
+        title="Credit Management"
+        sub="Monitor loan portfolio health, track repayments, and manage approvals."
+        stats={stats.text}
+        refreshProps={{ onRefresh: () => { onRefresh?.(); setQ(''); setFlt('All'); setSel(null); } }}
         search={{ value: q, onChange: setQ, placeholder: 'Search loan or customer…' }}
         dateRange={{ start: startDate, end: endDate, onStartChange: setStartDate, onEndChange: setEndDate, onSearch: applyFilter }}
         exportProps={{ onExport: (fmt) => handleExport(fmt, 'Loan Report', exportCols) }}
         pillsProps={{ opts: statuses, val: flt, onChange: setFlt }}
       />
       
-      <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 12 }}>
-        <Btn onClick={() => setShowApp(true)}>+ New Application</Btn>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16, marginBottom: 20 }}>
+        <KPI label="Active Portfolio" value={fmtM(stats.totalPrincipal)} icon={Banknote} color={T.accent} />
+        <KPI label="Critical Arrears" value={stats.overdueCount} icon={AlertTriangle} color={T.danger} sub={stats.overdueCount > 0 ? "High Risk" : "Stable"} />
+        <KPI label="Pending Review" value={stats.pendingCount} icon={Hourglass} color={T.gold} />
+        <KPI label="Settled (MoM)" value={stats.settledThisMonth} icon={TrendingUp} color={T.ok} sub="+ Monthly Growth" />
       </div>
-      <Card>
+
+      <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 12 }}>
+        <Btn onClick={() => setShowApp(true)} icon={Plus}>+ New Application</Btn>
+      </div>
+
+      <Card noPadding>
         <DT
           cols={[
-            { k: 'id', l: 'ID', r: v => <span style={{ color: T.accent, fontFamily: T.mono, fontWeight: 700, fontSize: 12 }}>{v}</span> }, 
-            { k: 'customer', l: 'Customer', r: (v, r) => { const c = customers.find(x => x.name === v); return <span onClick={e => { e.stopPropagation(); if (c) { setSelCust(c); } else { openContact(v, r.phone, e); } }} style={{ color: T.accent, cursor: 'pointer', fontWeight: 600, borderBottom: `1px dashed ${T.accent}50` }}>{v}</span>; } }, 
-            { k: 'amount', l: 'Principal', r: v => <span style={{ fontFamily: T.mono }}>{fmt(v)}</span> }, 
-            { k: 'id', l: 'Total Due', r: (_, r) => {
-              const paid = payments.filter(p => p.loanId === r.id).reduce((s, p) => s + p.amount, 0);
-              const e = calculateLoanStatus(r, null, paid);
-              return <span style={{ color: T.accent, fontFamily: T.mono }}>{fmt(e.totalPayable)}</span>;
-            }},
-            { k: 'id', l: 'Remaining', r: (_, r) => {
-              const paid = payments.filter(p => p.loanId === r.id).reduce((s, p) => s + p.amount, 0);
-              const e = calculateLoanStatus(r, null, paid);
-              return <span style={{ color: e.totalAmountDue > 0 ? (e.isFrozen?T.muted:T.danger) : T.ok, fontFamily: T.mono, fontWeight: 700 }}>{fmt(e.totalAmountDue)}</span>;
-            }}, 
+            { 
+              k: 'customer', l: 'Borrower', r: (v, r) => {
+                const c = customers.find(x => x.name === v);
+                const ini = v.split(' ').map(n=>n[0]).join('').slice(0,2);
+                return (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                    <Av ini={ini} size={34} color={T.accent} />
+                    <div style={{ display: 'flex', flexDirection: 'column' }}>
+                       <span onClick={e => { e.stopPropagation(); if (c) { onOpenCustomerProfile?.(c.id); } }} style={{ color: T.txt, cursor: 'pointer', fontWeight: 700, fontSize: 13 }}>{v}</span>
+                       <span style={{ fontSize: 10, color: T.dim, fontFamily: T.mono }}>{r.id}</span>
+                    </div>
+                  </div>
+                );
+              } 
+            }, 
+            { 
+              k: 'amount', l: 'Financial Snapshot', r: (v, r) => {
+                const paid = payments.filter(p => p.loanId === r.id && p.status === "Allocated").reduce((s, p) => s + p.amount, 0);
+                const e = calculateLoanStatus(r, null, paid);
+                const progress = Math.min((paid / (e.totalPayable || 1)) * 100, 100);
+                return (
+                  <div style={{ minWidth: 140 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4, fontSize: 11, fontWeight: 600 }}>
+                      <span style={{ color: T.dim }}>Bal: {fmt(e.totalAmountDue)}</span>
+                      <span style={{ color: T.accent }}>{Math.round(progress)}%</span>
+                    </div>
+                    <Bar percent={progress} color={e.totalAmountDue > 0 ? T.accent : T.ok} height={6} />
+                    <div style={{ marginTop: 4, fontSize: 10, color: T.muted }}>
+                      Principal: {fmt(v)}
+                    </div>
+                  </div>
+                );
+              }
+            },
             {
               k: "status",
               l: "Status",
               r: (v, r) => {
-                const paid = payments
-                  .filter((p) => p.loanId === r.id && p.status === "Allocated")
-                  .reduce((s, p) => s + p.amount, 0);
+                const paid = payments.filter((p) => p.loanId === r.id && p.status === "Allocated").reduce((s, p) => s + p.amount, 0);
                 const e = calculateLoanStatus(r, null, paid);
-                return (
-                  <Badge color={SC[e.badgeStatus] || T.muted}>{e.status}</Badge>
-                );
+                return <Badge color={SC[e.badgeStatus] || T.muted} variant={e.badgeStatus === 'Overdue' ? 'solid' : 'subtle'}>{e.status}</Badge>;
               },
             },
-            { k: "repaymentType", l: "Type" },
-            {
-              k: "disbursed",
-              l: "Disbursed",
-              r: (v) => <span style={{ fontFamily: T.mono }}>{v || "—"}</span>,
+            { 
+                k: "disbursed", l: "Timeline", r: (v, r) => {
+                  if (!v) return <span style={{ color: T.muted, fontSize: 12 }}>Application Stage</span>;
+                  const paid = payments.filter((p) => p.loanId === r.id && p.status === "Allocated").reduce((s, p) => s + p.amount, 0);
+                  const e = calculateLoanStatus(r, null, paid);
+                  const isOverdue = e.overdueDays > 0;
+                  return (
+                    <div style={{ display: 'flex', flexDirection: 'column' }}>
+                       <span style={{ fontSize: 12, fontWeight: 700, color: isOverdue ? T.danger : T.txt }}>{isOverdue ? `${e.overdueDays}d Late` : `${e.totalDays}d Active`}</span>
+                       <span style={{ fontSize: 10, color: T.dim }}>Repay: {r.repaymentType}</span>
+                    </div>
+                  );
+                }
             },
             {
-              k: "disbursed",
-              l: "Due",
-              r: (v, r) => {
-                if (!v) return <span style={{ color: T.muted }}>—</span>;
-                const d = new Date(v);
-                d.setDate(d.getDate() + 30);
-                const paid = payments
-                  .filter((p) => p.loanId === r.id && p.status === "Allocated")
-                  .reduce((s, p) => s + p.amount, 0);
-                const e = calculateLoanStatus(r, null, paid);
-                const isOverdue = e.overdueDays > 0;
-                return (
-                  <span
-                    style={{
-                      color: isOverdue ? T.danger : T.txt,
-                      fontFamily: T.mono,
-                      fontWeight: isOverdue ? 700 : 400,
-                    }}
-                  >
-                    {d.toISOString().split("T")[0]}
-                  </span>
-                );
-              },
-            },
-            {
-              k: "disbursed",
-              l: "Days",
-              r: (v, r) => {
-                if (!v) return <span style={{ color: T.muted }}>—</span>;
-                const paid = payments
-                  .filter((p) => p.loanId === r.id && p.status === "Allocated")
-                  .reduce((s, p) => s + p.amount, 0);
-                const e = calculateLoanStatus(r, null, paid);
-                return (
-                  <span
-                    style={{
-                      color: e.totalDays > 120 ? T.danger : T.txt,
-                      fontWeight: 800,
-                      fontFamily: "monospace",
-                    }}
-                  >
-                    {e.totalDays}d
-                  </span>
-                );
-              },
-            },
+              k: "id", l: "", r: (v, row) => (
+                <Btn icon={ChevronRight} onClick={() => setSel(row)} variant="ghost" size="sm" />
+              )
+            }
           ]}
           rows={rows} onRow={setSel}
         />
@@ -307,12 +327,12 @@ const LoansTab = ({ loans, setLoans, customers, setCustomers, payments, setPayme
         <LoanModal
           loan={sel} customers={customers} payments={payments} interactions={interactions || []}
           onClose={() => setSel(null)}
-          onViewCustomer={cust => { setSel(null); setSelCust(cust); }}
+          onViewCustomer={cust => { setSel(null); onOpenCustomerProfile?.(cust.id); }}
           actions={(
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
               {(sel.status === 'Application submitted' || sel.status === 'worker-pending') && <Btn v='gold' onClick={() => { doApprove(sel); setSel(null); }}><span style={{display:'flex',alignItems:'center',gap:4}}><Check size={14}/> Approve</span></Btn>}
               {(sel.status === 'Application submitted' || sel.status === 'worker-pending') && <Btn v='danger' onClick={() => setConfirmAction({ title: 'Reject Application', message: `Reject loan application ${sel.id} for ${sel.customer} (${fmt(sel.amount)})? The customer will need to re-apply.`, onConfirm: () => { doReject(sel); setConfirmAction(null); } })}><span style={{display:'flex',alignItems:'center',gap:4}}><X size={14}/> Reject</span></Btn>}
-              {sel.status === 'Approved' && <Btn v='primary' onClick={() => { if (onNav) onNav('paymentshub'); setSel(null); }}><span style={{display:'flex',alignItems:'center',gap:6}}><Banknote size={16}/> Central Disbursement</span></Btn>}
+              {sel.status === 'Approved' && <Btn v='primary' onClick={() => { if (onNav) onNav('paymentshub', { tab: 'disbursements' }); setSel(null); }}><span style={{display:'flex',alignItems:'center',gap:6}}><Banknote size={16}/> Central Disbursement</span></Btn>}
               {['Active', 'Overdue'].includes(sel.status) && <Btn v='ok' onClick={() => { setPayLoan(sel); setSel(null); }}><span style={{display:'flex',alignItems:'center',gap:6}}><CreditCard size={16}/> Record Payment</span></Btn>}
               {!['Written off', 'Settled', 'Rejected'].includes(sel.status) && <Btn v='danger' onClick={() => setConfirmAction({ title: 'Write Off Loan', message: `Write off loan ${sel.id} for ${sel.customer}? Balance of ${fmt(sel.balance)} will be marked as a loss. This cannot be undone.`, onConfirm: () => { doWriteoff(sel); setConfirmAction(null); } })}><span style={{display:'flex',alignItems:'center',gap:4}}><X size={14}/> Write Off</span></Btn>}
               {['Active', 'Overdue', 'Approved'].includes(sel.status) && (() => {
@@ -327,53 +347,18 @@ const LoansTab = ({ loans, setLoans, customers, setCustomers, payments, setPayme
         />
       )}
 
-      {/* FIX: CustomerProfile is now wrapped in a proper full-screen modal overlay,
-          matching the same pattern used in CustomersTab.jsx.
-          Previously it rendered bare into the DOM, pushing all content down
-          and producing a blank/broken page appearance.
-          Also fixed: role casing changed from "Admin" → "admin" so all
-          role-gated tabs (Financials, Admin Actions, etc.) render correctly. */}
-      {selCust && (
-        <div
-          style={{
-            position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
-            background: 'rgba(0,0,0,0.45)',
-            zIndex: 1000,
-            overflowY: 'auto',
-            display: 'flex',
-            alignItems: 'flex-start',
-            justifyContent: 'center',
-            padding: '24px 16px',
-          }}
-          onClick={e => { if (e.target === e.currentTarget) setSelCust(null); }}
-        >
-          <div style={{ width: '100%', maxWidth: 960, borderRadius: 16, overflow: 'hidden', boxShadow: '0 25px 50px rgba(0,0,0,0.3)' }}>
-            <CustomerProfile
-              customerId={selCust.id}
-              workerContext={{ role: 'admin', name: 'Admin' }}
-              onClose={() => setSelCust(null)}
-              loans={loans} setLoans={setLoans}
-              payments={payments} setPayments={setPayments}
-              interactions={interactions} setInteractions={setInteractions}
-              customers={customers} setCustomers={setCustomers}
-              addAudit={addAudit}
-              onSelectLoan={setSel}
-            />
-          </div>
-        </div>
-      )}
+      {/* Global Customer Profile now handled via onOpenCustomerProfile */}
+
 
       {showApp && (
         <Dialog title='New Loan Application' onClose={() => setShowApp(false)} width={560}>
           <LoanForm customers={customers} payments={payments} loans={loans} onSave={async l => { 
             // MODIFIED: Added Eligibility Gate
             const cust = customers.find(c => c.id === l.customerId);
-            if (cust && cust.loans === 0) {
-              const hasFee = payments.some(p => p.customerId === cust.id && p.isRegFee);
-              if (!hasFee) {
-                showToast('Eligibility Denied: Registration fee must be confirmed in the Payments Hub first.', 'danger', 6000);
-                return;
-              }
+            if (cust && !hasRegFee(cust, payments)) {
+              showToast('Eligibility Denied: Registration fee must be confirmed in the Payments Hub first.', 'danger', 6000);
+              if (onNav) setTimeout(() => onNav('paymentshub', { tab: 'registration-fee' }), 1000); 
+              return;
             }
             // Proceed with saving
             setLoans(ls => [l, ...ls]); 

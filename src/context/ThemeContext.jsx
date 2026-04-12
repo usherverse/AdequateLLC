@@ -15,18 +15,12 @@ export const ThemeProvider = ({ children }) => {
 
   useEffect(() => {
     const root = window.document.documentElement;
-    const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
 
     const applyTheme = (currentTheme) => {
-      let resolvedTheme = currentTheme;
-      if (currentTheme === 'system') {
-        resolvedTheme = mediaQuery.matches ? 'dark' : 'light';
-      }
+      root.setAttribute('data-theme', currentTheme);
       
-      root.setAttribute('data-theme', resolvedTheme);
-      // Also apply a class for legacy CSS selectors if needed
-      if (resolvedTheme === 'dark') {
-        root.classList.add('dark');
+      if (currentTheme === 'dark' || currentTheme === 'dim') {
+        root.classList.add('dark'); // keep generic 'dark' class for some utilities
         root.style.colorScheme = 'dark';
       } else {
         root.classList.remove('dark');
@@ -36,18 +30,12 @@ export const ThemeProvider = ({ children }) => {
 
     applyTheme(theme);
     localStorage.setItem('acl_theme', theme);
-
-    if (theme === 'system') {
-      const listener = (e) => applyTheme('system');
-      mediaQuery.addEventListener('change', listener);
-      return () => mediaQuery.removeEventListener('change', listener);
-    }
   }, [theme]);
 
   const toggleTheme = () => {
     setTheme(prev => {
-      if (prev === 'light') return 'dark';
-      if (prev === 'dark') return 'system';
+      if (prev === 'light') return 'dim';
+      if (prev === 'dim') return 'dark';
       return 'light';
     });
   };

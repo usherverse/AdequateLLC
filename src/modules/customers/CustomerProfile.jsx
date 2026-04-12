@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { supabase } from '@/config/supabaseClient';
+import { Image as ImageIcon, FileText, File, Download, Maximize2, Eye, X, Loader2, FolderIcon, HardDrive } from 'lucide-react';
 import { T, SC, Card, DT, Btn, Pills, Badge, FI, Alert, Dialog, CustomerEditForm, fmt, now, calculateLoanStatus, uid, useToast, fromSupabaseLoan, fromSupabaseCustomer, fromSupabasePayment, fromSupabaseInteraction, toSupabaseCustomer, toSupabaseInteraction } from '@/lms-common';
 
 export default function CustomerProfile({ 
@@ -27,21 +28,19 @@ export default function CustomerProfile({
 
   useEffect(() => {
     let active = true;
-    
-    // If the required data is already properly passed via global context,
-    // skip the blocking network fetch entirely to render instantly!
-    if (customer && customers?.length > 0 && globalLoans && globalPayments) {
-        setLoading(false);
-        return;
-    }
 
+    // ALWAYS fetch the full record from Supabase when a profile is opened.
+    // The partial/cached global state (set via useState above) renders the name+phone
+    // instantly while the network call runs. This fixes the bug where synthesized or
+    // fast-page-loaded customer records were missing gender, location, n2/n3 NOK etc.
+    // because the old early-exit guard (`customer.gender`) was preventing the fetch.
     if (!customer) setLoading(true);
 
     async function fetchAll() {
       try {
         setErrorMsg(null);
-        
-        // 1. Fetch Profile/Sync
+
+        // Fetch the complete customer row (SELECT * to guarantee all columns)
         const { data: cData, error: cErr } = await supabase
           .from('customers')
           .select('*')
@@ -49,7 +48,7 @@ export default function CustomerProfile({
           .single();
 
         if (cErr) throw cErr;
-        if (!cData) throw new Error("Customer not found");
+        if (!cData) throw new Error('Customer not found');
 
         const [lRes, pRes, iRes] = await Promise.allSettled([
           supabase.from('loans').select('*').eq('customer_id', customerId),
@@ -58,24 +57,25 @@ export default function CustomerProfile({
         ]);
 
         if (!active) return;
-        
+
         const customerMapped = fromSupabaseCustomer(cData);
-        // Link to already available workers from props first, then update local list if search fails
+        // Keep the raw Supabase row on the mapped object so handleUpdate can
+        // safely merge form changes on top of the ground-truth DB state.
+        customerMapped._raw = cData;
         const currentWorkers = globalWorkers || workers || [];
         customerMapped.onboarded_by_worker = currentWorkers.find(w => w.id === cData.onboarded_by);
         customerMapped.assigned_officer_worker = currentWorkers.find(w => w.id === cData.assigned_officer);
 
         setCustomer(customerMapped);
-        
-        // Use fetched data if possible, data might have changed since global fetch
+
         if (lRes.status === 'fulfilled' && lRes.value.data) setLoans(lRes.value.data.map(fromSupabaseLoan));
         if (pRes.status === 'fulfilled' && pRes.value.data) setPayments(pRes.value.data.map(fromSupabasePayment));
         if (iRes.status === 'fulfilled' && iRes.value.data) setInters(iRes.value.data.map(fromSupabaseInteraction));
 
       } catch (err) {
-        if(active) setErrorMsg(err.message || 'Unknown database fetch error');
+        if (active) setErrorMsg(err.message || 'Unknown database fetch error');
       } finally {
-        if(active) setLoading(false);
+        if (active) setLoading(false);
       }
     }
     fetchAll();
@@ -91,12 +91,22 @@ export default function CustomerProfile({
 
   const handleUpdate = async (updated) => {
     try {
-      const { error } = await supabase.from('customers').update(toSupabaseCustomer(updated)).eq('id', customerId);
+      // Build the DB payload from the form data.
+      // We explicitly EXCLUDE created_at (server-managed) and server-only flags
+      // (mpesa_registered, status) so they are never accidentally nulled out.
+      const dbPayload = toSupabaseCustomer(updated);
+      delete dbPayload.created_at; // server-managed — never overwrite
+
+      const { error } = await supabase.from('customers').update(dbPayload).eq('id', customerId);
       if (error) throw error;
-      
-      setCustomer(updated);
+
+      // Merge the updated form data back onto the in-memory customer, preserving
+      // any server-side fields (mpesaRegistered, _raw, worker references, etc.)
+      // that the edit form does not touch.
+      const merged = { ...customer, ...updated, _raw: customer._raw };
+      setCustomer(merged);
       if (setCustomers) {
-        setCustomers(prev => prev.map(c => c.id === customerId ? updated : c));
+        setCustomers(prev => prev.map(c => c.id === customerId ? merged : c));
       }
       addAudit('Profile Updated', customerId, `KYC details modified`);
       showToast('Profile updated successfully', 'ok');
@@ -158,111 +168,156 @@ export default function CustomerProfile({
   const activeLoans = processedLoans.filter(l => l.status !== 'Settled' && l.status !== 'Written off');
 
   return (
-    <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, zIndex: 99000, background: T.bg, padding: 0, overflowY: 'auto' }}>
-      <div style={{ width: '100%', minHeight: '100%', padding: '24px 40px', display: 'flex', flexDirection: 'column' }}>
-        
-      {/* HEADER */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
-          <Btn onClick={onClose} v='secondary' sm>❮ Back</Btn>
-          <div>
-            <h1 style={{ color: T.txt, margin: 0, fontSize: 24, fontFamily: T.head, display: 'flex', alignItems: 'center', gap: 12 }}>
-              {customer.name}
-              {isBlacklisted ? <Badge color={T.danger}>BLACKLISTED</Badge> : <Badge color={T.ok}>ACTIVE</Badge>}
-            </h1>
-            <div style={{ color: T.muted, fontSize: 13, marginTop: 4, fontFamily: T.mono }}>ID: {customer.id} · NID: {customer.idNo || 'N/A'}</div>
+    <div 
+      className="fade ios-sheet-overlay" 
+      style={{ 
+        position: 'fixed', 
+        inset: 0, 
+        zIndex: 99000, 
+        background: 'rgba(0,0,0,0.7)', 
+        backdropFilter: 'blur(12px)', 
+        display: 'flex', 
+        alignItems: 'flex-end', // Pin to bottom like a real iOS sheet
+        justifyContent: 'center' 
+      }}
+      onClick={onClose}
+    >
+      <style>{`
+        .profile-container { display: flex; flex-direction: column; height: 100%; padding: 0 24px 24px; }
+        .profile-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; padding-bottom: 24px; }
+        .row-grouped { display: flex; justify-content: space-between; align-items: center; padding: 12px 0; border-bottom: 1px solid var(--border-subtle); }
+        .row-grouped:last-child { border-bottom: none; }
+        @media (max-width: 800px) {
+          .profile-grid { grid-template-columns: 1fr !important; gap: 16px !important; }
+        }
+      `}</style>
+      
+      <div 
+        className="ios-sheet" 
+        style={{ 
+          width: '100%', 
+          maxWidth: 1000, 
+          height: '96vh', // Increased for a 'fuller' feel
+          borderBottomLeftRadius: 0, 
+          borderBottomRightRadius: 0, 
+          overflow: 'hidden',
+          display: 'flex',
+          flexDirection: 'column'
+        }}
+        onClick={e => e.stopPropagation()}
+      >
+        {/* Visual Handle */}
+        <div style={{ display: 'flex', justifyContent: 'center', padding: '12px 0 4px', flexShrink: 0 }}>
+           <div style={{ width: 40, height: 4, background: 'rgba(255,255,255,0.2)', borderRadius: 10 }} />
+        </div>
+
+        <div className="profile-container">
+          
+          {/* HEADER AREA */}
+          <div style={{ padding: '8px 0 20px', borderBottom: `1px solid ${T.border}`, marginBottom: 20 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', flexWrap: 'wrap', gap: 16 }}>
+              <div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                  <h1 style={{ color: T.txt, margin: 0, fontSize: 26, fontWeight: 900, fontFamily: T.head, letterSpacing: '-0.02em' }}>
+                    {customer.name}
+                  </h1>
+                  {isBlacklisted ? <Badge color={T.danger}>BLACKLISTED</Badge> : <Badge color={T.ok}>ACTIVE</Badge>}
+                </div>
+                <div style={{ color: T.muted, fontSize: 13, marginTop: 4, fontWeight: 600 }}>
+                  <span style={{ color: T.accent }}>{customer.id}</span> · {customer.idNo || 'N/A'}
+                </div>
+              </div>
+              <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
+                <Btn v='gold' sm onClick={() => setShowEdit(true)}>Edit Profile</Btn>
+                <div onClick={onClose} style={{ background: T.surface, color: T.txt, borderRadius: 99, width: 32, height: 32, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', fontWeight: 900, border: `1px solid ${T.border}` }}>✕</div>
+              </div>
+            </div>
           </div>
-        </div>
-        <div style={{ display: 'flex', gap: 12 }}>
-          {isBlacklisted && <div style={{ color: T.danger, fontWeight: 700, fontSize: 13, padding: 12 }}>Lending Prohibited</div>}
-          <Btn v='gold' onClick={() => setShowEdit(true)}>Edit Profile</Btn>
-        </div>
-      </div>
 
-      <div style={{ marginBottom: 24 }}>
-        <Pills opts={tabs} val={tabs.find(t=>tabId(t)===activeTab)} onChange={v=>setActiveTab(tabId(v))} />
-      </div>
+          <div style={{ marginBottom: 20 }}>
+            <Pills opts={tabs} val={tabs.find(t=>tabId(t)===activeTab)} onChange={v=>setActiveTab(tabId(v))} />
+          </div>
 
-      <div style={{ flex: '1 1 auto' }}>
+          <div style={{ 
+            flex: 1, 
+            overflowY: 'auto', 
+            paddingRight: 4,
+            minHeight: 0, // CRITICAL: allows flex child to be smaller than content and thus scroll
+            WebkitOverflowScrolling: 'touch' 
+          }}>
         {activeTab === 'overview' && (
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 24, paddingBottom: 64 }}>
-            <Card style={{ padding: 24 }}>
-              <h3 style={{ color: T.txt, fontSize: 15, margin: '0 0 16px', borderBottom: `1px solid ${T.border}`, paddingBottom: 12 }}>Customer Details</h3>
-              <div style={{ display: 'grid', gridTemplateColumns: 'minmax(120px, auto) 1fr', gap: '12px 24px', fontSize: 13 }}>
-                <span style={{ color: T.muted }}>Phone</span><span style={{ color: T.txt, fontWeight: 600 }}>{customer.phone || '—'}</span>
-                <span style={{ color: T.muted }}>Alt. Phone</span><span style={{ color: T.txt, fontWeight: 600 }}>{customer.altPhone || '—'}</span>
-                <span style={{ color: T.muted }}>Gender</span><span style={{ color: T.txt }}>{customer.gender || '—'}</span>
-                <span style={{ color: T.muted }}>Joined</span><span style={{ color: T.txt }}>{customer.joined ? new Date(customer.joined).toLocaleDateString() : '—'}</span>
-                <span style={{ color: T.muted }}>Risk Segment</span>
-                <span>
-                   <Badge color={customer.risk === 'High' ? T.danger : customer.risk === 'Medium' ? T.warn : T.ok}>{customer.risk || 'Low'}</Badge>
-                </span>
-                <span style={{ color: T.muted }}>Assigned Officer</span><span style={{ color: T.txt }}>{customer.assigned_officer_worker?.name || 'Unassigned'}</span>
+          <div className="profile-grid">
+            <Card style={{ padding: 24, borderRadius: 20 }}>
+              <h3 style={{ color: T.accent, fontSize: 12, fontWeight: 800, margin: '0 0 8px', textTransform: 'uppercase', letterSpacing: 1 }}>Identification & Origin</h3>
+              <div className="grouped-list">
+                <div className="row-grouped"><span style={{ color: T.dim, fontSize: 13 }}>Phone</span><span style={{ color: T.txt, fontWeight: 700 }}>{customer.phone || '—'}</span></div>
+                <div className="row-grouped"><span style={{ color: T.dim, fontSize: 13 }}>Alt. Phone</span><span style={{ color: T.txt }}>{customer.altPhone || '—'}</span></div>
+                <div className="row-grouped"><span style={{ color: T.dim, fontSize: 13 }}>Gender</span><span style={{ color: T.txt }}>{customer.gender || '—'}</span></div>
+                <div className="row-grouped"><span style={{ color: T.dim, fontSize: 13 }}>Date Joined</span><span style={{ color: T.txt }}>{customer.joined ? new Date(customer.joined).toLocaleDateString() : '—'}</span></div>
+                <div className="row-grouped"><span style={{ color: T.dim, fontSize: 13 }}>Assigned Officer</span><span style={{ color: T.txt }}>{customer.assigned_officer_worker?.name || 'Unassigned'}</span></div>
+                <div className="row-grouped" style={{ border: 'none' }}>
+                  <span style={{ color: T.dim, fontSize: 13 }}>Risk Scoring</span>
+                  <Badge color={customer.risk === 'High' ? T.danger : customer.risk === 'Medium' ? T.warn : T.ok}>{customer.risk || 'Low'}</Badge>
+                </div>
               </div>
             </Card>
 
-            <Card style={{ padding: 24 }}>
-              <h3 style={{ color: T.txt, fontSize: 15, margin: '0 0 16px', borderBottom: `1px solid ${T.border}`, paddingBottom: 12 }}>Business Information</h3>
-              <div style={{ display: 'grid', gridTemplateColumns: 'minmax(120px, auto) 1fr', gap: '12px 24px', fontSize: 13 }}>
-                <span style={{ color: T.muted }}>Business Name</span><span style={{ color: T.txt, fontWeight: 600 }}>{customer.businessName || '—'}</span>
-                <span style={{ color: T.muted }}>Business Type</span><span style={{ color: T.txt }}>{customer.businessType || '—'}</span>
-                <span style={{ color: T.muted }}>Location</span><span style={{ color: T.txt }}>{customer.location || '—'}</span>
+            <Card style={{ padding: 24, borderRadius: 20 }}>
+              <h3 style={{ color: T.accent, fontSize: 12, fontWeight: 800, margin: '0 0 8px', textTransform: 'uppercase', letterSpacing: 1 }}>Business Profile</h3>
+              <div className="grouped-list">
+                <div className="row-grouped"><span style={{ color: T.dim, fontSize: 13 }}>Trading Name</span><span style={{ color: T.txt, fontWeight: 700 }}>{customer.businessName || '—'}</span></div>
+                <div className="row-grouped"><span style={{ color: T.dim, fontSize: 13 }}>Business Category</span><span style={{ color: T.txt }}>{customer.businessType || '—'}</span></div>
+                <div className="row-grouped" style={{ border: 'none' }}><span style={{ color: T.dim, fontSize: 13 }}>Premises / Location</span><span style={{ color: T.txt }}>{customer.location || '—'}</span></div>
               </div>
             </Card>
 
-            <Card style={{ padding: 24 }}>
-              <h3 style={{ color: T.txt, fontSize: 15, margin: '0 0 16px', borderBottom: `1px solid ${T.border}`, paddingBottom: 12 }}>Primary Next of Kin</h3>
-              <div style={{ display: 'grid', gridTemplateColumns: 'minmax(120px, auto) 1fr', gap: '12px 24px', fontSize: 13 }}>
-                <span style={{ color: T.muted }}>Name</span><span style={{ color: T.txt, fontWeight: 600 }}>{customer.n1n || '—'}</span>
-                <span style={{ color: T.muted }}>Relationship</span><span style={{ color: T.txt }}>{customer.n1r || '—'}</span>
-                <span style={{ color: T.muted }}>Phone</span><span style={{ color: T.txt }}>{customer.n1p || '—'}</span>
-              </div>
-            </Card>
-            
-            <div style={{ gridColumn: 'span 2' }}>
-              <h3 style={{ color: T.txt, fontSize: 15, margin: '0 0 16px' }}>Active Lifetime Loans</h3>
+            <div style={{ gridColumn: 'span 1' }}>
+              <h3 style={{ color: T.txt, fontSize: 16, fontWeight: 900, margin: '0 0 16px' }}>Active Lifetime Loans</h3>
               {activeLoans.length === 0 ? (
-                <Alert type='ok'>No active loans. Customer is clean.</Alert>
+                <div style={{ background: T.aLo, padding: 20, borderRadius: 16, border: `1px solid ${T.accent}30`, color: T.accent, fontWeight: 700, textAlign: 'center' }}>
+                   No active loans. Account is clean.
+                </div>
               ) : (
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: 16 }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 16 }}>
                   {activeLoans.map(l => (
-                    <Card key={l.id} style={{ padding: 20, borderLeft: `4px solid ${SC[l.phase === 'frozen' ? 'Written off' : l.phase === 'none' ? 'Active' : 'Overdue'] || T.accent}` }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
-                        <div style={{ fontWeight: 700, color: T.txt }}>{l.id}</div>
+                    <Card key={l.id} style={{ padding: 20, borderRadius: 24, borderLeft: `6px solid ${SC[l.phase === 'frozen' ? 'Written off' : l.phase === 'none' ? 'Active' : 'Overdue'] || T.accent}` }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 12 }}>
+                        <div style={{ fontWeight: 900, color: T.txt, fontSize: 16 }}>{l.id}</div>
                         <Badge color={l.isFrozen ? T.danger : T.ok}>{l.status}</Badge>
                       </div>
-                      <div style={{ fontSize: 12, color: T.dim, marginBottom: 12 }}>Disbursed: {l.disbursed || 'Pending'} · {l.repaymentType || 'Monthly'}</div>
+                      <div style={{ fontSize: 12, color: T.dim, marginBottom: 16 }}>Disbursed: {l.disbursed || 'Pending'} · {l.repaymentType || 'Monthly'}</div>
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end' }}>
                         <div>
-                          <div style={{ fontSize: 11, color: T.muted }}>Principal</div>
-                          <div style={{ fontSize: 14, color: T.txt, fontFamily: T.mono }}>{fmt(l.amount)}</div>
+                          <div style={{ fontSize: 11, color: T.muted, textTransform: 'uppercase' }}>Principal</div>
+                          <div style={{ fontSize: 15, color: T.txt, fontWeight: 800 }}>{fmt(l.amount)}</div>
                         </div>
                         <div style={{ textAlign: 'right' }}>
-                          <div style={{ fontSize: 11, color: T.muted }}>Live Balance</div>
-                          <div style={{ fontSize: 18, color: l.actualBalance > 0 ? T.warn : T.ok, fontFamily: T.mono, fontWeight: 700 }}>{fmt(l.actualBalance)}</div>
+                          <div style={{ fontSize: 11, color: T.muted, textTransform: 'uppercase' }}>Live Balance</div>
+                          <div style={{ fontSize: 20, color: l.actualBalance > 0 ? T.warn : T.ok, fontWeight: 900 }}>{fmt(l.actualBalance)}</div>
                         </div>
                       </div>
-                      {l.overdueDays > 0 && <div style={{ fontSize: 11, color: T.danger, marginTop: 8, textAlign: 'right' }}>⚠ {l.overdueDays} days overdue</div>}
+                      {l.overdueDays > 0 && <div style={{ fontSize: 11, color: T.danger, marginTop: 12, textAlign: 'right', fontWeight: 800 }}>⚠ {l.overdueDays} DAYS OVERDUE</div>}
                     </Card>
                   ))}
                 </div>
               )}
             </div>
             
-            <Card style={{ gridColumn: 'span 2', padding: 24 }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+            <Card style={{ padding: 24, borderRadius: 24 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <div>
-                  <div style={{ fontSize: 12, color: T.muted, textTransform: 'uppercase' }}>Total Borrowed (Lifetime)</div>
-                  <div style={{ fontSize: 24, fontWeight: 700, color: T.txt, fontFamily: T.mono }}>{fmt(totalBorrowed)}</div>
+                  <div style={{ fontSize: 11, color: T.muted, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 4 }}>Lifetime Borrowed</div>
+                  <div style={{ fontSize: 28, fontWeight: 900, color: T.txt }}>{fmt(totalBorrowed)}</div>
                 </div>
                 <div style={{ textAlign: 'right' }}>
-                  <div style={{ fontSize: 12, color: T.muted, textTransform: 'uppercase' }}>Total Paid</div>
-                  <div style={{ fontSize: 24, fontWeight: 700, color: T.ok, fontFamily: T.mono }}>{fmt(payments.reduce((a, p) => a + Number(p.amount||0), 0))}</div>
+                  <div style={{ fontSize: 11, color: T.muted, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 4 }}>Total Repaid</div>
+                  <div style={{ fontSize: 28, fontWeight: 900, color: T.ok }}>{fmt(payments.reduce((a, p) => a + Number(p.amount||0), 0))}</div>
                 </div>
               </div>
             </Card>
           </div>
         )}
+
 
         {activeTab === 'loanhistory' && (
           <div className='dt-shell' style={{ maxHeight: '100%' }}>
@@ -318,12 +373,13 @@ export default function CustomerProfile({
              {!customer.n1n && <Alert type='warn'>No Next of Kin registered on file.</Alert>}
           </div>
         )}
+          </div>
+        </div>
       </div>
 
       {showEdit && (
-        <CustomerEditForm customer={customer} workers={workers} onSave={handleUpdate} onClose={() => setShowEdit(false)} />
+        <CustomerEditForm customer={customer} workers={workers} allCustomers={customers} onSave={handleUpdate} onClose={() => setShowEdit(false)} />
       )}
-      </div>
     </div>
   );
 }
@@ -435,6 +491,57 @@ function InteractionsTab({ customerId, initialRecords, workerContext, setGlobalI
 // =========================================================
 // DOCUMENTS SUB-COMPONENT
 // =========================================================
+function DocPreviewModal({ preview, onClose, T }) {
+  const [imgLoaded, setImgLoaded] = useState(false);
+  
+  return (
+    <div className="dialog-backdrop" style={{ position: 'fixed', inset: 0, zIndex: 100000, background: 'rgba(0,0,0,0.92)', backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)', display: 'flex', flexDirection: 'column', padding: 'clamp(12px, 4vw, 40px)', alignItems: 'center' }}>
+      <div className="pop" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20, width: '100%', maxWidth: 1100 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+           <div style={{ width: 44, height: 44, borderRadius: 12, background: 'rgba(255,255,255,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff' }}>
+             {preview.type.startsWith('image/') ? <ImageIcon size={22} /> : <FileText size={22} />}
+           </div>
+           <div>
+              <div style={{ color: '#fff', fontSize: 16, fontWeight: 800, letterSpacing: '-0.01em' }}>{preview.name}</div>
+              <div style={{ color: 'rgba(255,255,255,0.5)', fontSize: 12, fontWeight: 600 }}>{preview.type.toUpperCase()}</div>
+           </div>
+        </div>
+        <button 
+          onClick={onClose} 
+          className="hover-pop"
+          style={{ background: 'rgba(255,255,255,0.1)', color: '#fff', border: 'none', padding: '10px 20px', borderRadius: 12, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8 }}
+        >
+          Close <X size={18} />
+        </button>
+      </div>
+      
+      <div className="pop" style={{ flex: 1, display: 'flex', justifyContent: 'center', alignItems: 'center', overflow: 'hidden', borderRadius: 28, boxShadow: '0 40px 100px rgba(0,0,0,0.8)', width: '100%', maxWidth: 1100, background: '#000', position: 'relative', border: '1px solid rgba(255,255,255,0.1)' }}>
+         {!imgLoaded && (
+           <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', background: '#0a0a0a', gap: 16 }}>
+              <div className="spin" style={{ width: 32, height: 32, border: '3px solid rgba(255,255,255,0.1)', borderTopColor: T.accent, borderRadius: '50%' }} />
+              <div style={{ color: T.dim, fontSize: 11, fontWeight: 800, letterSpacing: 1.5 }}>LOADING ASSET</div>
+           </div>
+         )}
+         {preview.type.startsWith('image/') ? (
+           <img 
+              src={preview.url} 
+              alt={preview.name} 
+              onLoad={() => setImgLoaded(true)}
+              style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain', opacity: imgLoaded ? 1 : 0, transition: 'opacity 0.4s ease' }} 
+           />
+         ) : (
+           <iframe 
+              src={preview.url} 
+              title={preview.name} 
+              onLoad={() => setImgLoaded(true)}
+              style={{ width: '100%', height: '100%', border: 'none', background: '#fff', opacity: imgLoaded ? 1 : 0, transition: 'opacity 0.4s ease' }} 
+           />
+         )}
+      </div>
+    </div>
+  );
+}
+
 function DocumentsTab({ customerId }) {
   const [docs, setDocs] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -511,16 +618,8 @@ function DocumentsTab({ customerId }) {
   };
 
   const handleOpen = async (filename) => {
-    try {
-      show('Opening document...', 'info');
-      const { data, error } = await supabase.storage.from('documents').download(`${customerId}/${filename}`);
-      if (error) throw error;
-      
-      const url = URL.createObjectURL(data);
-      window.open(url, '_blank');
-    } catch(e) {
-      show('Failed to open', 'danger');
-    }
+    // Consolidated 'Open' into the in-app preview modal per user request
+    handlePreview(filename);
   };
 
   const closePreview = () => {
@@ -546,18 +645,18 @@ function DocumentsTab({ customerId }) {
             const isPdf = doc.name.match(/\.(pdf)$/i);
             
             return (
-              <Card key={doc.id} style={{ padding: 16, display: 'flex', flexDirection: 'column', gap: 12, background: T.cardHi }}>
-                <div style={{ height: 120, background: T.bg, borderRadius: 12, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 32, overflow: 'hidden' }}>
-                   {isImg ? "🖼️" : isPdf ? "📄" : "📁"}
+              <Card key={doc.id} style={{ padding: 16, display: 'flex', flexDirection: 'column', gap: 12, background: T.card, border: `1px solid ${T.border}`, transition: 'transform 0.2s, border-color 0.2s' }}>
+                <div style={{ height: 130, background: T.surface, borderRadius: 14, display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden', border: `1px solid ${T.border}`, color: T.muted }}>
+                   {isImg ? <ImageIcon size={32} opacity={0.6} /> : isPdf ? <FileText size={32} opacity={0.6} /> : <File size={32} opacity={0.6} />}
                 </div>
-                <div>
-                  <div style={{ color: T.txt, fontWeight: 600, fontSize: 13, wordBreak: 'break-all', marginBottom: 4 }}>{doc.name}</div>
-                  <div style={{ color: T.muted, fontSize: 11 }}>{(doc.metadata?.size / 1024).toFixed(1)} KB</div>
+                <div style={{ padding: '0 4px' }}>
+                  <div style={{ color: T.txt, fontWeight: 700, fontSize: 13, wordBreak: 'break-all', marginBottom: 2 }}>{doc.name}</div>
+                  <div style={{ color: T.dim, fontSize: 11, fontWeight: 600 }}>{(doc.metadata?.size / 1024).toFixed(1)} KB</div>
                 </div>
-                <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
-                   {(isImg || isPdf) && <Btn onClick={() => handlePreview(doc.name)} sm v='gold' style={{ flex: '1 1 60px' }}>View</Btn>}
-                   <Btn onClick={() => handleOpen(doc.name)} sm v='secondary' style={{ flex: '1 1 60px' }}>Open</Btn>
-                   <Btn onClick={() => handleDownload(doc.name)} sm v='secondary' style={{ flex: '1 1 60px' }}>⤓ Save</Btn>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                   {(isImg || isPdf) && <Btn onClick={() => handlePreview(doc.name)} sm v='gold' icon={Eye}>View</Btn>}
+                   <Btn onClick={() => handleOpen(doc.name)} sm v='secondary' icon={Maximize2}>Open</Btn>
+                   <Btn onClick={() => handleDownload(doc.name)} sm v='secondary' icon={Download}>Save</Btn>
                 </div>
               </Card>
             );
@@ -565,29 +664,7 @@ function DocumentsTab({ customerId }) {
         </div>
       )}
 
-      {preview && (
-        <div className="dialog-backdrop" style={{ position: 'fixed', inset: 0, zIndex: 10000, background: 'rgba(0,0,0,0.85)', backdropFilter: 'var(--glass-blur)', WebkitBackdropFilter: 'var(--glass-blur)', display: 'flex', flexDirection: 'column', padding: 24, alignItems: 'center' }}>
-          <div className="pop" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20, width: '100%', maxWidth: 1000 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-               <div style={{ width: 40, height: 40, borderRadius: 10, background: T.hi, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20 }}>
-                 {preview.type.startsWith('image/') ? '🖼️' : '📄'}
-               </div>
-               <div>
-                  <div style={{ color: '#fff', fontSize: 16, fontWeight: 800 }}>{preview.name}</div>
-                  <div style={{ color: T.muted, fontSize: 12 }}>{preview.type}</div>
-               </div>
-            </div>
-            <Btn onClick={closePreview} v='secondary' style={{ background: 'rgba(255,255,255,0.1)', color: '#fff', border: 'none' }}>Close Preview ×</Btn>
-          </div>
-          <div className="pop" style={{ flex: 1, display: 'flex', justifyContent: 'center', alignItems: 'center', overflow: 'hidden', borderRadius: 24, boxShadow: '0 30px 60px rgba(0,0,0,0.7)', width: '100%', maxWidth: 1000, background: T.bg }}>
-             {preview.type.startsWith('image/') ? (
-               <img src={preview.url} alt={preview.name} style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }} />
-             ) : (
-               <iframe src={preview.url} title={preview.name} style={{ width: '100%', height: '100%', border: 'none', background: '#fff' }} />
-             )}
-          </div>
-        </div>
-      )}
+      {preview && <DocPreviewModal preview={preview} onClose={closePreview} T={T} />}
     </div>
   );
 }

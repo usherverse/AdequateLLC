@@ -1,18 +1,30 @@
 import React, { useState, useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { Rocket, Smartphone } from 'lucide-react';
+import { Rocket, Smartphone, Users, ChevronLeft, Search } from 'lucide-react';
 import { supabase } from '@/config/supabaseClient';
-import { T, Badge, Btn, fmt, FI } from '@/lms-common';
+import { T, Badge, Btn, fmt, FI, WaitingOverlay } from '@/lms-common';
 import { useRegistrationFee } from './hooks/useRegistrationFee';
 
-const RegistrationFeeTab = () => {
-  const [searchParams] = useSearchParams();
+// A customer has paid if: mpesaRegistered flag OR any payment with is_reg_fee=true
+const customerHasPaidRegFee = (c, payments = []) =>
+  c.mpesaRegistered === true ||
+  payments.some(p =>
+    p.customerId === c.id &&
+    (p.isRegFee === true ||
+      (p.amount >= 1 && typeof p.note === 'string' &&
+        (p.note.toLowerCase().includes('registration') || p.note.toLowerCase().includes('reg fee'))))
+  );
+
+const RegistrationFeeTab = ({ customers = [], payments = [], showToast, onManualLog }) => {
+
+  const [searchParams, setSearchParams] = useSearchParams();
   const customerIdParam = searchParams.get('customerId');
   
   const [customer, setCustomer] = useState(null);
   const [phone, setPhone] = useState('');
+  const [query, setQuery] = useState('');
   const [loadingLocal, setLoadingLocal] = useState(false);
-  const { status, loading, initiateStk } = useRegistrationFee(customerIdParam);
+  const { status, loading, waitingForCallback, isSuccess, failureReason, initiateStk, reset } = useRegistrationFee(customerIdParam);
 
   useEffect(() => {
     if (customerIdParam) {
@@ -30,8 +42,10 @@ const RegistrationFeeTab = () => {
     setLoadingLocal(true);
     try {
       await initiateStk(phone);
+      showToast('STK Push Sent!', 'Check your phone to complete payment.', 'success');
     } catch (err) {
       console.error(err);
+      showToast('Push Failed', err.message, 'error');
     } finally {
       setLoadingLocal(false);
     }
@@ -44,105 +58,252 @@ const RegistrationFeeTab = () => {
   };
 
   return (
-    <div style={{ maxWidth: 800, margin: '0 auto', padding: '20px 0' }}>
+    <div style={{ maxWidth: 1000, margin: '0 auto', padding: '20px clamp(0px, 2vw, 24px)', width: '100%', boxSizing: 'border-box' }}>
       <div style={{ 
         background: T.card, 
         border: `1px solid ${T.border}`, 
-        borderRadius: 20, 
-        boxShadow: '0 20px 40px rgba(0,0,0,0.4)', 
+        borderRadius: 24, 
+        boxShadow: '0 20px 60px rgba(0,0,0,0.5)', 
         overflow: 'hidden', 
-        padding: 32 
+        padding: 'clamp(20px, 4vw, 40px)' 
       }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 32 }}>
           <div>
+            {customerIdParam && (
+              <button 
+                onClick={() => {
+                  setCustomer(null);
+                  setPhone('');
+                  setSearchParams(prev => { prev.delete('customerId'); return prev; });
+                }}
+                style={{ background: 'none', border: 'none', color: T.accent, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4, padding: 0, marginBottom: 8, fontSize: 13, fontWeight: 600 }}
+              >
+                <ChevronLeft size={16} /> Back to List
+              </button>
+            )}
             <h2 style={{ fontSize: 24, fontWeight: 900, color: T.txt, margin: 0 }}>Registration Fee Verification</h2>
             <p style={{ color: T.muted, fontSize: 14, marginTop: 4 }}>Manage and verify mandatory onboarding payments</p>
           </div>
-          <Badge color={statusColors[status] || T.muted}>{status?.toUpperCase()}</Badge>
+          {customerIdParam && <Badge color={statusColors[status] || T.muted}>{status?.toUpperCase()}</Badge>}
         </div>
 
-        {customer ? (
-          <div style={{ 
-            display: 'grid', 
-            gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', 
-            gap: 24, 
-            background: T.surface, 
-            padding: 24, 
-            borderRadius: 16, 
-            border: `1px solid ${T.border}`, 
-            marginBottom: 32 
-          }}>
-            <div>
-              <label style={{ display: 'block', fontSize: 10, fontWeight: 800, color: T.muted, textTransform: 'uppercase', letterSpacing: 1.2, marginBottom: 6 }}>Customer Name</label>
-              <div style={{ fontSize: 18, fontWeight: 700, color: T.txt }}>{customer.name}</div>
+        {customerIdParam ? (
+          customer ? (
+            <div style={{ 
+              display: 'grid', 
+              gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', 
+              gap: 24, 
+              background: T.surface, 
+              padding: 24, 
+              borderRadius: 16, 
+              border: `1px solid ${T.border}`, 
+              marginBottom: 32 
+            }}>
+              <div>
+                <label style={{ display: 'block', fontSize: 10, fontWeight: 800, color: T.muted, textTransform: 'uppercase', letterSpacing: 1.2, marginBottom: 6 }}>Customer Name</label>
+                <div style={{ fontSize: 18, fontWeight: 700, color: T.txt }}>{customer.name}</div>
+              </div>
+              <div>
+                <label style={{ display: 'block', fontSize: 10, fontWeight: 800, color: T.muted, textTransform: 'uppercase', letterSpacing: 1.2, marginBottom: 6 }}>Customer ID</label>
+                <div style={{ fontSize: 14, fontFamily: T.mono, color: T.dim }}>{customer.id}</div>
+              </div>
+              <div style={{ gridColumn: '1 / -1' }}>
+                <label style={{ display: 'block', fontSize: 10, fontWeight: 800, color: T.muted, textTransform: 'uppercase', letterSpacing: 1.2, marginBottom: 8 }}>Phone Number (Safaricom)</label>
+                <input
+                  type="text"
+                  value={phone}
+                  onChange={(e) => setPhone(e.target.value)}
+                  style={{
+                    width: '100%',
+                    background: T.card,
+                    border: `1px solid ${T.border}`,
+                    borderRadius: 10,
+                    padding: '12px 16px',
+                    color: T.txt,
+                    fontSize: 16,
+                    fontFamily: T.mono,
+                    outline: 'none',
+                    transition: 'border-color 0.2s',
+                  }}
+                  onFocus={(e) => e.target.style.borderColor = T.accent}
+                  onBlur={(e) => e.target.style.borderColor = T.border}
+                  placeholder="2547XXXXXXXX"
+                />
+              </div>
             </div>
-            <div>
-              <label style={{ display: 'block', fontSize: 10, fontWeight: 800, color: T.muted, textTransform: 'uppercase', letterSpacing: 1.2, marginBottom: 6 }}>Customer ID</label>
-              <div style={{ fontSize: 14, fontFamily: T.mono, color: T.dim }}>{customer.id}</div>
-            </div>
-            <div style={{ gridColumn: '1 / -1' }}>
-              <label style={{ display: 'block', fontSize: 10, fontWeight: 800, color: T.muted, textTransform: 'uppercase', letterSpacing: 1.2, marginBottom: 8 }}>Phone Number (Safaricom)</label>
-              <input
-                type="text"
-                value={phone}
-                onChange={(e) => setPhone(e.target.value)}
-                style={{
-                  width: '100%',
-                  background: T.card,
-                  border: `1px solid ${T.border}`,
-                  borderRadius: 10,
-                  padding: '12px 16px',
-                  color: T.txt,
-                  fontSize: 16,
-                  fontFamily: T.mono,
-                  outline: 'none',
-                  transition: 'border-color 0.2s',
-                }}
-                onFocus={(e) => e.target.style.borderColor = T.accent}
-                onBlur={(e) => e.target.style.borderColor = T.border}
-                placeholder="2547XXXXXXXX"
-              />
-            </div>
-          </div>
+          ) : (
+            <div style={{ textAlign: 'center', padding: '40px 20px', color: T.muted, marginBottom: 32 }}>Loading customer details...</div>
+          )
         ) : (
-          <div style={{ 
-            textAlign: 'center', 
-            padding: '40px 20px', 
-            background: T.surface, 
-            borderRadius: 16, 
-            border: `1px dashed ${T.border}`, 
-            color: T.muted, 
-            marginBottom: 32,
-            fontSize: 14
-          }}>
-            Select a customer from the onboarding flow to manage their fee.
+          <div style={{ marginBottom: 32 }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16, flexWrap: 'wrap', gap: 12 }}>
+              <h3 style={{ color: T.txt, fontSize: 16, margin: 0, display: 'flex', alignItems: 'center', gap: 8 }}>
+                <Users size={18} color={T.accent} /> Customers Pending Registration Fee
+              </h3>
+              <div style={{ position: 'relative', width: '100%', maxWidth: 260 }}>
+                <Search size={16} style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: T.muted }} />
+                <input 
+                  type="text" 
+                  placeholder="Search name, phone, ID..." 
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                  style={{ 
+                    width: '100%', 
+                    background: T.surface, 
+                    border: `1px solid ${T.border}`, 
+                    borderRadius: 10, 
+                    padding: '8px 12px 8px 36px', 
+                    color: T.txt, 
+                    fontSize: 13,
+                    outline: 'none'
+                  }}
+                />
+              </div>
+            </div>
+            {(() => {
+              const baseList = customers.filter(c => !customerHasPaidRegFee(c, payments));
+              const filtered = baseList.filter(c => 
+                c.name?.toLowerCase().includes(query.toLowerCase()) || 
+                c.id?.toLowerCase().includes(query.toLowerCase()) ||
+                c.phone?.includes(query)
+              );
+
+              if (baseList.length === 0) {
+                return (
+                  <div style={{ 
+                    textAlign: 'center', 
+                    padding: '40px 20px', 
+                    background: T.surface, 
+                    borderRadius: 16, 
+                    border: `1px dashed ${T.border}`, 
+                    color: T.muted, 
+                    fontSize: 14
+                  }}>
+                    All onboarded customers have paid their registration fees.
+                  </div>
+                );
+              }
+
+              if (filtered.length === 0) {
+                return (
+                  <div style={{ 
+                    textAlign: 'center', 
+                    padding: '40px 20px', 
+                    background: T.surface, 
+                    borderRadius: 16, 
+                    border: `1px dashed ${T.border}`, 
+                    color: T.muted, 
+                    fontSize: 14
+                  }}>
+                    No customers found matching "{query}"
+                  </div>
+                );
+              }
+
+              return (
+                <div style={{ 
+                  display: 'grid', 
+                  gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', 
+                  gap: 16,
+                  maxHeight: 400,
+                  overflowY: 'auto',
+                  paddingRight: 8
+                }}>
+                  {filtered.map((c, i) => (
+                    <div 
+                      key={`${c.id}-${i}`} 
+                      onClick={() => setSearchParams(prev => { prev.set('customerId', c.id); return prev; })}
+                      style={{ 
+                        background: T.surface, 
+                        border: `1px solid ${T.border}`, 
+                        borderRadius: 12, 
+                        padding: 16, 
+                        cursor: 'pointer',
+                        transition: 'all 0.2s',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: 4
+                      }}
+                      onMouseEnter={(e) => { e.currentTarget.style.borderColor = T.accent; e.currentTarget.style.background = T.aLo; }}
+                      onMouseLeave={(e) => { e.currentTarget.style.borderColor = T.border; e.currentTarget.style.background = T.surface; }}
+                    >
+                      <div style={{ fontWeight: 700, color: T.txt, fontSize: 16, display: 'flex', justifyContent: 'space-between' }}>
+                        {c.name}
+                        <Badge color={T.gold}>PENDING</Badge>
+                      </div>
+                      <div style={{ color: T.muted, fontSize: 12, fontFamily: T.mono }}>ID: {c.id}</div>
+                      <div style={{ color: T.dim, fontSize: 12, fontFamily: T.mono }}>{c.phone}</div>
+                    </div>
+                  ))}
+                </div>
+              );
+            })()}
           </div>
         )}
 
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-          <Btn
-            onClick={handlePush}
-            disabled={loading || loadingLocal || !customer || status === 'paid'}
-            v="primary"
-            full
-            style={{ padding: '16px 24px', fontSize: 18, height: 'auto' }}
-          >
-            {loading || loadingLocal ? (
-              <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
-                <Rocket size={18} /> Initiating Push...
-              </span>
-            ) : (
-              <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
-                <Smartphone size={18} /> Trigger KES 500 STK Push
-              </span>
-            )}
-          </Btn>
-          
-          <p style={{ textAlign: 'center', fontSize: 12, color: T.muted, margin: 0 }}>
-            Pushing will send an M-Pesa prompt to the phone above. Real-time status will update automatically.
-          </p>
-        </div>
+        {customerIdParam && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+            <Btn
+              onClick={handlePush}
+              disabled={loading || loadingLocal || !customer || status === 'paid'}
+              v="primary"
+              full
+              style={{ padding: '16px 24px', fontSize: 18, height: 'auto' }}
+            >
+              {loading || loadingLocal ? (
+                <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
+                  <Rocket size={18} /> Initiating Push...
+                </span>
+              ) : (
+                <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
+                  <Smartphone size={18} /> Trigger KES 1 STK Push
+                </span>
+              )}
+            </Btn>
+
+            <Btn
+              onClick={() => onManualLog(customer)}
+              disabled={status === 'paid'}
+              v="ghost"
+              full
+              style={{ padding: '12px 24px', fontSize: 14, height: 'auto', border: `1px dashed ${T.border}` }}
+            >
+               Alternatively, Log Payment Manually
+            </Btn>
+            
+            <p style={{ textAlign: 'center', fontSize: 12, color: T.dim, margin: 0 }}>
+              Pushing will send an M-Pesa prompt to the phone above. Real-time status will update automatically.
+            </p>
+          </div>
+        )}
       </div>
+
+      {waitingForCallback && (
+        <WaitingOverlay 
+          title="Processing" 
+          message={`Sent to ${customer?.name || "phone"}`} 
+          sub="Verifying PIN entry..."
+          onClose={reset}
+        />
+      )}
+
+      {isSuccess && (
+        <WaitingOverlay 
+          type="success"
+          title="Payment Verified" 
+          message={`Registration fee for ${customer?.name} has been successfully paid and recorded.`} 
+          onClose={reset}
+        />
+      )}
+
+      {status === 'failed' && failureReason && (
+        <WaitingOverlay 
+          type="danger"
+          title="Failed" 
+          message={failureReason} 
+          onClose={reset}
+        />
+      )}
     </div>
   );
 };

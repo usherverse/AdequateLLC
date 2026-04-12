@@ -1,5 +1,5 @@
 // ADEQUATE CAPITAL LMS — App Shell (Modularized)
-import { Lock, ShieldAlert, Mail, Smartphone, Check } from 'lucide-react';
+import { Lock, ShieldAlert, Mail, Smartphone, Check, Search as SearchIcon, ChevronRight, Menu, ChevronLeft, LogOut } from 'lucide-react';
 import LoansTab from "@/modules/loans/LoansTab";
 import PaymentsTab from "@/modules/payments/PaymentsTab";
 import CollectionsTab from "@/modules/collections/CollectionsTab";
@@ -14,7 +14,7 @@ import ReportsTab from "@/modules/reports/ReportsTab";
 import AuditTrailTab from "@/modules/audit/AuditTrailTab";
 import PaymentsHub from "@/pages/PaymentsHub"; // MODIFIED: Added Payments Hub
 
-import { useState, useMemo, useEffect, useLayoutEffect, useRef, useCallback, memo } from "react";
+import React, { useState, useMemo, useEffect, useLayoutEffect, useRef, useCallback, memo } from "react";
 import { _hashPw, _checkPw, SEED_WORKERS, SEED_CUSTOMERS, SEED_LOANS, SEED_PAYMENTS, SEED_LEADS, SEED_INTERACTIONS, SEED_AUDIT } from "@/data/seedData";
 import DueLoansCalendar from "@/modules/calendar/DueLoansCalendar";
 import WorkerPanel from "@/modules/workers/WorkerPanel";
@@ -178,14 +178,33 @@ export {
 import { useSearchParams } from "react-router-dom"; // MODIFIED: Support parameterized redirects
 import { useTheme } from "@/context/ThemeContext";
 
-const AdminPanel = ({onLogout,loans,setLoans,customers,setCustomers,workers,setWorkers,payments,setPayments,leads,setLeads,interactions,setInteractions,auditLog,setAuditLog,onOpenCustomerProfile}) => {
+const AdminPanel = ({onLogout,loans,setLoans,customers,setCustomers,workers,setWorkers,payments,setPayments,leads,setLeads,interactions,setInteractions,auditLog,setAuditLog,unallocatedC2BCount,onOpenCustomerProfile,onRefresh}) => {
   const { theme, toggleTheme } = useTheme();
   const [screen,setScreen]=useState('dashboard');
   const [searchParams, setSearchParams] = useSearchParams(); // MODIFIED
   const [screenHistory,setScreenHistory]=useState([]);
-  const [sb,setSb]=useState(false);
-  const [showReminders,setShowReminders]=useState(false);
-  const toggleSb=()=>setSb(o=>!o);
+  const [sideCollapsed, setSideCollapsed] = useState(false);
+  const [isMobile, setIsMobile] = useState(window.innerWidth <= 1024);
+  const [sb, setSb] = useState(false);
+  const [showSearch, setShowSearch] = useState(false);
+  const [showReminders, setShowReminders] = useState(false);
+  const toggleSb = () => isMobile ? setSb(o => !o) : setSideCollapsed(o => !o);
+
+  const [adminUser, setAdminUser] = useState(() => {
+    const saved = localStorage.getItem('lms_admin_profile');
+    return saved ? JSON.parse(saved) : { name: 'Don', role: 'Super Admin', ini: 'DO' };
+  });
+
+  useEffect(() => {
+    localStorage.setItem('lms_admin_profile', JSON.stringify(adminUser));
+  }, [adminUser]);
+
+  useEffect(() => {
+    const handleResize = () => setIsMobile(window.innerWidth <= 1024);
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
   const scrollRef = useRef(null);
   const scrollTop = () => {
     try{ scrollRef.current?.scrollTo({top:0,behavior:'instant'}); }catch(e){}
@@ -212,7 +231,7 @@ const AdminPanel = ({onLogout,loans,setLoans,customers,setCustomers,workers,setW
   const {toasts,show:showToast}=useToast();
   const {reminders,add:addReminder,done:doneReminder,remove:removeReminder,update:updateReminder,firing:firingReminder,dismissFiring}=useReminders();
   const addAudit = useCallback((action, target, detail = '') => {
-    const entry = { ts: ts(), user: 'admin', action, target, detail };
+    const entry = { ts: ts(), user: adminUser.name || 'Admin', action, target, detail };
     setAuditLog(l => [entry, ...l].slice(0, 500));
     sbAuditInsert({
       ts: new Date().toISOString(),
@@ -221,9 +240,9 @@ const AdminPanel = ({onLogout,loans,setLoans,customers,setCustomers,workers,setW
       target_id: String(entry.target),
       detail: entry.detail
     }).catch(console.error);
-  }, [setAuditLog]);
+  }, [setAuditLog, adminUser.name]);
 
-  const unalloc=useMemo(()=>payments.filter(p=>p.status==='Unallocated').length,[payments]);
+  const unalloc=useMemo(()=>payments.filter(p=>p.status==='Unallocated').length + (unallocatedC2BCount || 0),[payments, unallocatedC2BCount]);
   const overdue=useMemo(()=>loans.filter(l=>l.status==='Overdue').length,[loans]);
   const pendingApprovals=useMemo(()=>loans.filter(l=>l.status==='Application submitted'||l.status==='worker-pending').length,[loans]);
   const allState=useMemo(()=>({loans,customers,payments,workers,leads,interactions,auditLog}),[loans,customers,payments,workers,leads,interactions,auditLog]);
@@ -303,33 +322,83 @@ const AdminPanel = ({onLogout,loans,setLoans,customers,setCustomers,workers,setW
   // render. LiveClock ticks every second, so AdminPanel re-renders every second, meaning
   // navItem (and every button it produces) was a brand-new function/element each tick.
   // useCallback stabilizes it so it only re-creates when its actual dependencies change.
-  const navItem=useCallback((item)=>(
-    <button key={item.id} onClick={()=>navTo(item.id)} className='nb'
-      style={{display:'flex',alignItems:'center',gap:10,width:'100%',padding:'10px 12px',borderRadius:9,border:'none',background:screen===item.id?T.aLo:'none',color:screen===item.id?T.accent:T.muted,cursor:'pointer',fontSize:13,fontWeight:screen===item.id?700:500,marginBottom:2,textAlign:'left',transition:'background .18s,color .18s',flexShrink:0,position:'relative'}}>
-      <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, width: 22 }}>
-        <item.i size={16} strokeWidth={screen === item.id ? 2.5 : 2} />
-      </span>
-      <span style={{flex:1,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{item.l}</span>
-      {item.id==='payments'&&unalloc>0&&<span style={{background:T.danger,color:'#fff',borderRadius:99,padding:'1px 6px',fontSize:10,fontWeight:800}}>{unalloc}</span>}
-      {item.id==='collections'&&overdue>0&&<span style={{background:T.dLo,color:T.danger,borderRadius:99,padding:'1px 6px',fontSize:10,fontWeight:800,border:`1px solid ${T.danger}38`}}>{overdue}</span>}
-      {item.id==='loans'&&pendingApprovals>0&&<span style={{background:T.gLo,color:T.gold,borderRadius:99,padding:'1px 6px',fontSize:10,fontWeight:800,border:`1px solid ${T.gold}38`}}>{pendingApprovals}</span>}
-    </button>
-  ),[screen,navTo,unalloc,overdue,pendingApprovals]);
+  // Enhanced Navigation Item with Active Indicators and Categories
+  const navItem = useCallback((item, index, array) => {
+    const isFirstInSection = index === 0 || array[index - 1].cat !== item.cat;
+    const isActive = screen === item.id;
+
+    return (
+      <React.Fragment key={item.id}>
+        {isFirstInSection && (!sideCollapsed || isMobile) && (
+          <div style={{
+            fontSize: 10,
+            fontWeight: 800,
+            color: T.dim,
+            textTransform: 'uppercase',
+            letterSpacing: 1.2,
+            padding: '18px 12px 6px',
+            opacity: 0.6
+          }}>
+            {item.cat}
+          </div>
+        )}
+        <button onClick={() => navTo(item.id)} className='nb nav-item-new'
+          title={sideCollapsed && !isMobile ? item.l : ''}
+          style={{
+            display: 'flex', alignItems: 'center', justifyContent: sideCollapsed && !isMobile ? 'center' : 'flex-start', gap: sideCollapsed && !isMobile ? 0 : 12, width: '100%', padding: '10px 12px', borderRadius: 12, border: 'none',
+            background: isActive ? `${item.c}12` : 'none',
+            color: isActive ? T.txt : T.muted,
+            cursor: 'pointer', fontSize: 13.5, fontWeight: isActive ? 700 : 500, marginBottom: 2, textAlign: 'left',
+            transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)', flexShrink: 0, position: 'relative',
+            overflow: 'hidden'
+          }}>
+          {isActive && !sideCollapsed && (
+            <div style={{
+              position: 'absolute', left: 0, top: '20%', bottom: '20%', width: 3, 
+              background: item.c, borderRadius: '0 4px 4px 0',
+              boxShadow: `0 0 10px ${item.c}80`
+            }} />
+          )}
+          <span style={{
+            display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+            width: 32, height: 32, borderRadius: 10,
+            background: isActive ? item.c : `${item.c}15`,
+            color: isActive ? '#fff' : item.c,
+            transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
+            boxShadow: isActive ? `0 8px 16px ${item.c}30` : 'none',
+            border: `1px solid ${isActive ? 'transparent' : `${item.c}20`}`
+          }}>
+            <item.i size={16} strokeWidth={isActive ? 2.5 : 2} />
+          </span>
+          {(!sideCollapsed || isMobile) && (
+            <>
+              <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: isActive ? T.txt : T.dim, marginLeft: 2 }}>{item.l}</span>
+              <div style={{ display: 'flex', gap: 4 }}>
+                {item.id === 'payments' && unalloc > 0 && <span style={{ background: T.danger, color: '#fff', borderRadius: 6, padding: '2px 6px', fontSize: 10, fontWeight: 800, boxShadow: '0 2px 4px rgba(0,0,0,0.2)' }}>{unalloc}</span>}
+                {item.id === 'collections' && overdue > 0 && <span style={{ background: T.dLo, color: T.danger, borderRadius: 6, padding: '2px 6px', fontSize: 10, fontWeight: 800, border: `1px solid ${T.danger}38` }}>{overdue}</span>}
+                {item.id === 'loans' && pendingApprovals > 0 && <span style={{ background: T.gLo, color: T.gold, borderRadius: 6, padding: '2px 6px', fontSize: 10, fontWeight: 800, border: `1px solid ${T.gold}38` }}>{pendingApprovals}</span>}
+              </div>
+            </>
+          )}
+        </button>
+      </React.Fragment>
+    );
+  }, [screen, navTo, unalloc, overdue, pendingApprovals]);
 
   const S={
-    dashboard:  ()=><DashboardTab loans={loans} setLoans={setLoans} customers={customers} setCustomers={setCustomers} payments={payments} setPayments={setPayments} workers={workers} interactions={interactions} setInteractions={setInteractions} addAudit={addAudit} onNav={navTo} scrollTop={scrollTop} onOpenCustomerProfile={onOpenCustomerProfile}/>,
+    dashboard:  ()=><DashboardTab adminUser={adminUser} loans={loans} setLoans={setLoans} customers={customers} setCustomers={setCustomers} payments={payments} setPayments={setPayments} workers={workers} interactions={interactions} setInteractions={setInteractions} addAudit={addAudit} onNav={navTo} scrollTop={scrollTop} onOpenCustomerProfile={onOpenCustomerProfile} onRefresh={onRefresh}/>,
     calendar:   ()=><DueLoansCalendar loans={loans} payments={payments} workers={workers} workerContext={{role:'admin',name:'Admin'}} onOpenCustomerProfile={onOpenCustomerProfile} />,
-    loans:      ()=><LoansTab loans={loans} setLoans={setLoans} customers={customers} setCustomers={setCustomers} payments={payments} setPayments={setPayments} interactions={interactions} setInteractions={setInteractions} workers={workers} addAudit={addAudit} showToast={showToast} onOpenCustomerProfile={onOpenCustomerProfile} onNav={navTo}/>,
-    customers:  ()=><CustomersTab customers={customers} setCustomers={setCustomers} workers={workers} loans={loans} setLoans={setLoans} payments={payments} setPayments={setPayments} interactions={interactions} setInteractions={setInteractions} addAudit={addAudit} showToast={showToast} onOpenCustomerProfile={onOpenCustomerProfile}/>,
+    loans:      ()=><LoansTab loans={loans} setLoans={setLoans} customers={customers} setCustomers={setCustomers} payments={payments} setPayments={setPayments} interactions={interactions} setInteractions={setInteractions} workers={workers} addAudit={addAudit} showToast={showToast} onOpenCustomerProfile={onOpenCustomerProfile} onNav={navTo} onRefresh={onRefresh}/>,
+    customers:  ()=><CustomersTab customers={customers} setCustomers={setCustomers} workers={workers} loans={loans} setLoans={setLoans} payments={payments} setPayments={setPayments} interactions={interactions} setInteractions={setInteractions} addAudit={addAudit} showToast={showToast} onOpenCustomerProfile={onOpenCustomerProfile} onRefresh={onRefresh}/>,
     leads:      ()=><LeadsTab leads={leads} setLeads={setLeads} workers={workers} customers={customers} setCustomers={setCustomers} loans={loans} addAudit={addAudit} showToast={showToast} onOpenCustomerProfile={onOpenCustomerProfile} onNav={navTo}/>, // MODIFIED: Added onNav
-    collections:()=><CollectionsTab loans={loans} setLoans={setLoans} customers={customers} setCustomers={setCustomers} payments={payments} setPayments={setPayments} interactions={interactions} setInteractions={setInteractions} workers={workers} addAudit={addAudit} scrollTop={scrollTop} currentUser='Admin' onOpenCustomerProfile={onOpenCustomerProfile}/>,
-    payments:   ()=><PaymentsTab payments={payments} setPayments={setPayments} loans={loans} setLoans={setLoans} customers={customers} setCustomers={setCustomers} interactions={interactions} setInteractions={setInteractions} workers={workers} addAudit={addAudit} showToast={showToast} onOpenCustomerProfile={onOpenCustomerProfile}/>,
-    workers:    ()=><WorkersTab workers={workers} setWorkers={setWorkers} loans={loans} setLoans={setLoans} payments={payments} customers={customers} setCustomers={setCustomers} leads={leads} setLeads={setLeads} interactions={interactions} setInteractions={setInteractions} allState={allState} addAudit={addAudit} showToast={showToast} onOpenCustomerProfile={onOpenCustomerProfile}/>,
-    securitysettings: ()=><SecuritySettingsTab auditLog={auditLog} addAudit={addAudit} showToast={showToast}/>,
+    collections:()=><CollectionsTab loans={loans} setLoans={setLoans} customers={customers} setCustomers={setCustomers} payments={payments} setPayments={setPayments} interactions={interactions} setInteractions={setInteractions} workers={workers} addAudit={addAudit} scrollTop={scrollTop} currentUser='Admin' onOpenCustomerProfile={onOpenCustomerProfile} onRefresh={onRefresh}/>,
+    payments:   ()=><PaymentsTab payments={payments} setPayments={setPayments} loans={loans} setLoans={setLoans} customers={customers} setCustomers={setCustomers} interactions={interactions} setInteractions={setInteractions} workers={workers} addAudit={addAudit} showToast={showToast} onOpenCustomerProfile={onOpenCustomerProfile} onRefresh={onRefresh}/>,
+    workers:    ()=><WorkersTab workers={workers} setWorkers={setWorkers} loans={loans} setLoans={setLoans} payments={payments} customers={customers} setCustomers={setCustomers} leads={leads} setLeads={setLeads} interactions={interactions} setInteractions={setInteractions} allState={allState} addAudit={addAudit} showToast={showToast} onOpenCustomerProfile={onOpenCustomerProfile} onRefresh={onRefresh}/>,
+    securitysettings: ()=><SecuritySettingsTab adminUser={adminUser} setAdminUser={setAdminUser} auditLog={auditLog} addAudit={addAudit} showToast={showToast}/>,
     database:   ()=><DatabaseTab allState={allState} setLoans={setLoans} setCustomers={setCustomers} setPayments={setPayments} setWorkers={setWorkers} setLeads={setLeads} setInteractions={setInteractions} setAuditLog={setAuditLog} addAudit={addAudit} showToast={showToast}/>,
     reports:    ()=><ReportsTab loans={loans} customers={customers} payments={payments} workers={workers} auditLog={auditLog} showToast={showToast} addAudit={addAudit}/>,
     audit:      ()=><AuditTrailTab allState={allState} setAuditLog={setAuditLog} />,
-    paymentshub: ()=><PaymentsHub customers={customers} loans={loans} payments={payments} setLoans={setLoans} setPayments={setPayments} addAudit={addAudit} showToast={showToast} />, // MODIFIED: Added Payments Hub
+    paymentshub: ()=><PaymentsHub customers={customers} setCustomers={setCustomers} loans={loans} payments={payments} setLoans={setLoans} setPayments={setPayments} addAudit={addAudit} showToast={showToast} />, // MODIFIED: Added Payments Hub
   };
 
   // FIX — Bug 1 (Form focus / remounting): S contains plain arrow functions, NOT React
@@ -346,40 +415,66 @@ const AdminPanel = ({onLogout,loans,setLoans,customers,setCustomers,workers,setW
       {/* Backdrop — dims page, closes sidebar on tap */}
       <div onClick={()=>setSb(false)}
         style={{
-          position:'fixed',inset:0,background:'rgba(0,0,0,0.55)',zIndex:199,
+          position:'fixed',inset:0,background:'rgba(0,0,0,0.55)',zIndex:5099,
           backdropFilter:'var(--glass-blur)',WebkitBackdropFilter:'var(--glass-blur)',
           opacity: sb ? 1 : 0, pointerEvents: sb ? 'auto' : 'none',
           transition: 'opacity 0.3s cubic-bezier(0.16, 1, 0.3, 1)'
         }}/>
 
-      {/* Sidebar — slides in from left as overlay */}
-      <div className="main-sidebar" style={{
-        position:'fixed',top:0,bottom:0,left:0,width:260,
-        background:T.surface,borderRight:`1px solid ${T.border}`,
-        display:'flex',flexDirection:'column',zIndex:200,
-        transform: `translateX(${sb ? '0%' : '-100%'})`,
-        transition:'transform 0.4s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.4s ease',
-        boxShadow:sb?'6px 0 40px rgba(0,0,0,0.5)':'none',
+      {/* Sidebar — Persistent on Desktop, Overlay on Mobile */}
+      <div className="main-sidebar glass" style={{
+        position: isMobile ? 'fixed' : 'relative',
+        top: 0, bottom: 0, left: 0,
+        width: sideCollapsed && !isMobile ? 80 : 260,
+        zIndex: 5100,
+        minHeight: '100%',
+        transform: isMobile ? `translateX(${sb ? '0%' : '-100%'})` : 'none',
+        transition: 'transform 0.4s cubic-bezier(0.16, 1, 0.3, 1), width 0.3s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.4s ease',
+        boxShadow: (isMobile && sb) ? '20px 0 60px rgba(0,0,0,0.6)' : (!isMobile && !sideCollapsed) ? '4px 0 20px rgba(0,0,0,0.05)' : 'none',
+        display: 'flex',
+        flexDirection: 'column',
+        flexShrink: 0,
+        height: '100vh',
+        overflow: 'hidden'
       }}>
-        <div style={{padding:'15px 14px 12px',borderBottom:`1px solid ${T.border}`,display:'flex',alignItems:'center',justifyContent:'space-between',minHeight:56,flexShrink:0}}>
-          <div style={{fontFamily:T.head,color:T.accent,fontWeight:900,fontSize:13,letterSpacing:-.2,lineHeight:1.3}}>Adequate<br/>Capital</div>
-          <button onClick={()=>setSb(false)} aria-label="Close navigation menu" style={{background:T.card2,border:`1px solid ${T.border}`,color:T.muted,borderRadius:8,width:30,height:30,cursor:'pointer',fontSize:14,display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}><span aria-hidden="true">✕</span></button>
+        <div style={{ padding: sideCollapsed && !isMobile ? '15px 0' : '15px 14px 12px', borderBottom: `1px solid ${T.border}`, display: 'flex', alignItems: 'center', justifyContent: sideCollapsed && !isMobile ? 'center' : 'space-between', minHeight: 64, flexShrink: 0 }}>
+          {(!sideCollapsed || isMobile) ? (
+            <div style={{ fontFamily: T.head, color: T.accent, fontWeight: 900, fontSize: 13, letterSpacing: -.2, lineHeight: 1.2 }}>ADEQUATE<br />CAPITAL</div>
+          ) : (
+            <div style={{ fontFamily: T.head, color: T.accent, fontWeight: 900, fontSize: 18 }}>AC</div>
+          )}
+          {isMobile && (
+            <button onClick={() => setSb(false)} aria-label="Close navigation menu" style={{ background: T.card2, border: `1px solid ${T.border}`, color: T.dim, borderRadius: 8, width: 30, height: 30, cursor: 'pointer', fontSize: 10, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>✕</button>
+          )}
         </div>
-        <nav id="sidebar-nav" aria-label="Main navigation" style={{flex:1,padding:'8px 6px',overflowY:'auto'}}>{ADMIN_NAV.map(navItem)}</nav>
-        <div style={{padding:'8px 6px',borderTop:`1px solid ${T.border}`,flexShrink:0}}>
-          <button onClick={onLogout} className='nb' style={{display:'flex',alignItems:'center',gap:10,width:'100%',padding:'10px 12px',borderRadius:9,border:'none',background:'none',color:T.danger,cursor:'pointer',fontSize:13,fontWeight:600}}>
-            <span style={{width:22,textAlign:'center',fontSize:15}}>⎋</span>
-            <span>Logout</span>
+        <nav id="sidebar-nav" aria-label="Main navigation" style={{ flex: 1, padding: '8px 12px' }}>
+          {ADMIN_NAV.map((item, idx) => navItem(item, idx, ADMIN_NAV))}
+        </nav>
+        <div style={{ padding: sideCollapsed && !isMobile ? '16px 8px' : '16px', borderTop: `1px solid ${T.border}`, flexShrink: 0, background: 'rgba(255,255,255,0.02)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: sideCollapsed && !isMobile ? 'center' : 'flex-start', gap: 12, marginBottom: 16, padding: sideCollapsed && !isMobile ? 0 : '0 8px' }}>
+             <Av ini={adminUser.ini || 'AD'} size={sideCollapsed && !isMobile ? 40 : 36} color={T.accent} />
+             {(!sideCollapsed || isMobile) && (
+               <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ color: T.txt, fontSize: 13, fontWeight: 800, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{adminUser.name}</div>
+                  <div style={{ color: T.dim, fontSize: 11, fontWeight: 600 }}>{adminUser.role}</div>
+               </div>
+             )}
+          </div>
+          <button onClick={onLogout} className='nb' title={sideCollapsed && !isMobile ? 'Logout' : ''} style={{ display: 'flex', alignItems: 'center', justifyContent: sideCollapsed && !isMobile ? 'center' : 'flex-start', gap: 10, width: '100%', padding: '10px 12px', borderRadius: 12, border: 'none', background: `${T.danger}10`, color: T.danger, cursor: 'pointer', fontSize: 13, fontWeight: 700, transition: 'all 0.2s' }}>
+            <LogOut size={16} />
+            {(!sideCollapsed || isMobile) && <span>Logout</span>}
           </button>
         </div>
       </div>
 
       {/* Main content — always full width, never shifts */}
-      <div ref={scrollRef} className='main-scroll' style={{flex:1,overflow:'auto',display:'flex',flexDirection:'column',minWidth:0,height:'100vh',maxHeight:'100vh'}}>
+      <div ref={scrollRef} className='main-scroll' style={{flex:1,display:'flex',flexDirection:'column',minWidth:0}}>
         {/* Topbar */}
-        <div style={{background:T.surface,borderBottom:`1px solid ${T.border}`,padding:'10px 14px',display:'flex',justifyContent:'space-between',alignItems:'center',position:'sticky',top:0,zIndex:100,flexShrink:0,gap:8}}>
+        <div className="glass" style={{padding:'10px 14px',display:'flex',justifyContent:'space-between',alignItems:'center',position:'sticky',top:0,zIndex:5000,flexShrink:0,gap:8}}>
           <div style={{display:'flex',alignItems:'center',gap:8}}>
-            <button onClick={toggleSb} aria-label="Open navigation menu" aria-expanded={sb} aria-controls="sidebar-nav" style={{background:'none',border:`1px solid ${T.border}`,color:T.muted,cursor:'pointer',fontSize:16,padding:'5px 9px',borderRadius:8,lineHeight:1,flexShrink:0}}><span aria-hidden="true">☰</span></button>
+            <button onClick={toggleSb} aria-label={isMobile ? "Open navigation menu" : sideCollapsed ? "Expand sidebar" : "Collapse sidebar"} style={{ background: 'none', border: `1px solid ${T.border}`, color: T.dim, cursor: 'pointer', fontSize: 16, padding: '5px 9px', borderRadius: 8, lineHeight: 1, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', width: 36, height: 34 }}>
+              {isMobile ? <Menu size={18} /> : sideCollapsed ? <ChevronRight size={18} /> : <ChevronLeft size={18} />}
+            </button>
             {screenHistory.length>0&&(
               <button onClick={goBack} className='back-btn' style={{flexShrink:0}}>
                 <span style={{fontSize:15,lineHeight:1}}>‹</span>
@@ -393,8 +488,12 @@ const AdminPanel = ({onLogout,loans,setLoans,customers,setCustomers,workers,setW
             {overdue>0&&<button onClick={()=>navTo('collections')} style={{background:T.dLo,border:`1px solid ${T.danger}38`,borderRadius:12,padding:'4px 10px',color:T.danger,fontSize:11,fontWeight:700,cursor:'pointer'}}>{overdue} Overdue</button>}
             {unalloc>0&&<button onClick={()=>navTo('payments')} style={{background:T.wLo,border:`1px solid ${T.warn}38`,borderRadius:12,padding:'4px 10px',color:T.warn,fontSize:11,fontWeight:700,cursor:'pointer'}}>{unalloc} Unalloc</button>}
             
-            <button onClick={toggleTheme} className="theme-toggle" aria-label="Toggle Theme" style={{background:T.card2,border:`1px solid ${T.border}`,color:T.muted,borderRadius:9,padding:'5px 10px',fontSize:14,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',width:36,height:34}}>
-              {theme === 'dark' ? '🌙' : theme === 'system' ? '🌓' : '☀️'}
+            <button onClick={() => setShowSearch(true)} aria-label="Global Search" style={{background:T.card2,border:`1px solid ${T.border}`,color:T.dim,borderRadius:9,padding:'5px 10px',fontSize:14,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',width:36,height:34}}>
+              <SearchIcon size={16}/>
+            </button>
+
+            <button onClick={toggleTheme} className="theme-toggle" aria-label="Toggle Theme" style={{background:T.card2,border:`1px solid ${T.border}`,color:T.dim,borderRadius:9,padding:'5px 10px',fontSize:14,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',width:36,height:34}}>
+              {theme === 'dark' ? '🌙' : theme === 'dim' ? '🌓' : '☀️'}
             </button>
 
             <button onClick={()=>{setShowReminders(s=>!s);SFX.notify();}} aria-label={'Reminders'+(activeReminderCount>0?' — '+activeReminderCount+' active':'')} aria-expanded={showReminders} aria-haspopup="dialog" style={{background:showReminders?T.aLo:T.card2,border:`1px solid ${showReminders?T.accent:T.border}`,color:showReminders?T.accent:T.muted,borderRadius:9,padding:'5px 10px',fontSize:14,cursor:'pointer',position:'relative',display:'flex',alignItems:'center',gap:5}}>
@@ -409,10 +508,26 @@ const AdminPanel = ({onLogout,loans,setLoans,customers,setCustomers,workers,setW
         </div>
         {firingReminder&&<ReminderAlertModal reminder={firingReminder} onDismiss={dismissFiring} onDone={doneReminder}/>}
         {showReminders&&<RemindersPanel reminders={reminders} onAdd={addReminder} onDone={doneReminder} onRemove={removeReminder} onUpdate={updateReminder} onClose={()=>setShowReminders(false)}/>}
-        <div id="main-content" className='admin-content' style={{padding:'20px 22px',flex:1,minWidth:0}}>
-          <div className='fu' ref={el=>{ if(el){ scrollTop(); } }}>{renderScreen}</div>
+        {showSearch && <CommandCenter customers={customers} onClose={() => setShowSearch(false)} onSelect={onOpenCustomerProfile} />}
+        <div id="main-content" className='admin-content' style={{ padding: '20px 22px', flex: 1, minWidth: 0 }}>
+          <div key={screen} className='fu screen-fade-in' ref={el => { if (el) { scrollTop(); } }}>{renderScreen}</div>
         </div>
       </div>
+
+      <style>{`
+        .fu { animation: fadeUp .8s cubic-bezier(.22,1,.36,1) both; }
+        .fu1, .fu2, .fu3, .fu4, .fu5 { animation-delay: 0s !important; }
+        @keyframes fadeUp {
+          from { opacity: 0; transform: translateY(12px) scale(0.99); }
+          to { opacity: 1; transform: translateY(0) scale(1); }
+        }
+        .nav-item-new:hover {
+          background: rgba(255,255,255,0.05) !important;
+        }
+        .nav-item-new:active {
+          transform: scale(0.98);
+        }
+      `}</style>
 
       <ToastContainer toasts={toasts}/>
     </div>
@@ -535,7 +650,7 @@ const WorkerPortal = ({workers,setWorkers,loans,setLoans,customers,setCustomers,
         <div style={{fontFamily:T.head,color:T.accent,fontWeight:900,fontSize:14}}>Adequate Capital — Worker Portal</div>
         <div style={{display:'flex',gap:9,alignItems:'center'}}>
           <button onClick={toggleTheme} aria-label="Toggle Theme" style={{background:T.card2,border:`1px solid ${T.border}`,color:T.muted,borderRadius:8,padding:'4px 8px',fontSize:13,cursor:'pointer',display:'flex',alignItems:'center',gap:5,marginRight:4}}>
-            <span>{theme === 'dark' ? '🌙' : theme === 'system' ? '🌓' : '☀️'}</span>
+            <span>{theme === 'dark' ? '🌙' : theme === 'dim' ? '🌓' : '☀️'}</span>
             <span style={{fontSize:10,fontWeight:700,opacity:0.8}}>{theme.charAt(0).toUpperCase()+theme.slice(1)}</span>
           </button>
           <Av ini={curr?.avatar||curr?.name[0]} size={26} color={T.accent}/>
@@ -694,92 +809,128 @@ const AdminLogin = ({onLogin,onWorkerPortal}) => {
     setOtpCodeState(code);setOtpInput('');
   };
 
-  const stepTotp=()=>{
+  const stepTotp = () => {
     setLoading(true);
-    if(!otpCode){setErr('Generate OTP code first.');setLoading(false);return;}
-    if(otpInput!==otpCode){
-      const c=_recordFailure();const lo=_getLockout();setLockout(lo);
-      setErr(c>=3?<span style={{display:'inline-flex',alignItems:'center',gap:4}}><Lock size={14}/> Too many failed attempts.</span>:'Invalid OTP code.');
+    if (!otpCode) { setErr('Generate OTP code first.'); setLoading(false); return; }
+    if (otpInput !== otpCode) {
+      const c = _recordFailure(); const lo = _getLockout(); setLockout(lo);
+      setErr(c >= 3 ? <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><Lock size={14} /> Too many failed attempts.</span> : 'Invalid OTP code.');
       setLoading(false);
-      try{SFX.error();}catch(e){}
+      try { SFX.error(); } catch (e) { }
       return;
     }
-    _clearLockout();setLockout(null);onLogin(loginEmail.trim());
+    _clearLockout(); setLockout(null); onLogin(loginEmail.trim());
   };
 
-  useEffect(()=>{
-    if(step===2&&enabledSteps[1]==='Biometric') stepBio();
-    if(step===2&&enabledSteps[1]==='OTP') sendOtp();
-    if(step===3&&enabledSteps[2]==='OTP') sendOtp();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  },[step]);
+  useEffect(() => {
+    if (step === 2 && enabledSteps[1] === 'Biometric') stepBio();
+    if (step === 2 && enabledSteps[1] === 'OTP') sendOtp();
+    if (step === 3 && enabledSteps[2] === 'OTP') sendOtp();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [step]);
 
-  const steps=enabledSteps;
+  const steps = enabledSteps;
   return (
-    <div style={{minHeight:'100vh',background:T.bg,display:'flex',alignItems:'center',justifyContent:'center',fontFamily:T.body,padding:16,position:'relative',overflow:'hidden'}}>
-      <div style={{position:'absolute',inset:0,backgroundImage:`radial-gradient(${T.accent}07 1px,transparent 1px)`,backgroundSize:'30px 30px',pointerEvents:'none'}}/>
-      <div style={{background:T.card,border:`1px solid ${T.hi}`,borderRadius:20,padding:'40px 34px',width:'100%',maxWidth:420,position:'relative',boxShadow:'0 50px 90px #00000070'}}>
-        <div style={{textAlign:'center',marginBottom:30}}>
-          <div style={{fontFamily:T.head,color:T.accent,fontSize:26,fontWeight:900,letterSpacing:-1}}>Adequate Capital</div>
-          <div style={{color:T.muted,fontSize:13,marginTop:4}}>Secure Admin Access</div>
+    <div style={{ minHeight: '100vh', background: '#02060C', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: T.body, padding: 16, position: 'relative', overflow: 'hidden' }}>
+
+      {/* Animated Immersive Background Elements */}
+      <div style={{ position: 'absolute', top: '-10%', left: '-10%', width: '40%', height: '40%', background: `radial-gradient(circle, ${T.accent}15 0%, transparent 70%)`, filter: 'blur(80px)', animation: 'float 20s infinite alternate', pointerEvents: 'none' }} />
+      <div style={{ position: 'absolute', bottom: '-10%', right: '-10%', width: '45%', height: '45%', background: `radial-gradient(circle, ${T.gold}10 0%, transparent 70%)`, filter: 'blur(100px)', animation: 'float 25s infinite alternate-reverse', pointerEvents: 'none' }} />
+      <div style={{ position: 'absolute', top: '20%', right: '10%', width: '30%', height: '30%', background: `radial-gradient(circle, ${T.blue}10 0%, transparent 70%)`, filter: 'blur(90px)', animation: 'float 18s infinite alternate', pointerEvents: 'none' }} />
+
+      <style>{`
+        @keyframes float {
+          0% { transform: translate(0, 0) scale(1); }
+          100% { transform: translate(40px, 40px) scale(1.1); }
+        }
+        .login-card {
+           background: rgba(13, 20, 33, 0.65);
+           backdrop-filter: blur(24px);
+           -webkit-backdrop-filter: blur(24px);
+           border: 1px solid rgba(255, 255, 255, 0.08);
+           border-top: 1px solid rgba(255, 255, 255, 0.15);
+           box-shadow: 0 40px 100px rgba(0,0,0,0.6);
+           width: 100%;
+           max-width: 420px;
+           border-radius: 32px;
+           padding: 48px 40px;
+           position: relative;
+           z-index: 10;
+        }
+        .login-input {
+           transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        .login-input:focus {
+           border-color: ${T.accent} !important;
+           box-shadow: 0 0 0 4px ${T.accent}15 !important;
+        }
+      `}</style>
+
+      <div className="login-card pop">
+        <div style={{ textAlign: 'center', marginBottom: 36 }}>
+          <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 16 }}>
+             <div style={{ width: 64, height: 64, borderRadius: 20, background: `linear-gradient(135deg, ${T.accent}, #00BFA5)`, display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: `0 20px 40px ${T.accent}30` }}>
+                <Lock size={32} color="#000" strokeWidth={2.5} />
+             </div>
+          </div>
+          <div style={{ fontFamily: T.head, color: '#fff', fontSize: 32, fontWeight: 900, letterSpacing: '-0.04em' }}>Adequate</div>
+          <div style={{ color: T.accent, fontSize: 13, fontWeight: 800, textTransform: 'uppercase', letterSpacing: 2, marginTop: -2 }}>Secure Portal</div>
         </div>
 
         {/* ── LOCKOUT STATE ─────────────────────── */}
-        {locked&&!showRecovery&&(
-          <div style={{textAlign:'center'}}>
-            {/* Lock icon */}
-            <div style={{width:72,height:72,borderRadius:99,background:T.dLo,border:`2px solid ${T.danger}40`,display:'flex',alignItems:'center',justifyContent:'center',margin:'0 auto 16px'}}><Lock size={32}/></div>
-            <div style={{color:T.danger,fontWeight:800,fontSize:16,fontFamily:T.head,marginBottom:6}}>Account Locked</div>
-            <div style={{color:T.muted,fontSize:13,marginBottom:20}}>Too many failed attempts. Please wait or use account recovery.</div>
+        {locked && !showRecovery && (
+          <div style={{ textAlign: 'center' }}>
+            <div style={{ color: T.danger, fontWeight: 900, fontSize: 18, fontFamily: T.head, marginBottom: 8, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+               <ShieldAlert size={20} /> Access Restricted
+            </div>
+            <div style={{ color: T.dim, fontSize: 14, marginBottom: 28, lineHeight: 1.5 }}>Too many failed attempts. Security protocol activated.</div>
 
             {/* Countdown ring */}
-            <div style={{position:'relative',width:110,height:110,margin:'0 auto 20px'}}>
-              <svg width="110" height="110" style={{transform:'rotate(-90deg)'}}>
-                <circle cx="55" cy="55" r="48" fill="none" stroke={T.border} strokeWidth="6"/>
-                <circle cx="55" cy="55" r="48" fill="none" stroke={T.danger} strokeWidth="6"
-                  strokeDasharray={`${2*Math.PI*48}`}
-                  strokeDashoffset={`${2*Math.PI*48*(1-countdown/900)}`}
+            <div style={{ position: 'relative', width: 130, height: 130, margin: '0 auto 24px' }}>
+              <svg width="130" height="130" style={{ transform: 'rotate(-90deg)' }}>
+                <circle cx="65" cy="65" r="58" fill="none" stroke="rgba(255,255,255,0.05)" strokeWidth="8" />
+                <circle cx="65" cy="65" r="58" fill="none" stroke={T.danger} strokeWidth="8"
+                  strokeDasharray={`${2 * Math.PI * 58}`}
+                  strokeDashoffset={`${2 * Math.PI * 58 * (1 - countdown / 900)}`}
                   strokeLinecap="round"
-                  style={{transition:'stroke-dashoffset 1s linear'}}/>
+                  style={{ transition: 'stroke-dashoffset 1s linear' }} />
               </svg>
-              <div style={{position:'absolute',inset:0,display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center'}}>
-                <div style={{color:T.danger,fontFamily:T.mono,fontSize:22,fontWeight:900,lineHeight:1}}>{fmtCountdown(countdown)}</div>
-                <div style={{color:T.muted,fontSize:10,marginTop:3}}>remaining</div>
+              <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
+                <div style={{ color: T.danger, fontFamily: T.mono, fontSize: 26, fontWeight: 900, lineHeight: 1 }}>{fmtCountdown(countdown)}</div>
+                <div style={{ color: T.dim, fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 1, marginTop: 4 }}>Locked</div>
               </div>
             </div>
 
-            <div style={{color:T.muted,fontSize:12,marginBottom:20}}>
-              {countdown>0 ? `Unlocks automatically in ${fmtCountdown(countdown)}` : 'Lockout expired — you can try again now.'}
+            <div style={{ color: T.dim, fontSize: 13, marginBottom: 20 }}>
+              {countdown > 0 ? `Unlocks automatically in ${fmtCountdown(countdown)}` : 'Lockout expired — you can try again now.'}
             </div>
 
             {/* Recovery options */}
-            <div style={{background:T.surface,borderRadius:12,padding:'16px',marginBottom:16}}>
-              <div style={{color:T.txt,fontWeight:700,fontSize:13,marginBottom:10,display:'flex',alignItems:'center',gap:6}}><ShieldAlert size={14}/> Recover Access Now</div>
-              {!hasEmail&&!hasPhone&&(
-                <div style={{color:T.muted,fontSize:12}}>No recovery contacts configured. Go to Security Settings after the lockout expires to add email or phone.</div>
+            <div style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 20, padding: '20px', marginBottom: 20 }}>
+              <div style={{ color: '#fff', fontWeight: 800, fontSize: 14, marginBottom: 12, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}><ShieldAlert size={16} color={T.accent} /> Recover Access Now</div>
+              {!hasEmail && !hasPhone && (
+                <div style={{ color: T.dim, fontSize: 12 }}>No recovery contacts configured. Contact system administrator.</div>
               )}
-              {(hasEmail||hasPhone)&&(
-                <div style={{display:'flex',flexDirection:'column',gap:8}}>
-                  {hasEmail&&(
-                    <button onClick={()=>{setShowRecovery(true);sendRecoveryCode('email');}}
-                      style={{background:T.bLo,border:`1px solid ${T.blue}38`,color:T.blue,borderRadius:9,padding:'10px 14px',cursor:'pointer',fontWeight:700,fontSize:13,display:'flex',alignItems:'center',gap:8}}>
-                      <Mail size={16}/> Send recovery code to email
-                      <span style={{color:T.muted,fontSize:11,fontWeight:400}}>{secCfgForRec.adminEmail}</span>
+              {(hasEmail || hasPhone) && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                  {hasEmail && (
+                    <button onClick={() => { setShowRecovery(true); sendRecoveryCode('email'); }}
+                      style={{ background: `${T.accent}15`, border: `1px solid ${T.accent}30`, color: T.accent, borderRadius: 12, padding: '12px', cursor: 'pointer', fontWeight: 800, fontSize: 13, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+                      <Mail size={16} /> Restore via Email
                     </button>
                   )}
-                  {hasPhone&&(
-                    <button onClick={()=>{setShowRecovery(true);sendRecoveryCode('sms');}}
-                      style={{background:T.oLo,border:`1px solid ${T.ok}38`,color:T.ok,borderRadius:9,padding:'10px 14px',cursor:'pointer',fontWeight:700,fontSize:13,display:'flex',alignItems:'center',gap:8}}>
-                      <Smartphone size={16}/> Send recovery code via SMS
-                      <span style={{color:T.muted,fontSize:11,fontWeight:400}}>{secCfgForRec.adminRecoveryPhone||secCfgForRec.adminPhone}</span>
+                  {hasPhone && (
+                    <button onClick={() => { setShowRecovery(true); sendRecoveryCode('sms'); }}
+                      style={{ background: `${T.gold}15`, border: `1px solid ${T.gold}30`, color: T.gold, borderRadius: 12, padding: '12px', cursor: 'pointer', fontWeight: 800, fontSize: 13, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+                      <Smartphone size={16} /> Restore via SMS
                     </button>
                   )}
                 </div>
               )}
             </div>
 
-            {countdown===0&&(
-              <Btn full onClick={()=>{setErr('');setPw('');}}>Try Again →</Btn>
+            {countdown === 0 && (
+              <Btn full onClick={() => { setErr(''); setPw(''); }}>Try Again Now →</Btn>
             )}
           </div>
         )}
@@ -825,26 +976,37 @@ const AdminLogin = ({onLogin,onWorkerPortal}) => {
         )}
 
         {/* ── NORMAL LOGIN ─────────────────────── */}
-        {!locked&&(
+        {!locked && (
           <>
-            <div style={{display:'flex',justifyContent:'center',gap:4,marginBottom:24}}>
-              {steps.map((s,i)=>{const done=step>i+1,active=step===i+1;return(
-                <div key={s} style={{display:'flex',alignItems:'center',gap:4}}>
-                  <div style={{width:24,height:24,borderRadius:99,background:done?T.accent:active?T.aMid:T.surface,border:`2px solid ${done||active?T.accent:T.border}`,display:'flex',alignItems:'center',justifyContent:'center',fontSize:10,fontWeight:800,color:done?'#060A10':active?T.accent:T.muted}}>
-                    {done?<Check size={10} style={{marginTop:-1}}/>:i+1}
+            <div style={{ display: 'flex', justifyContent: 'center', gap: 6, marginBottom: 32 }}>
+              {steps.map((s, i) => {
+                const done = step > i + 1, active = step === i + 1;
+                return (
+                  <div key={s} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <div style={{
+                      width: 28, height: 28, borderRadius: 10,
+                      background: done ? T.accent : active ? `${T.accent}20` : 'transparent',
+                      border: `1.5px solid ${done || active ? T.accent : 'rgba(255,255,255,0.1)'}`,
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      fontSize: 12, fontWeight: 900, color: done ? '#000' : active ? T.accent : T.dim,
+                      transition: 'all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275)'
+                    }}>
+                      {done ? <Check size={14} strokeWidth={3} /> : i + 1}
+                    </div>
+                    {active && <span style={{ fontSize: 12, color: T.txt, fontWeight: 800, letterSpacing: -0.2 }}>{s}</span>}
                   </div>
-                  <span style={{fontSize:11,color:active?T.accent:T.muted,fontWeight:active?700:400}}>{s}</span>
-                  {i<steps.length-1&&<span style={{color:T.border,margin:'0 1px'}}>›</span>}
-                </div>
-              );})}
+                );
+              })}
             </div>
-            {err&&<Alert type='danger' style={{marginBottom:12}}>⚠ {err}</Alert>}
-            {step===1&&(
-              <div>
-                <FI label='Email' type='email' value={loginEmail} onChange={setLoginEmail} placeholder='admin@adequatecapital.co.ke'/>
-                <FI label='Password' type='password' value={pw} onChange={setPw} placeholder='Enter your password'
-                  hint='Session expires after 15 min'/>
-                <Btn onClick={stepPw} loading={loading} full>Continue →</Btn>
+            {err && <Alert type='danger' style={{ marginBottom: 20, borderRadius: 14 }}>⚠ {err}</Alert>}
+            {step === 1 && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+                <FI label='Credential Email' type='email' value={loginEmail} onChange={setLoginEmail} placeholder='admin@adequatecapital.co.ke' />
+                <FI label='System Password' type='password' value={pw} onChange={setPw} placeholder='••••••••'
+                   hint='Secure encrypted connection' />
+                <Btn onClick={stepPw} loading={loading} full style={{ height: 52, borderRadius: 16, fontSize: 16, fontWeight: 850 }}>
+                   Sign In <ChevronRight size={18} style={{ marginLeft: 4 }} />
+                </Btn>
               </div>
             )}
             {step===2&&enabledSteps[1]==='Biometric'&&(
@@ -873,11 +1035,17 @@ const AdminLogin = ({onLogin,onWorkerPortal}) => {
                 <Btn onClick={stepTotp} loading={loading} full>Verify & Enter →</Btn>
               </div>
             )}
-            <div style={{height:1,background:T.border,margin:'20px 0'}}/>
-            <button onClick={onWorkerPortal} style={{display:'block',width:'100%',background:T.aLo,border:`1px solid ${T.aMid}`,borderRadius:10,padding:'11px',color:T.accent,fontSize:13,fontWeight:700,cursor:'pointer',textAlign:'center'}}>
-              👷 Worker Portal Login →
+            <div style={{ height: 1, background: 'rgba(255,255,255,0.06)', margin: '28px 0' }} />
+            <button
+              onClick={onWorkerPortal}
+              className="hover-pop"
+              style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10, width: '100%', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 16, padding: '14px', color: T.accent, fontSize: 13, fontWeight: 800, cursor: 'pointer', transition: 'all 0.3s' }}
+            >
+              👷 Access Worker Portal <ChevronRight size={16} />
             </button>
-            <div style={{color:T.muted,fontSize:11,textAlign:'center',marginTop:11}}>3 failed attempts → 15 min lockout</div>
+            <div style={{ color: T.dim, fontSize: 11, textAlign: 'center', marginTop: 16, fontWeight: 500 }}>
+               Protected by AES-256 standard encryption
+            </div>
           </>
         )}
       </div>
@@ -908,6 +1076,7 @@ export default function App() {
   const [interactions, setInteractions] = useState([]);
   const [workers,      setWorkers]      = useState(SEED_WORKERS); // keep — needed for login before Supabase loads
   const [auditLog,     setAuditLog]     = useState([]);
+  const [unallocatedC2BCount, setUnallocatedC2BCount] = useState(0);
 
   // ISSUE 4 FIX: Global Customer Profile State
   const [globalCustomerId, setGlobalCustomerId] = useState(null);
@@ -936,16 +1105,14 @@ export default function App() {
       const CUSTOMERS_MAX = 2000;
       const PAYMENTS_MAX = 5000;
 
-      const [lFast, cFast, pFast, wR] = await Promise.all([
-        supabase.from('loans').select('*').order('created_at', { ascending: false }).range(0, LOANS_FAST - 1),
-        // Selective fetch for customers to avoid "statement timeout" on large tables (excludes binary/JSON fields)
-        supabase.from('customers')
-          .select('id,name,phone,id_no,business_name,business_type,business_location,risk,status,assigned_officer,created_at')
-          .order('created_at', { ascending: false })
-          .range(0, CUSTOMERS_FAST - 1),
-        supabase.from('payments').select('*').order('date', { ascending: false }).range(0, PAYMENTS_FAST - 1),
-        supabase.from('workers').select('*').order('name'),
+      const [lFast, cFast, pFast, wR, unallocR] = await Promise.all([
+        supabase.from('loans').select('id,customer_id,customer_name,amount,balance,status,repayment_type,officer,risk,disbursed,mpesa,phone,days_overdue,created_at').order('created_at', { ascending: false }).range(0, LOANS_FAST - 1),
+        supabase.from('customers').select('id,name,phone,alt_phone,id_no,business,location,residence,officer,loans,risk,gender,dob,blacklisted,bl_reason,n1_name,n1_phone,n1_relation,n2_name,n2_phone,n2_relation,n3_name,n3_phone,n3_relation,joined,created_at,status,assigned_officer,mpesa_registered,business_name,business_type,business_location').order('name', { ascending: true }).range(0, CUSTOMERS_FAST - 1),
+        supabase.from('payments').select('id,loan_id,customer_id,customer_name,amount,mpesa,date,status,allocated_by,is_reg_fee').order('date', { ascending: false }).range(0, PAYMENTS_FAST - 1),
+        supabase.from('workers').select('id,name,email,phone,role,status').order('name'),
+        supabase.from('unallocated_payments').select('*', { count: 'exact', head: true }).eq('status', 'Unallocated'),
       ]);
+      if (!unallocR.error) setUnallocatedC2BCount(unallocR.count || 0);
 
       const nextLoansFast = (!lFast.error && lFast.data?.length) ? lFast.data.map(fromSupabaseLoan) : [];
       if (lFast.error) console.error('[load loans]', lFast.error.message);
@@ -968,7 +1135,13 @@ export default function App() {
 
       // Guard state against connectivity wipes: Only update if fetch succeeded and returned data.
       if (!lFast.error && nextLoansFast.length > 0) setLoans(nextLoansFast);
-      if (!cFast.error && nextCustomersFast.length > 0) setCustomers(nextCustomersFast);
+      if (!cFast.error && nextCustomersFast.length > 0) {
+        setCustomers(cs => {
+          const existingIds = new Set(cs.map(c => c.id));
+          const filtered = nextCustomersFast.filter(c => !existingIds.has(c.id));
+          return [...cs, ...filtered];
+        });
+      }
       if (!pFast.error && nextPaymentsFast.length > 0) setPayments(nextPaymentsFast);
 
       if (!anyErrorFast && (nextLoansFast.length || nextCustomersFast.length || nextPaymentsFast.length)) {
@@ -1021,9 +1194,11 @@ export default function App() {
       setTimeout(() => {
         // Loans + payments (single query)
         Promise.all([
-          supabase.from('loans').select('*').order('created_at', { ascending: false }).range(0, LOANS_MAX - 1),
-          supabase.from('payments').select('*').order('date', { ascending: false }).range(0, PAYMENTS_MAX - 1),
-        ]).then(([lFull, pFull]) => {
+          supabase.from('loans').select('id,customer_id,customer_name,amount,balance,status,repayment_type,officer,risk,disbursed,mpesa,phone,days_overdue,created_at').order('created_at', { ascending: false }).range(0, LOANS_MAX - 1),
+          supabase.from('payments').select('id,loan_id,customer_id,customer_name,amount,mpesa,date,status,allocated_by,is_reg_fee').order('date', { ascending: false }).range(0, PAYMENTS_MAX - 1),
+          supabase.from('unallocated_payments').select('*', { count: 'exact', head: true }).eq('status', 'Unallocated'),
+        ]).then(([lFull, pFull, uFull]) => {
+          if (!uFull.error) setUnallocatedC2BCount(uFull.count || 0);
           const nextLoans = (!lFull.error && lFull.data?.length) ? lFull.data.map(fromSupabaseLoan) : [];
           if (lFull.error) console.error('[load loans full]', lFull.error.message);
           const nextPayments = (!pFull.error && pFull.data?.length) ? pFull.data.map(fromSupabasePayment) : [];
@@ -1057,7 +1232,7 @@ export default function App() {
             while (combined.length < CUSTOMERS_MAX) {
               const { data, error } = await supabase
                 .from('customers')
-                .select('*')
+                .select('id,name,phone,alt_phone,id_no,business,location,residence,officer,loans,risk,gender,dob,blacklisted,bl_reason,n1_name,n1_phone,n1_relation,n2_name,n2_phone,n2_relation,n3_name,n3_phone,n3_relation,joined,created_at,status,assigned_officer,mpesa_registered,business_name,business_type,business_location')
                 .order('name')
                 .range(offset, offset + CUSTOMERS_PAGE - 1);
 
@@ -1069,7 +1244,12 @@ export default function App() {
               offset += CUSTOMERS_PAGE;
 
               // Update progressively so categories populate gradually (not one big freeze)
-              setCustomers(combined);
+              // Update progressively and deduplicate
+              setCustomers(prev => {
+                const existingIds = new Set(prev.map(c => c.id));
+                const filtered = page.filter(c => !existingIds.has(c.id));
+                return [...prev, ...filtered];
+              });
               writeCache({
                 loans: (readCache()?.loans) || loans,
                 customers: combined,
@@ -1085,26 +1265,10 @@ export default function App() {
         })();
       }, 300); // slight delay so first paint happens before background work
 
-      // Phase 2: Lazy Load secondary data
-      Promise.all([
-        supabase.from('leads').select('*').order('created_at', { ascending: false }).limit(1000),
-        supabase.from('interactions').select('*').order('created_at', { ascending: false }).limit(2000),
-        supabase.from('audit_log').select('*').order('ts', { ascending: false }).limit(500),
-      ]).then(([ldR, iR, aR]) => {
-        if (!ldR.error) setLeads(ldR.data?.length ? ldR.data.map(fromSupabaseLead) : []);
-        else console.error('[load leads]', ldR.error.message);
-        if (!iR.error) setInteractions(iR.data?.length ? iR.data.map(fromSupabaseInteraction) : []);
-        else console.error('[load interactions]', iR.error.message);
-        if (!aR.error && aR.data) {
-          // Always update — even an empty array is a valid server response (e.g., fresh DB or RLS blocked).
-          // Previously `aR.data?.length` was falsy for [], silently leaving stale empty state.
-          setAuditLog(aR.data.map(r => ({ ts: r.ts, user: r.user_name || 'system', action: r.action, target: r.target_id, detail: r.detail, device_type: r.device_type, browser: r.browser, os: r.os, ip_address: r.ip_address, country: r.country, city: r.city })));
-        }
-        else if (aR.error) console.error('[load audit_log]', aR.error.message);
-      }).catch(err => console.error('[lazy load fallback]', err.message));
+      // Phase 2: Deferred loading removed to save egress. 
+      // Leads, Interactions, and Audit Logs now load only when their respective tabs are opened.
     } catch (e) {
       console.error('[load] Failed to load from Supabase:', e?.message || e);
-      // Don't flip to loaded on auth-less failures; allow re-attempt post-login
     }
   }, []);
 
@@ -1160,7 +1324,7 @@ export default function App() {
     }).catch(()=>setMode('admin'));
   };
 
-  const shared={loans,setLoans,customers,setCustomers,workers,setWorkers,payments,setPayments,leads,setLeads,interactions,setInteractions,auditLog,setAuditLog,onOpenCustomerProfile: setGlobalCustomerId};
+  const shared={loans,setLoans,customers,setCustomers,workers,setWorkers,payments,setPayments,leads,setLeads,interactions,setInteractions,auditLog,setAuditLog,unallocatedC2BCount,setUnallocatedC2BCount,onOpenCustomerProfile: setGlobalCustomerId, onRefresh: loadAllData};
 
   return (
     <>
@@ -1204,3 +1368,144 @@ export default function App() {
     </>
   );
 }
+
+// ═══════════════════════════════════════════
+//  GLOBAL COMMAND CENTER (SEARCH)
+// ═══════════════════════════════════════════
+const CommandCenter = ({ customers, onClose, onSelect }) => {
+  const [q, setQ] = useState('');
+  const inputRef = useRef(null);
+  const { theme } = useTheme();
+
+  useEffect(() => { inputRef.current?.focus(); }, []);
+
+  const results = useMemo(() => {
+    if (!q || q.length < 2) return [];
+    const term = q.toLowerCase();
+    
+    return customers.map(c => {
+      let matchType = null;
+      let matchedValue = '';
+
+      if (c.name?.toLowerCase().includes(term)) matchType = 'Customer';
+      else if (c.phone?.includes(term)) matchType = 'Phone';
+      else if (c.idNo?.toLowerCase().includes(term)) matchType = 'ID Match';
+      else if (c.n1n?.toLowerCase().includes(term)) { matchType = 'NOK'; matchedValue = c.n1n; }
+      else if (c.n1p?.includes(term)) { matchType = 'NOK'; matchedValue = c.n1p; }
+      else if (c.n2n?.toLowerCase().includes(term)) { matchType = 'NOK'; matchedValue = c.n2n; }
+      else if (c.n2p?.includes(term)) { matchType = 'NOK'; matchedValue = c.n2p; }
+      else if (c.n3n?.toLowerCase().includes(term)) { matchType = 'NOK'; matchedValue = c.n3n; }
+      else if (c.n3p?.includes(term)) { matchType = 'NOK'; matchedValue = c.n3p; }
+
+      if (matchType) return { ...c, matchType, matchedValue };
+      return null;
+    }).filter(Boolean).slice(0, 8);
+  }, [customers, q]);
+
+  return (
+    <div 
+      className="fade ios-sheet-overlay"
+      style={{ position: 'fixed', inset: 0, zIndex: 100000, background: 'rgba(0,0,0,0.7)', display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: '12vh 16px' }}
+      onClick={e => { if (e.target === e.currentTarget) onClose(); }}
+    >
+      <div 
+        className="pop glass"
+        style={{ 
+          width: '100%', maxWidth: 600, 
+          borderRadius: 32, 
+          background: theme === 'dark' ? 'rgba(26, 39, 64, 0.85)' : 'rgba(255, 255, 255, 0.9)',
+          boxShadow: '0 50px 100px -20px rgba(0,0,0,0.6)',
+          overflow: 'hidden' 
+        }}
+      >
+        <div style={{ padding: '24px 24px 12px' }}>
+          <div style={{ 
+            background: theme === 'dark' ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)', 
+            borderRadius: 20, 
+            padding: '4px 16px', 
+            display: 'flex', 
+            alignItems: 'center', 
+            gap: 12,
+            border: `1px solid ${theme === 'dark' ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.05)'}`
+          }}>
+            <SearchIcon size={20} color={T.accent} strokeWidth={2.5} />
+            <input 
+              ref={inputRef}
+              value={q}
+              onChange={e => setQ(e.target.value)}
+              placeholder="Search customers or families..."
+              style={{ flex: 1, background: 'none', border: 'none', outline: 'none', color: T.txt, fontSize: 17, height: 48, fontWeight: 600 }}
+              onKeyDown={e => { if (e.key === 'Escape') onClose(); }}
+            />
+            <div style={{ display:'flex', gap:6, alignItems:'center' }}>
+               {q && <button onClick={() => setQ('')} style={{ background:'none', border:'none', color:T.dim, padding:4, cursor:'pointer' }}>✕</button>}
+               <kbd style={{ background: theme === 'dark' ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.05)', borderRadius: 6, padding: '3px 6px', fontSize: 10, color: T.dim, fontWeight: 700 }}>ESC</kbd>
+            </div>
+          </div>
+        </div>
+
+        <div style={{ maxHeight: '60vh', overflowY: 'auto', padding: '0 12px 24px' }}>
+          {q.length >= 2 && results.length === 0 && (
+            <div style={{ padding: 60, textAlign: 'center', color: T.dim }}>
+              <div style={{ background: T.aLo, width: 64, height: 64, borderRadius: 99, display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 16px', color: T.accent }}>
+                <SearchIcon size={32} />
+              </div>
+              <div style={{ fontWeight: 700, fontSize: 16 }}>No matches found</div>
+              <div style={{ fontSize: 13, marginTop: 4 }}>We couldn't find a borrower with that info.</div>
+            </div>
+          )}
+          
+          <div style={{ display: 'flex', flexDirection: 'column' }}>
+            {results.map(r => (
+              <div 
+                key={r.id}
+                className="audit-row"
+                onClick={() => { onSelect(r.id); onClose(); }}
+                style={{ padding: '14px 16px', borderRadius: 20, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'space-between', transition: 'all .25s ease' }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+                  <div style={{ 
+                    width: 48, height: 48, borderRadius: 16, 
+                    background: `${T.accent}15`, color: T.accent, 
+                    display: 'flex', alignItems: 'center', justifyContent: 'center', 
+                    fontSize: 20, fontWeight: 900,
+                    border: `1.5px solid ${T.accent}30`
+                  }}>
+                    {r.name.charAt(0)}
+                  </div>
+                  <div>
+                    <div style={{ color: T.txt, fontWeight: 700, fontSize: 15 }}>{r.name}</div>
+                    <div style={{ color: T.dim, fontSize: 12, display: 'flex', gap: 6, alignItems: 'center', marginTop: 2 }}>
+                       {r.phone} {r.matchedValue && <span style={{ color: T.accent }}>• {r.matchedValue}</span>}
+                    </div>
+                  </div>
+                </div>
+                <div style={{ display:'flex', alignItems:'center', gap:10 }}>
+                   <Badge color={r.matchType === 'NOK' ? T.warn : T.accent}>{r.matchType}</Badge>
+                   <ChevronRight size={16} color={T.dim} />
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {!q && (
+            <div style={{ padding: '40px 20px', textAlign: 'center' }}>
+               <div style={{ 
+                 width: 80, height: 80, background: T.aLo, 
+                 borderRadius: 24, display: 'flex', alignItems: 'center', justifyContent: 'center', 
+                 margin: '0 auto 24px', color: T.accent,
+                 boxShadow: `0 20px 40px ${T.accent}20`
+               }}>
+                 <Lock size={40} style={{ opacity: 0.8 }} />
+               </div>
+               <div style={{ color: T.txt, fontWeight: 900, fontSize: 24, letterSpacing: '-0.02em' }}>Command Center</div>
+               <div style={{ color: T.dim, fontSize: 14, marginTop: 12, maxWidth: 300, margin: '12px auto 0', lineHeight: 1.6 }}>
+                 Scan across all borrowers and their families securely and instantly.
+               </div>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+};

@@ -1,6 +1,6 @@
 import CustomerProfile from "@/modules/customers/CustomerProfile";
 import React, { useState, useMemo, useRef } from 'react';
-import { Smartphone, Car, FileText, Scale, XCircle, AlertOctagon, AlertTriangle, HeartCrack, PhoneCall, Check } from 'lucide-react';
+import { Smartphone, Car, FileText, Scale, XCircle, AlertOctagon, AlertTriangle, HeartCrack, PhoneCall, Check, History, User, Clock, MessageSquare, MapPin, Gavel, Ban } from 'lucide-react';
 import { T, RC, Card, CH, DT, KPI, Btn, Badge, FI, Alert, Dialog, Search, RefreshBtn,
   LoanModal, fmt, fmtM, uid, now, sbInsert, toSupabaseInteraction,
   useContactPopup, calculateLoanStatus, SFX, 
@@ -9,16 +9,33 @@ import { useModuleFilter } from '@/hooks/useModuleFilter';
 import { initiateStkPush } from '@/utils/mpesa';
 
 const PIPELINE_STAGES = [
-  {id:'Reminder',label:'Reminder',color:T.warn,icon:<Smartphone size={24}/>,desc:'First contact — SMS and phone reminders',actions:['Generate Letter','Send SMS Reminder','Make Phone Call','Send WhatsApp Message'],template:'Dear [Customer], your loan of [Amount] is now overdue. Please make payment immediately.'},
-  {id:'Field Visit',label:'Field Visit',color:T.blue,icon:<Car size={24}/>,desc:'Officer physically visits borrower',actions:['Schedule Visit','Mark Visit Complete','Escalate to Supervisor'],template:'Field visit report: Customer [Name] at [Location].'},
-  {id:'Demand Letter',label:'Demand Letter',color:T.danger,icon:<FileText size={24}/>,desc:'Formal written demand with 7-day deadline',actions:['Generate Letter','Send via Registered Mail','Mark Delivered'],template:'FORMAL DEMAND: Your loan of [Amount] is immediately due.'},
-  {id:'Final Notice',label:'Final Notice',color:T.danger,icon:<AlertTriangle size={24}/>,desc:'Final warning before legal action',actions:['Generate Letter','Issue Final Notice','Engage Guarantor','Contact Next of Kin'],template:'FINAL NOTICE: Last opportunity to settle [Amount] before legal action.'},
-  {id:'Legal',label:'Legal',color:T.purple,icon:<Scale size={24}/>,desc:'Matter referred to legal team',actions:['File in Court','Engage Debt Collector','Attach Assets'],template:'Legal proceedings initiated.'},
-  {id:'Written Off',label:'Write Off',color:T.muted,icon:<XCircle size={24}/>,desc:'Loan written off as unrecoverable',actions:['Approve Write-Off','Update Books','Blacklist Customer'],template:'Loan written off after all recovery attempts exhausted.'},
+  {id:'Reminder',label:'Reminders',color:T.accent,icon:<Smartphone />,desc:'Early stage follow-ups via automated and manual reminders.',actions:['Generate Letter','Send SMS Reminder','Make Phone Call','Send WhatsApp Message'],template:'Dear [Customer], your loan of [Amount] is now overdue. Please make payment immediately.'},
+  {id:'Field Visit',label:'Field Visits',color:T.blue,icon:<Car />,desc:'Officer-led physical visits to verify borrower status.',actions:['Schedule Visit','Mark Visit Complete','Escalate to Supervisor'],template:'Field visit report: Customer [Name] at [Location].'},
+  {id:'Demand Letter',label:'Demand Phase',color:T.warn,icon:<FileText />,desc:'Formal demand letters issued with clear legal deadlines.',actions:['Generate Letter','Send via Registered Mail','Mark Delivered'],template:'FORMAL DEMAND: Your loan of [Amount] is immediately due.'},
+  {id:'Final Notice',label:'Final Notice',color:T.danger,icon:<AlertTriangle />,desc:'Final warning prior to initiation of recovery or legal action.',actions:['Generate Letter','Issue Final Notice','Engage Guarantor','Contact Next of Kin'],template:'FINAL NOTICE: Last opportunity to settle [Amount] before legal action.'},
+  {id:'Legal',label:'Legal Action',color:T.purple,icon:<Scale />,desc:'Cases handed over to the legal department for litigation.',actions:['File in Court','Engage Debt Collector','Attach Assets'],template:'Legal proceedings initiated.'},
+  {id:'Written Off',label:'Settled/WO',color:T.muted,icon:<XCircle />,desc:'Account closed or written off after all recovery failure.',actions:['Approve Write-Off','Update Books','Blacklist Customer'],template:'Loan written off after all recovery attempts exhausted.'},
 ];
 
-const CollectionsTab = ({loans,customers,payments,setPayments,interactions,setInteractions,workers,setLoans,setCustomers,addAudit,scrollTop,currentUser='Admin', showToast = () => {}}) => {
+const CollectionsTab = ({loans,customers,payments,setPayments,interactions,setInteractions,workers,setLoans,setCustomers,addAudit,scrollTop,currentUser='Admin', showToast = () => {}, onOpenCustomerProfile}) => {
   const {open:openContact, Popup:ContactPopup} = useContactPopup();
+  // Lazy load interactions if not already provided
+  React.useEffect(() => {
+    if (interactions && interactions.length > 0) return;
+    setLoading(true);
+    import('@/config/supabaseClient').then(({ supabase }) => {
+      if (!supabase) return;
+      supabase.from('interactions')
+        .select('*')
+        .order('date', { ascending: false })
+        .then(({ data, error }) => {
+          if (error) console.error('[CollectionsTab] Fetch interactions error:', error.message);
+          else if (data && setInteractions) setInteractions(data);
+          setLoading(false);
+        });
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   
   const {
     q: collQ, setQ: setCollQ, startDate, setStartDate, endDate, setEndDate, applyFilter,
@@ -73,7 +90,6 @@ const CollectionsTab = ({loans,customers,payments,setPayments,interactions,setIn
   const [pipeAction,setPipeAction]=useState(null);
   const [selLoan,setSelLoanRaw]=useState(null);
   const [modalLoan,setModalLoan]=useState(null);
-  const [modalCust,setModalCust]=useState(null);
   const [kpiDrill,setKpiDrillRaw]=useState(null);
   const [loading,setLoading]=useState(false);
   const setKpiDrill = (d) => { setKpiDrillRaw(d); if(d) setTimeout(()=>{ try{scrollTop?.();}catch(e){} },20); };
@@ -177,7 +193,7 @@ const CollectionsTab = ({loans,customers,payments,setPayments,interactions,setIn
                 ?<DT
                     cols={[
                       {k:'id',l:'Loan ID',r:v=><span style={{color:T.accent,fontFamily:T.mono,fontWeight:700,fontSize:12}}>{v}</span>},
-                      {k:'customer',l:'Customer',r:(v,r)=>{const c=customers.find(x=>x.name===v);return <span onClick={e=>{e.stopPropagation();openContact(v,c?.phone,e);}} style={{color:T.accent,cursor:'pointer',fontWeight:600,borderBottom:`1px dashed ${T.accent}50`}}>{v}</span>;}},
+                      {k:'customer',l:'Customer',r:(v,r)=>{const c=customers.find(x=>x.name===v);return <span onClick={e=>{e.stopPropagation(); if(c) onOpenCustomerProfile?.(c.id); else openContact(v,c?.phone,e);}} style={{color:T.accent,cursor:'pointer',fontWeight:600,borderBottom:`1px dashed ${T.accent}50`}}>{v}</span>;}},
                       {k:'balance',l:'Remaining',r:(v,r)=>{
                         const paid = payments.filter(p => p.loanId === r.id).reduce((a, p) => a + p.amount, 0);
                         const e = calculateLoanStatus(r, null, paid);
@@ -245,42 +261,79 @@ const CollectionsTab = ({loans,customers,payments,setPayments,interactions,setIn
       <Card style={{marginBottom:13}}>
         <CH title='Recovery Pipeline'/>
         <div style={{padding:'13px 13px 6px'}}>
-          <div style={{display:'flex',gap:8,overflowX:'auto',paddingBottom:7}}>
-            {PIPELINE_STAGES.map(stage=>(
-              <div key={stage.id} onClick={()=>{setPipeStage(stage);setSelLoanRaw(null);}}
-                style={{flex:'0 0 auto',width:110,background:T.surface,border:`1px solid ${pipeStage?.id===stage.id?stage.color:T.border}`,borderRadius:10,padding:'10px 8px',textAlign:'center',cursor:'pointer',transition:'all .2s'}}>
-                <div style={{fontSize:20,marginBottom:5}}>{stage.icon}</div>
-                <div style={{color:stage.color,fontWeight:800,fontSize:18,fontFamily:T.mono}}>
-                  {stage.id==='Reminder'?ov.length:stage.id==='Written Off'?loans.filter(l=>{
-                    const paid = payments.filter(p => p.loanId === l.id && p.status === "Allocated").reduce((s, p) => s + p.amount, 0);
-                    return calculateLoanStatus(l, null, paid).isWrittenOff;
-                  }).length:0}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 12 }}>
+            {PIPELINE_STAGES.map(stage => {
+              const count = stage.id === 'Reminder' ? ov.length : stage.id === 'Written Off' ? loans.filter(l => {
+                const paid = payments.filter(p => p.loanId === l.id && p.status === "Allocated").reduce((s, p) => s + p.amount, 0);
+                return calculateLoanStatus(l, null, paid).isWrittenOff;
+              }).length : 0;
+              const isActive = pipeStage?.id === stage.id;
+              return (
+                <div 
+                  key={stage.id} 
+                  onClick={() => { setPipeStage(isActive ? null : stage); setSelLoanRaw(null); }}
+                  className="glass sfx-card"
+                  style={{
+                    padding: '20px 12px',
+                    textAlign: 'center',
+                    cursor: 'pointer',
+                    border: `1px solid ${isActive ? stage.color : 'var(--glass-border)'}`,
+                    background: isActive ? `${stage.color}10` : 'var(--glass-bg)',
+                    position: 'relative',
+                    overflow: 'hidden'
+                  }}
+                >
+                  <div style={{
+                    width: 44, height: 44, borderRadius: 12, background: isActive ? stage.color : 'var(--surface)',
+                    color: isActive ? '#000' : stage.color, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    margin: '0 auto 12px', transition: 'all .3s'
+                  }}>
+                    {React.cloneElement(stage.icon, { size: 22 })}
+                  </div>
+                  <div style={{ color: isActive ? T.txt : T.dim, fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 1 }}>{stage.label}</div>
+                  <div style={{ color: T.txt, fontWeight: 950, fontSize: 24, fontFamily: T.mono, marginTop: 4 }}>{count}</div>
+                  {isActive && <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: 3, background: stage.color }} />}
                 </div>
-                <div style={{color:T.dim,fontSize:10,marginTop:3,fontWeight:600}}>{stage.label}</div>
-              </div>
-            ))}
+              );
+            })}
           </div>
-          {pipeStage&&(
-            <div style={{background:T.bg,border:`1px solid ${pipeStage.color}30`,borderRadius:10,padding:14,marginTop:7}}>
-              <div style={{color:pipeStage.color,fontWeight:800,fontSize:14,fontFamily:T.head,marginBottom:4}}>{pipeStage.icon} {pipeStage.label}</div>
-              <div style={{color:T.muted,fontSize:12,marginBottom:10}}>{pipeStage.desc}</div>
-              <select value={selLoan?.id||''} onChange={e=>setSelLoanRaw(ov.find(l=>l.id===e.target.value)||null)}
-                style={{width:'100%',background:T.surface,border:`1px solid ${T.border}`,borderRadius:8,padding:'9px 12px',color:T.txt,fontSize:13,outline:'none',marginBottom:10}}>
-                <option value=''>— Select overdue loan —</option>
-                {ov.map(l=><option key={l.id} value={l.id}>{l.id} · {l.customer} · {fmt(l.balance)} · {l.daysOverdue}d</option>)}
-              </select>
-              {selLoan&&<div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
-                {pipeStage.actions.map(action=>(
-                  <Btn key={action} sm v={pipeStage.id==='Written Off'?'danger':'blue'} onClick={()=>setPipeAction({stage:pipeStage,action,loan:selLoan})}>{action}</Btn>
-                ))}
-              </div>}
+          {pipeStage && (
+            <div className="fu screen-fade-in" style={{ background: `${pipeStage.color}08`, border: `1px solid ${pipeStage.color}15`, borderRadius: 18, padding: 24, marginTop: 16 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+                <div>
+                  <div style={{ color: pipeStage.color, fontWeight: 900, fontSize: 18, fontFamily: T.head, letterSpacing: '-0.02em', display: 'flex', alignItems: 'center', gap: 10 }}>
+                     {React.cloneElement(pipeStage.icon, { size: 20 })} {pipeStage.label}
+                  </div>
+                  <div style={{ color: T.dim, fontSize: 13, marginTop: 4 }}>{pipeStage.desc}</div>
+                </div>
+                <Badge color={pipeStage.color}>{pipeStage.rows?.length || 0} Accounts</Badge>
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) auto', gap: 16, alignItems: 'end' }}>
+                <FI 
+                  label="Select Target Portfolio" 
+                  type="select" 
+                  options={ov.map(l => ({ label: `${l.id} · ${l.customer} · ${fmt(l.balance)} · ${l.daysOverdue}d`, value: l.id }))}
+                  value={selLoan?.id || ''}
+                  onChange={v => setSelLoanRaw(ov.find(l => l.id === v) || null)}
+                />
+                <div style={{ marginBottom: 12 }}>
+                   {selLoan && (
+                     <div style={{ display: 'flex', gap: 8 }}>
+                       {pipeStage.actions.map(action => (
+                         <Btn key={action} sm v={pipeStage.id === 'Written Off' ? 'danger' : 'blue'} onClick={() => setPipeAction({ stage: pipeStage, action, loan: selLoan })}>{action}</Btn>
+                       ))}
+                     </div>
+                   )}
+                </div>
+              </div>
             </div>
           )}
         </div>
       </Card>
       <Card style={{marginBottom:13}}>
         <CH title='Overdue Accounts'/>
-        <DT cols={[{k:'id',l:'Loan ID',r:(v,row)=><span onClick={e=>{e.stopPropagation();setModalLoan(row);}} style={{color:T.accent,fontFamily:T.mono,fontWeight:700,fontSize:12,cursor:'pointer',borderBottom:`1px dashed ${T.accent}50`}}>{v}</span>},{k:'customer',l:'Customer',r:(v,r)=>{const c=customers.find(x=>x.name===v);return <span onClick={e=>{e.stopPropagation();if(c)setModalCust(c);else openContact(v,r.phone,e);}} style={{color:T.accent,cursor:'pointer',fontWeight:600,borderBottom:`1px dashed ${T.accent}50`}}>{v}</span>;}},{k:'balance',l:'Remaining',r:(v,r)=>{
+        <DT cols={[{k:'id',l:'Loan ID',r:(v,row)=><span onClick={e=>{e.stopPropagation();setModalLoan(row);}} style={{color:T.accent,fontFamily:T.mono,fontWeight:700,fontSize:12,cursor:'pointer',borderBottom:`1px dashed ${T.accent}50`}}>{v}</span>},{k:'customer',l:'Customer',r:(v,r)=>{const c=customers.find(x=>x.name===v);return <span onClick={e=>{e.stopPropagation();if(c)onOpenCustomerProfile?.(c.id);else openContact(v,r.phone,e);}} style={{color:T.accent,cursor:'pointer',fontWeight:600,borderBottom:`1px dashed ${T.accent}50`}}>{v}</span>;}},{k:'balance',l:'Remaining',r:(v,r)=>{
             const paid = payments.filter(p => p.loanId === r.id).reduce((a, p) => a + p.amount, 0);
             const e = calculateLoanStatus(r, null, paid);
             return <span style={{color:e.totalAmountDue > 0 ? (e.isFrozen?T.muted:T.danger) : T.ok,fontFamily:T.mono,fontWeight:700}}>{fmt(e.totalAmountDue)}</span>;
@@ -323,8 +376,8 @@ const CollectionsTab = ({loans,customers,payments,setPayments,interactions,setIn
           <div style={{display:'flex',gap:9}}><Btn onClick={()=>doAction(pipeAction.stage,pipeAction.action)} full><span style={{display:'flex',alignItems:'center',gap:4}}><Check size={16}/> Confirm & Log</span></Btn><Btn v='secondary' onClick={()=>setPipeAction(null)}>Cancel</Btn></div>
         </Dialog>
       )}
-      {modalLoan&&<LoanModal loan={modalLoan} customers={customers} payments={payments} interactions={interactions||[]} onClose={()=>setModalLoan(null)} onViewCustomer={cust=>{setModalLoan(null);setModalCust(cust);}}/>}
-      {modalCust&&<CustomerProfile customerId={modalCust.id} workerContext={{role: "admin", name: "Admin"}} onClose={()=>setModalCust(null)} loans={loans} setLoans={setLoans} payments={payments} setPayments={setPayments} interactions={interactions} setInteractions={setInteractions} customers={customers} setCustomers={setCustomers} addAudit={addAudit} onSelectLoan={setModalLoan} />}
+      {modalLoan&&<LoanModal loan={modalLoan} customers={customers} payments={payments} interactions={interactions||[]} onClose={()=>setModalLoan(null)} onViewCustomer={cust=>{setModalLoan(null); onOpenCustomerProfile?.(cust.id); }}/>}
+      {/* Global Customer Profile now handled via onOpenCustomerProfile */}
     </div>
   );
 };

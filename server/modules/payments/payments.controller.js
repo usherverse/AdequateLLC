@@ -38,10 +38,11 @@ export const getRegFeeStatus = async (req, res) => {
  */
 export const disburseLoan = async (req, res) => {
   const { loanId } = req.params;
+  const { phone } = req.body;
   const adminId = req.user.id;
   
   try {
-    const result = await PaymentsService.disburseLoan(loanId, adminId);
+    const result = await PaymentsService.disburseLoan(loanId, adminId, phone);
     res.json(result);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -85,6 +86,15 @@ export const createManualTransaction = async (req, res) => {
       .single();
     
     if (error) throw error;
+
+    await supabase.from('audit_log').insert([{
+      user_id: req.user.id,
+      user_name: req.user.email || 'Admin',
+      action: 'Manual Transaction Created',
+      target_id: data.id,
+      detail: `Type: ${payload.type}, Amount: ${payload.amount}, Cust: ${payload.customerId || 'N/A'}`
+    }]);
+
     res.json(data);
   } catch (err) {
     res.status(500).json({ error: err.message });

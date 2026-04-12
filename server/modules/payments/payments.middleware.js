@@ -22,13 +22,27 @@ export const authenticate = async (req, res, next) => {
     }
     
     // Fetch user role from workers/profiles table
-    const { data: worker } = await supabase
+    let { data: worker, error: workerError } = await supabase
       .from('workers')
       .select('role')
-      .eq('auth_user_id', req.user.id)
-      .single();
+      .eq('id', req.user.id)
+      .maybeSingle();
     
+    // Fallback to email lookup if ID fails (common in early dev/testing)
+    if (!worker && !workerError) {
+      const { data: wByEmail } = await supabase
+        .from('workers')
+        .select('role')
+        .eq('email', req.user.email)
+        .maybeSingle();
+      worker = wByEmail;
+    }
+    
+    if (workerError) console.error('[AuthMiddleware] Worker lookup error:', workerError);
+
     req.user.role = worker?.role || 'READ_ONLY';
+    // Debug logging
+    console.log(`[AuthMiddleware] User: ${req.user.email} (${req.user.id}), Identified Role: ${req.user.role}`);
     next();
   } catch (err) {
     return res.status(401).json({ error: 'Invalid or expired token' });
@@ -43,13 +57,15 @@ export const authorize = (allowedRoles = []) => {
     if (!req.user) return res.status(401).json({ error: 'User not authenticated' });
     
     // Convert current role to uppercase for match
-    const userRole = req.user.role.toUpperCase().replace(' ', '_');
+    const userRole = (req.user.role || 'READ_ONLY').toUpperCase().trim().replace(/\s+/g, '_');
     const hasRole = allowedRoles.some(role => userRole.includes(role));
 
-    if (!hasRole && req.user.role !== 'Admin') {
-      return res.status(403).json({ error: `Access denied: Role ${req.user.role} unauthorized` });
+    // Wildcard bypass for Admin/SuperAdmin
+    if (userRole === 'ADMIN' || userRole === 'SUPER_ADMIN' || hasRole) {
+      return next();
     }
-    next();
+
+    return res.status(403).json({ error: `Access denied: Role ${req.user.role} unauthorized for this route` });
   };
 };
 
@@ -76,4 +92,20 @@ export const checkIdempotency = (req, res, next) => {
   };
 
   next();
+};
+
+/**
+ * Validation Middleware: Sanitize and validate request data using Zod schema
+ */
+export const validate = (schema) => (req, res, next) => {
+  try {
+    if (req.method === 'GET') {
+      req.query = schema.parse(req.query);
+    } else {
+      req.body = schema.parse(req.body);
+    }
+    next();
+  } catch (err) {
+    return res.status(400).json({ error: 'Data invalid or unsanitized', details: err.errors || err.message });
+  }
 };

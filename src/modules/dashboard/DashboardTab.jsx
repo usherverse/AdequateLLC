@@ -1,5 +1,5 @@
-import { useState, useMemo } from 'react';
-import { Home, TrendingUp, AlertTriangle, CheckCircle, BarChart, HardHat, User } from 'lucide-react';
+import { useState, useMemo, useEffect } from 'react';
+import { Home, TrendingUp, AlertTriangle, CheckCircle, BarChart, HardHat, User, UserPlus, Clock } from 'lucide-react';
 import { T, SC, RC, SFX, Card, CH, KPI, DT, Btn, Badge, Av, Bar, BackBtn, RefreshBtn,
   FI, PhoneInput, NumericInput, Search, Pills, Alert, Dialog, ConfirmDialog, ToastContainer,
   LoanModal, LoanForm, RepayTracker, LivePortfolioChart, WeeklyCollectionsChart,
@@ -11,7 +11,40 @@ import { T, SC, RC, SFX, Card, CH, KPI, DT, Btn, Badge, Av, Bar, BackBtn, Refres
   useContactPopup, useToast, useReminders, useModalLock } from '@/lms-common';
 
 
-const DashboardTab = ({loans,setLoans,customers,setCustomers,payments,setPayments,workers,interactions,setInteractions,onNav,scrollTop,addAudit,onOpenCustomerProfile}) => {
+const LiveClock = () => {
+  const [time, setTime] = useState(new Date());
+  useEffect(() => {
+    const id = setInterval(() => setTime(new Date()), 1000);
+    return () => clearInterval(id);
+  }, []);
+
+  return (
+    <div style={{
+      display: 'flex',
+      alignItems: 'center',
+      gap: 12,
+      background: 'rgba(255,255,255,0.03)',
+      border: `1px solid ${T.accent}30`,
+      borderRadius: 16,
+      padding: '10px 18px',
+      backdropFilter: 'blur(10px)',
+      boxShadow: `0 8px 32px ${T.accent}10`,
+      transition: 'all 0.3s ease'
+    }}>
+      <Clock size={16} color={T.accent} />
+      <div style={{ display: 'flex', flexDirection: 'column' }}>
+        <div style={{ color: T.txt, fontSize: 18, fontWeight: 900, fontFamily: T.head, letterSpacing: -0.5, lineHeight: 1 }}>
+          {time.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+        </div>
+        <div style={{ color: T.accent, fontSize: 9, fontWeight: 900, textTransform: 'uppercase', letterSpacing: 1.2, marginTop: 2, opacity: 0.8 }}>
+          Real-time System
+        </div>
+      </div>
+    </div>
+  );
+};
+
+const DashboardTab = ({adminUser,loans,setLoans,customers,setCustomers,payments,setPayments,workers,interactions,setInteractions,onNav,scrollTop,addAudit,onOpenCustomerProfile,onRefresh}) => {
   const {open:openContact, Popup:ContactPopup} = useContactPopup();
   const [drill,setDrillRaw]=useState(null);
   const setDrill = (d) => { setDrillRaw(d); if(d) setTimeout(()=>{ try{scrollTop?.();}catch(e){} },20); };
@@ -98,6 +131,8 @@ const DashboardTab = ({loans,setLoans,customers,setCustomers,payments,setPayment
     byType,
     todayStr,
     paidMap,
+    activeBorrowersCount,
+    pendingApprovals
   } = dashDerived;
   // todayP is UI-specific — computed locally rather than cluttering the shared engine
   const todayP = payments.filter((p) => p.date === now() && p.status === 'Allocated').reduce((s, p) => s + p.amount, 0);
@@ -237,31 +272,62 @@ const DashboardTab = ({loans,setLoans,customers,setCustomers,payments,setPayment
         </div>
       )}
       <div
+        className="glass pop"
         style={{
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "flex-start",
-          marginBottom: 16,
-          flexWrap: "wrap",
-          gap: 10,
+          padding: '32px 40px',
+          borderRadius: 32,
+          marginBottom: 32,
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          background: `linear-gradient(135deg, ${T.accent}10 0%, transparent 100%)`,
+          border: `1px solid ${T.accent}20`,
+          position: 'relative',
+          overflow: 'hidden'
         }}
       >
-        <div>
-          <div
-            style={{
-              fontFamily: T.head,
-              color: T.txt,
-              fontSize: 22,
-              fontWeight: 800,
-            }}
-          >
-            <div style={{display:'flex', alignItems:'center', gap:8}}><Home size={22}/> Dashboard</div>
-          </div>
-          <div style={{ color: T.muted, fontSize: 13, marginTop: 3 }}>
+        <div style={{ position: 'absolute', top: -40, right: -40, opacity: 0.05 }}><Home size={200} color={T.accent} /></div>
+        <div style={{ position: 'relative', zIndex: 1 }}>
+          <div style={{
+            fontFamily: T.head,
+            color: T.accent,
+            fontSize: 14,
+            fontWeight: 900,
+            textTransform: 'uppercase',
+            letterSpacing: 2,
+            marginBottom: 8
+          }}>
             {todayStr}
           </div>
+          <div style={{
+            fontFamily: T.head,
+            color: T.txt,
+            fontSize: 36,
+            fontWeight: 950,
+            letterSpacing: '-0.04em',
+            lineHeight: 1.1
+          }}>
+            {(() => {
+              const hr = new Date().getHours();
+              let greeting = "Good afternoon";
+              if (hr >= 5 && hr < 12) greeting = "Good morning";
+              else if (hr >= 12 && hr < 14) greeting = "Bon appétit";
+              else if (hr >= 14 && hr < 18) greeting = "I hope you had a scrumptious lunch";
+              else if (hr >= 18 && hr < 22) greeting = "Good evening";
+              else greeting = "Burning the midnight oil? Good night";
+              return `${greeting}, ${adminUser?.name || 'Don'}!`;
+            })()}
+          </div>
+          <div style={{ color: T.dim, fontSize: 15, marginTop: 10, fontWeight: 500, maxWidth: 450, lineHeight: 1.5 }}>
+            Welcome back to your command center. You have <b>{pendingApprovals}</b> loans awaiting your approval today.
+          </div>
         </div>
-        <RefreshBtn onRefresh={() => setDrill(null)} />
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 16 }}>
+          <LiveClock />
+          <div className="hide-sm">
+            <RefreshBtn onRefresh={() => { onRefresh?.(); setDrill(null); }} style={{ padding: '12px 20px', borderRadius: 16, background: T.accent, color: '#000', border: 'none' }} />
+          </div>
+        </div>
       </div>
 
       {/* KPI Row 1 */}
@@ -595,6 +661,46 @@ const DashboardTab = ({loans,setLoans,customers,setCustomers,payments,setPayment
                 { k: "risk", l: "Risk", r: (v) => <Badge color={RC[v]}>{v}</Badge> },
               ],
               rows: customers,
+            })
+          }
+        />
+        <KPI
+          label="Active Borrowers"
+          icon={UserPlus}
+          value={activeBorrowersCount}
+          color={T.accent}
+          delay={2.5}
+          onClick={() =>
+            setDrill({
+              title: "Active Borrowers",
+              cols: [
+                {
+                  k: "id",
+                  l: "ID",
+                  r: (v) => (
+                    <span
+                      style={{ color: T.accent, fontFamily: T.mono, fontSize: 12 }}
+                    >
+                      {v}
+                    </span>
+                  ),
+                },
+                {
+                  k: "name",
+                  l: "Name",
+                  r: (v, r) => renderClickName({ name: v, phone: r.phone }),
+                },
+                { k: "business", l: "Business" },
+                { k: "location", l: "Location" },
+                { k: "risk", l: "Risk", r: (v) => <Badge color={RC[v]}>{v}</Badge> },
+              ],
+              rows: customers.filter(c => {
+                const cLoans = loans.filter(l => l.customerId === c.id);
+                return cLoans.some(l => {
+                  const e = calculateLoanStatus(l, null, paidMap[l.id] || 0);
+                  return !['Settled', 'Written off', 'Approved', 'Application submitted', 'worker-pending'].includes(e.badgeStatus);
+                });
+              }),
             })
           }
         />

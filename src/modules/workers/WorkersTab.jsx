@@ -2,7 +2,7 @@ import CustomerProfile from "@/modules/customers/CustomerProfile";
 import React, { useState, useMemo, useEffect, useRef, useCallback, memo } from 'react';
 import { T, SC, RC, SFX, Card, CH, KPI, DT, Btn, Badge, Av, Bar, BackBtn, RefreshBtn,
   FI, PhoneInput, NumericInput, Search, Pills, Alert, Dialog, ConfirmDialog, ToastContainer,
-  LoanModal, LoanForm, RepayTracker, DocViewer, hashPwAsync,
+  LoanModal, LoanForm, RepayTracker, DocViewer, hashPwAsync, ModuleHeader,
   fmt, fmtM, now, uid, ts, escHtml, toCSV, dlCSV, buildFullBackup,
   calculateLoanStatus,
   sbWrite, sbInsert,
@@ -10,6 +10,37 @@ import { T, SC, RC, SFX, Card, CH, KPI, DT, Btn, Badge, Av, Bar, BackBtn, Refres
   generateLoanAgreementHTML, generateAssetListHTML, downloadLoanDoc,
   useContactPopup, useToast, useReminders, useModalLock } from '@/lms-common';
 import WorkerPanel from './WorkerPanel';
+import { Users, UserPlus, Target, TrendingUp, ShieldCheck, Briefcase, Phone, Mail, Calendar, Info, X, ExternalLink, Image as ImageIcon, FileText } from 'lucide-react';
+
+function WorkerDocPreview({ doc, onClose, T }) {
+  const [loaded, setLoaded] = useState(false);
+  return (
+    <div className="dialog-backdrop" style={{ position: 'fixed', inset: 0, zIndex: 100000, background: 'rgba(0,0,0,0.92)', backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)', display: 'flex', flexDirection: 'column', padding: 'clamp(12px, 4vw, 40px)', alignItems: 'center' }}>
+      <div className="pop" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20, width: '100%', maxWidth: 1100 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+           <div style={{ width: 44, height: 44, borderRadius: 12, background: 'rgba(255,255,255,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff' }}>
+             {doc.type?.startsWith('image/') ? <ImageIcon size={22} /> : <FileText size={22} />}
+           </div>
+           <div>
+              <div style={{ color: '#fff', fontSize: 16, fontWeight: 800 }}>{doc.name}</div>
+              <div style={{ color: 'rgba(255,255,255,0.5)', fontSize: 12 }}>{doc.type?.toUpperCase()}</div>
+           </div>
+        </div>
+        <button onClick={onClose} style={{ background: 'rgba(255,255,255,0.1)', color: '#fff', border: 'none', padding: '10px 20px', borderRadius: 12, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8 }}>
+          Close <X size={18} />
+        </button>
+      </div>
+      <div className="pop" style={{ flex: 1, display: 'flex', justifyContent: 'center', alignItems: 'center', overflow: 'hidden', borderRadius: 28, boxShadow: '0 40px 100px rgba(0,0,0,0.8)', width: '100%', maxWidth: 1100, background: '#000', position: 'relative', border: '1px solid rgba(255,255,255,0.1)' }}>
+         {!loaded && <div className="spin" style={{ width: 32, height: 32, border: '3px solid rgba(255,255,255,0.1)', borderTopColor: T.accent, borderRadius: '50%' }} />}
+         {doc.type?.startsWith('image/') ? (
+           <img src={doc.dataUrl} alt={doc.name} onLoad={() => setLoaded(true)} style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain', opacity: loaded ? 1 : 0, transition: 'opacity 0.4s' }} />
+         ) : (
+           <iframe src={doc.dataUrl} title={doc.name} onLoad={() => setLoaded(true)} style={{ width: '100%', height: '100%', border: 'none', background: '#fff', opacity: loaded ? 1 : 0 }} />
+         )}
+      </div>
+    </div>
+  );
+}
 
 const WorkersTab = ({workers,setWorkers,loans,setLoans,payments,customers,setCustomers,leads,setLeads,interactions,setInteractions,allState,addAudit,showToast=()=>{}}) => {
   const {open:openContact, Popup:ContactPopup} = useContactPopup();
@@ -190,23 +221,20 @@ const WorkersTab = ({workers,setWorkers,loans,setLoans,payments,customers,setCus
     return (
       <div className="fu">
         {ContactPopup}
-        {viewDoc&&<DocViewer doc={viewDoc} onClose={()=>setViewDoc(null)}/>}
+        {viewDoc && <WorkerDocPreview doc={viewDoc} onClose={() => setViewDoc(null)} T={T} />}
 
-        <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:16,paddingBottom:14,borderBottom:'1px solid '+T.border}}>
-          <button onClick={()=>{setSel(null);setDetailTab('overview');setViewDoc(null);}}
-            style={{background:T.surface,border:'1px solid '+T.border,borderRadius:8,padding:'7px 14px',cursor:'pointer',color:T.txt,fontSize:13,fontWeight:700}}>
-            {'<- Team'}
-          </button>
-          <Av ini={w.avatar||w.name[0]} size={32} color={w.status==='Active'?T.accent:T.muted}/>
-          <div style={{flex:1}}>
-            <span style={{color:T.txt,fontWeight:800,fontSize:15}}>{w.name}</span>
-            <span style={{color:T.muted,fontSize:12,marginLeft:10}}>{w.role}</span>
-          </div>
-          <Badge color={w.status==='Active'?T.ok:T.danger}>{w.status}</Badge>
-          <Btn v={w.status==='Active'?'danger':'ok'} sm onClick={()=>toggleStatus(w)}>
-            {w.status==='Active'?'Deactivate':'Activate'}
-          </Btn>
-        </div>
+        <ModuleHeader 
+            title={<><Av ini={w.avatar||w.name[0]} size={28} color={w.status==='Active'?T.accent:T.muted} style={{display:'inline-flex', marginRight:10, verticalAlign:'middle'}}/> {w.name}</>}
+            sub={`${w.role} • Managing ${wLoans.length} Loans`}
+            right={
+                <div style={{display:'flex', gap:8}}>
+                  <Btn onClick={()=>{setSel(null);setDetailTab('overview');setViewDoc(null);}} v="secondary" sm>Back to Team</Btn>
+                  <Btn v={w.status==='Active'?'danger':'ok'} sm onClick={()=>toggleStatus(w)}>
+                    {w.status==='Active'?'Deactivate Access':'Enable Access'}
+                  </Btn>
+                </div>
+            }
+        />
 
         <div style={{display:'flex',gap:5,marginBottom:16,overflowX:'auto',paddingBottom:2}}>
           {TABS.map(t=>(
@@ -246,20 +274,11 @@ const WorkersTab = ({workers,setWorkers,loans,setLoans,payments,customers,setCus
             </div>
 
             {/* ── KPI grid ───────────────────────── */}
-            <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:8,marginBottom:14}}>
-              {[
-                ['Loan Book',    fmt(book),     T.accent],
-                ['Active Loans', actLoans.length, T.ok],
-                ['Overdue',      ovLoans.length,  ovLoans.length>0?T.danger:T.ok],
-                ['Collected',    fmt(coll),      T.ok],
-                ['Customers',    wCusts.length,  T.txt],
-                ['Leads',        wLeads.length,  T.txt],
-              ].map(function(item){return(
-                <div key={item[0]} style={{background:T.surface,borderRadius:9,padding:'10px 11px'}}>
-                  <div style={{color:T.muted,fontSize:9,textTransform:'uppercase',letterSpacing:.5,marginBottom:3}}>{item[0]}</div>
-                  <div style={{color:item[2],fontWeight:800,fontSize:15,fontFamily:T.mono}}>{item[1]}</div>
-                </div>
-              );})}
+            <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit, minmax(180px, 1fr))',gap:12,marginBottom:20}}>
+                <KPI label="Managed Portfolio" value={fmtM(book)} icon={TrendingUp} color={T.accent} />
+                <KPI label="Recuperation" value={fmtM(coll)} icon={Target} color={T.ok} />
+                <KPI label="Active Book" value={actLoans.length} icon={ShieldCheck} color={T.ok} />
+                <KPI label="Arrears Count" value={ovLoans.length} icon={AlertTriangle} color={ovLoans.length > 0 ? T.danger : T.ok} />
             </div>
 
             {/* ── Performance bars ───────────────── */}
@@ -508,50 +527,84 @@ const WorkersTab = ({workers,setWorkers,loans,setLoans,payments,customers,setCus
   }
 
   // ── TEAM GRID ────────────────────────────────────────────────
+  const teamStats = useMemo(() => {
+    const active = workers.filter(w => w.status === 'Active');
+    const totalBook = loans.filter(l => l.status !== 'Settled').reduce((s, l) => s + l.balance, 0);
+    return { 
+        active: active.length, 
+        total: workers.length,
+        book: totalBook,
+        capacity: Math.round((active.length / workers.length) * 100) || 0
+    };
+  }, [workers, loans]);
+
   return (
     <div className="fu">
       {ContactPopup}
-      <div className="mob-stack" style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:18,gap:10}}>
-        <div>
-          <div style={{fontFamily:T.head,color:T.txt,fontSize:20,fontWeight:800}}>Team</div>
-          <div style={{color:T.muted,fontSize:13}}>{workers.filter(function(w){return w.status==='Active';}).length} active / {workers.length} total</div>
-        </div>
-        <div style={{display:'flex',gap:8}}>
-          <RefreshBtn onRefresh={function(){ setWorkQ(''); setSel(null); }}/>
-          <Btn onClick={function(){setShowNew(true);}}>+ Add Worker</Btn>
-        </div>
+      
+      <ModuleHeader 
+        title={<><Users size={22} style={{marginRight:10, verticalAlign:'middle', marginTop:-4}}/> Team Management</>}
+        sub="Organize your workforce, monitor performance, and manage administrative permissions."
+        right={<Btn onClick={()=>setShowNew(true)} icon={UserPlus}>Add New Team Member</Btn>}
+      />
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 16, marginBottom: 24 }}>
+          <KPI label="Deployment" value={teamStats.active} sub={`${teamStats.total} Total Staff`} icon={Users} color={T.accent} />
+          <KPI label="Collective Portfolio" value={fmtM(teamStats.book)} icon={TrendingUp} />
+          <KPI label="Active Capacity" value={teamStats.capacity + '%'} sub="Team Availability" icon={Target} color={T.ok} />
+          <KPI label="Pending Onboarding" value={workers.filter(w => (w.docs||[]).length < 3).length} icon={ShieldCheck} color={T.warn} />
       </div>
-      <div style={{marginBottom:12}}>
-        <Search value={workQ} onChange={setWorkQ} placeholder="Search by name or role..."/>
+
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, gap: 12 }}>
+          <Search value={workQ} onChange={setWorkQ} placeholder="Search team by name or role..." style={{ flex: 1, maxWidth: 400 }} />
+          <RefreshBtn onRefresh={() => { setWorkQ(''); setSel(null); }} />
       </div>
-      <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(260px,1fr))',gap:12}}>
-        {workers.filter(function(w){return !workQ||w.name.toLowerCase().includes(workQ.toLowerCase())||w.role.toLowerCase().includes(workQ.toLowerCase());}).map(function(w){
-          var wl = loans.filter(function(l){return l.officer===w.name;});
-          var bk = wl.filter(function(l){return l.status!=='Settled';}).reduce(function(s,l){return s+l.balance;},0);
-          var ov = wl.filter(function(l){return l.status==='Overdue';}).length;
-          var wp = payments.filter(function(p){return wl.some(function(l){return l.id===p.loanId;});}).reduce(function(s,p){return s+p.amount;},0);
-          var docsOk = DOC_SLOTS.filter(function(s){return s.required;}).every(function(s){return (w.docs||[]).some(function(d){return d.key===s.key;});});
+      <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(280px,1fr))',gap:16}}>
+        {workers.filter(w => !workQ || w.name.toLowerCase().includes(workQ.toLowerCase()) || w.role.toLowerCase().includes(workQ.toLowerCase())).map(w => {
+          const wl = loans.filter(l => l.officer === w.name);
+          const bk = wl.filter(l => l.status !== 'Settled').reduce((s, l) => s + l.balance, 0);
+          const ov = wl.filter(l => l.status === 'Overdue').length;
+          const wp = payments.filter(p => wl.some(l => l.id === p.loanId)).reduce((s, p) => s + p.amount, 0);
+          const docsOk = DOC_SLOTS.filter(s => s.required).every(s => (w.docs || []).some(d => d.key === s.key));
+          const collRate = bk > 0 ? Math.min(Math.round((wp / bk) * 100), 100) : 0;
+          
           return (
-            <Card key={w.id} style={{padding:'16px 18px',cursor:'pointer',border:'1px solid '+(w.status==='Active'?T.border:T.danger+'30')}}
-              onClick={function(){setSel(w);setDetailTab('overview');setViewDoc(null);}}>
-              <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:12}}>
-                <Av ini={w.avatar||w.name[0]} size={38} color={w.status==='Active'?T.accent:T.muted}/>
-                <div style={{flex:1,minWidth:0}}>
-                  <div onClick={function(e){e.stopPropagation();setSel(w);setDetailTab('profile');setViewDoc(null);}} style={{color:T.accent,fontWeight:700,fontSize:14,cursor:'pointer',textDecoration:'underline',textDecorationStyle:'dotted',textUnderlineOffset:'2px'}}>{w.name}</div>
-                  <div style={{color:T.muted,fontSize:12}}>{w.role}</div>
+            <Card key={w.id} style={{ padding: 0, cursor: 'pointer', border: `1px solid ${w.status === 'Active' ? T.border : T.danger + '30'}`, overflow: 'hidden' }}
+              onClick={() => { setSel(w); setDetailTab('overview'); setViewDoc(null); }}>
+              <div style={{ padding: '16px 18px', borderBottom: `1px solid ${T.border}`, background: T.card2, display: 'flex', alignItems: 'center', gap: 12 }}>
+                <Av ini={w.avatar || w.name[0]} size={42} color={w.status === 'Active' ? T.accent : T.muted} />
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ color: T.txt, fontWeight: 800, fontSize: 15, fontFamily: T.head }}>{w.name}</div>
+                  <div style={{ color: T.muted, fontSize: 12 }}>{w.role}</div>
                 </div>
-                <div style={{display:'flex',flexDirection:'column',gap:4,alignItems:'flex-end'}}>
-                  <Badge color={w.status==='Active'?T.ok:T.danger}>{w.status}</Badge>
-                  {!docsOk&&<span style={{color:T.warn,fontSize:10,fontWeight:700}}>Docs incomplete</span>}
-                </div>
+                <Badge color={w.status === 'Active' ? T.ok : T.danger}>{w.status}</Badge>
               </div>
-              <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:6}}>
-                {[['Loans',wl.length],['Overdue',ov],['Book',fmt(bk)],['Collected',fmt(wp)]].map(function(pair){return(
-                  <div key={pair[0]} style={{background:T.surface,borderRadius:7,padding:'7px 9px'}}>
-                    <div style={{color:T.muted,fontSize:10,textTransform:'uppercase',letterSpacing:.6}}>{pair[0]}</div>
-                    <div style={{color:T.txt,fontWeight:700,fontSize:13,fontFamily:T.mono}}>{pair[1]}</div>
+              
+              <div style={{ padding: '14px 18px' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 12 }}>
+                  <div style={{ background: T.surface, borderRadius: 10, padding: '8px 10px', border: `1px solid ${T.border}` }}>
+                    <div style={{ color: T.muted, fontSize: 10, textTransform: 'uppercase', fontWeight: 700 }}>Book</div>
+                    <div style={{ color: T.accent, fontWeight: 800, fontSize: 14 }}>{fmtM(bk)}</div>
                   </div>
-                );})}
+                  <div style={{ background: T.surface, borderRadius: 10, padding: '8px 10px', border: `1px solid ${T.border}` }}>
+                    <div style={{ color: T.muted, fontSize: 10, textTransform: 'uppercase', fontWeight: 700 }}>Arrears</div>
+                    <div style={{ color: ov > 0 ? T.danger : T.ok, fontWeight: 800, fontSize: 14 }}>{ov}</div>
+                  </div>
+                </div>
+
+                <div style={{ marginBottom: 4, display: 'flex', justifyContent: 'space-between' }}>
+                    <span style={{ fontSize: 10, color: T.muted, fontWeight: 700 }}>COLLECTION EFFICIENCY</span>
+                    <span style={{ fontSize: 10, color: T.ok, fontWeight: 800 }}>{collRate}%</span>
+                </div>
+                <div style={{ height: 4, background: T.border, borderRadius: 99, overflow: 'hidden' }}>
+                    <div style={{ height: '100%', width: `${collRate}%`, background: T.ok, borderRadius: 99 }} />
+                </div>
+                
+                {!docsOk && (
+                  <div style={{ marginTop: 12, display: 'flex', alignItems: 'center', gap: 6, color: T.warn, fontSize: 11, fontWeight: 700 }}>
+                    <ShieldCheck size={14} /> Documentation Incomplete
+                  </div>
+                )}
               </div>
             </Card>
           );
@@ -578,107 +631,5 @@ const WorkersTab = ({workers,setWorkers,loans,setLoans,payments,customers,setCus
   );
 };
 
-
-// ═══════════════════════════════════════════
-//  REPORT HELPERS — buildReportData, dlBlob, dlReportCSV/PDF/Word
-// ═══════════════════════════════════════════
-const dlBlob = (content, filename, mime) => {
-  try {
-    const blob = new Blob([content], {type: mime});
-    const url  = URL.createObjectURL(blob);
-    const a    = document.createElement('a');
-    a.href = url; a.download = filename;
-    document.body.appendChild(a); a.click();
-    document.body.removeChild(a);
-    setTimeout(()=>URL.revokeObjectURL(url), 1000);
-  } catch(e) { console.error('Download failed', e); }
-};
-
-const buildReportData = (type, {loans, customers, payments, workers, auditLog}) => {
-  if(type==='loan-portfolio') {
-    const hdr = ['Loan ID','Customer','Principal','Base Remaining','Status','Days Overdue','Penalty','Remaining','Total Due','Officer','Disbursed','Repay Type'];
-    const rows = loans.map(l=>{const e=calculateLoanStatus(l);return [l.id,l.customer,l.amount,e.baseBalance,l.status,l.daysOverdue,e.penalty,e.totalAmountDue,e.totalPayable,l.officer,l.disbursed||'N/A',l.repaymentType];});
-    return {name:'loan-portfolio', title:'Loan Portfolio Report', hdr, rows};
-  }
-  if(type==='financial') {
-    const tb  = loans.reduce((s,l)=>s+l.amount,0);
-    const out = loans.filter(l => !calculateLoanStatus(l).isSettled).reduce((s,l)=>s+l.balance,0);
-    const col = payments.filter(p=>p.status==='Allocated').reduce((s,p)=>s+p.amount,0);
-    const ov  = loans.filter(l => {
-      const e = calculateLoanStatus(l);
-      return e.overdueDays > 0 && !e.isSettled;
-    }).reduce((s,l)=>s+l.balance,0);
-    return {name:'financial-summary', title:'Financial Summary Report', hdr:['Metric','KES'],
-      rows:[['Total Disbursed',tb],['Total Outstanding',out],['Total Collected',col],['Total Overdue',ov],
-            ['Collection Rate %', tb>0?((col/tb)*100).toFixed(2):0]]};
-  }
-  if(type==='customers') {
-    return {name:'customers', title:'Customer Report',
-      hdr:['ID','Name','Phone','Business','Location','Officer','Loans','Risk','Joined','Blacklisted'],
-      rows:customers.map(c=>[c.id,c.name,c.phone,c.business||'',c.location||'',c.officer||'',c.loans,c.risk,c.joined,c.blacklisted?'Yes':'No'])};
-  }
-  if(type==='audit') {
-    return {name:'audit-log', title:'Audit Log Report',
-      hdr:['Timestamp','User','Action','Target','Details'],
-      rows:(auditLog||[]).map(e=>[e.ts,e.user,e.action,e.target,e.detail||''])};
-  }
-  if(type==='overdue') {
-    const ov = loans.filter(l => {
-      const e = calculateLoanStatus(l);
-      return e.overdueDays > 0 && !e.isSettled;
-    });
-    return {name:'overdue-report', title:'Overdue Loans Report',
-      hdr:['Loan ID','Customer','Base Remaining','Days Overdue','Penalty','Remaining','Total Due','Risk','Officer'],
-      rows:ov.map(l=>{const e=calculateLoanStatus(l);return [l.id,l.customer,e.baseBalance,l.overdueDays,e.penalty,e.totalAmountDue,e.totalPayable,l.risk,l.officer];})};
-  }
-  if(type==='payments') {
-    return {name:'payments', title:'Payments Report',
-      hdr:['ID','Customer','Loan ID','Amount','M-Pesa Code','Date','Status','Allocated By'],
-      rows:payments.map(p=>[p.id,p.customer,p.loanId||'N/A',p.amount,p.mpesa||'',p.date,p.status,p.allocatedBy||''])};
-  }
-  if(type==='staff') {
-    return {name:'staff-performance', title:'Staff Performance Report',
-      hdr:['ID','Name','Role','Status','Loans','Book KES','Overdue %'],
-      rows:workers.map(w=>{
-        const wl=loans.filter(l => l.officer===w.name);
-        const bk=wl.reduce((s,l)=>s+l.balance,0);
-        const od=wl.filter(l => {
-          const e = calculateLoanStatus(l);
-          return e.overdueDays > 0 && !e.isSettled;
-        }).length;
-        return [w.id,w.name,w.role,w.status,wl.length,bk,wl.length?((od/wl.length)*100).toFixed(1):0];
-      })};
-  }
-  return {name:'report', title:'Report', hdr:[], rows:[]};
-};
-
-const dlReportCSV = ({name, hdr, rows}) => {
-  dlBlob(toCSV(hdr, rows), `${name}-${now()}.csv`, 'text/csv;charset=utf-8;');
-};
-
-const dlReportPDF = ({title, hdr, rows}) => {
-  const esc = s => String(s??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-  const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>${esc(title)}</title>
-<style>body{font-family:Arial,sans-serif;font-size:11px;padding:20px}h1{font-size:15px;margin:0 0 4px}p{color:#666;font-size:10px;margin:0 0 14px}table{width:100%;border-collapse:collapse}th{background:#1a2740;color:#fff;padding:6px 10px;text-align:left;font-size:10px}td{padding:5px 10px;border-bottom:1px solid #e2e8f0;font-size:10px}tr:nth-child(even)td{background:#f8fafc}@media print{body{padding:8px}}</style>
-</head><body><h1>${esc(title)}</h1><p>Generated: ${new Date().toLocaleString('en-KE')} · Adequate Capital Ltd</p>
-<table><thead><tr>${hdr.map(h=>`<th>${esc(h)}</th>`).join('')}</tr></thead>
-<tbody>${rows.map(r=>`<tr>${r.map(c=>`<td>${esc(c)}</td>`).join('')}</tr>`).join('')}</tbody></table>
-</body></html>`;
-  dlBlob(html, `${title.replace(/\s+/g,'-')}-${now()}.html`, 'text/html;charset=utf-8;');
-};
-
-const dlReportWord = ({title, hdr, rows}) => {
-  const esc = s => String(s??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-  const headerRow = `<w:tr>${hdr.map(h=>`<w:tc><w:p><w:r><w:rPr><w:b/></w:rPr><w:t>${esc(h)}</w:t></w:r></w:p></w:tc>`).join('')}</w:tr>`;
-  const tableRows = rows.map(r=>`<w:tr>${r.map(c=>`<w:tc><w:p><w:r><w:t>${esc(c)}</w:t></w:r></w:p></w:tc>`).join('')}</w:tr>`).join('');
-  const xml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><?mso-application progid="Word.Document"?>
-<w:wordDocument xmlns:w="http://schemas.microsoft.com/office/word/2003/wordml">
-<w:body>
-<w:p><w:r><w:rPr><w:b/><w:sz w:val="28"/></w:rPr><w:t>${esc(title)}</w:t></w:r></w:p>
-<w:p><w:r><w:t>Generated: ${new Date().toLocaleString('en-KE')} · Adequate Capital Ltd</w:t></w:r></w:p>
-<w:tbl><w:tblPr><w:tblW w:w="0" w:type="auto"/></w:tblPr>${headerRow}${tableRows}</w:tbl>
-</w:body></w:wordDocument>`;
-  dlBlob(xml, `${title.replace(/\s+/g,'-')}-${now()}.doc`, 'application/msword');
-};
 
 export default WorkersTab;

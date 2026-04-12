@@ -1,15 +1,21 @@
 import express from 'express';
 import { supabase } from '../../config/db.js';
-import { encrypt } from './mpesa.client.js';
+import * as MpesaService from './payments.service.js';
 
 const router = express.Router();
+
+// Connectivity Monitor
+router.use((req, res, next) => {
+  console.log(`[M-Pesa Webhook] INCOMING: ${req.method} ${req.originalUrl}`);
+  next();
+});
 
 /**
  * Safaricom IP Range Validation Middleware
  */
 const validateSafaricomIP = (req, res, next) => {
-  const forwarded = req.headers['x-forwarded-for'];
-  const ip = forwarded ? forwarded.split(/, /)[0] : req.socket.remoteAddress;
+  // Now that 'trust proxy' is enabled, Express securely extracts the real client IP for us
+  const ip = req.ip;
 
   // Safaricom Whitelist Ranges (Provided by user)
   const whitelist = [
@@ -21,7 +27,7 @@ const validateSafaricomIP = (req, res, next) => {
     '196.201.150'
   ];
 
-  const ipMatch = whitelist.some(range => ip.startsWith(range));
+  const ipMatch = whitelist.some(range => ip && ip.startsWith(range));
   
   // In development/sandbox, we might want to skip this or allow more IPs
   if (process.env.MPESA_ENVIRONMENT === 'production' && !ipMatch) {
@@ -33,34 +39,6 @@ const validateSafaricomIP = (req, res, next) => {
 };
 
 router.use(validateSafaricomIP);
-
-/**
- * helper: upsertTransaction
- */
-const upsertTransaction = async (data) => {
-  const { mpesa_receipt_no } = data;
-  
-  // Check for duplicate receipt
-  if (mpesa_receipt_no) {
-    const { data: existing } = await supabase
-      .from('transactions')
-      .select('id')
-      .eq('mpesa_receipt_no', mpesa_receipt_no)
-      .single();
-    
-    if (existing) {
-      console.info(`[Webhook] Duplicate receipt ignored: ${mpesa_receipt_no}`);
-      return { duplicate: true };
-    }
-  }
-
-  const { error } = await supabase
-    .from('transactions')
-    .upsert([data]);
-
-  if (error) throw error;
-  return { success: true };
-};
 
 /**
  * POST /webhooks/mpesa/stk-callback
@@ -82,43 +60,54 @@ router.post('/stk-callback', async (req, res) => {
 
     const mpesa_receipt_no = meta.MpesaReceiptNumber;
     const amount = meta.Amount;
-    const phone = meta.PhoneNumber;
+    
+    const status = ResultCode === 0 ? 'Completed' : 'Failed';
 
-    const status = ResultCode === 0 ? 'completed' : 'failed';
-
-    const { data: tx } = await supabase
-      .from('transactions')
+    const { data: request } = await supabase
+      .from('stk_requests')
       .update({
-        mpesa_receipt_no,
-        amount: amount || 0,
-        phone: phone ? encrypt(phone.toString()) : null,
+        mpesa_receipt: mpesa_receipt_no,
         status,
-        notes: ResultDesc,
-        metadata: { ...stkCallback, mpesa_raw: req.body }
+        result_code: ResultCode,
+        result_desc: ResultDesc
       })
-      .eq('mpesa_transaction_id', CheckoutRequestID)
+      .eq('checkout_request_id', CheckoutRequestID)
       .select()
       .single();
 
-    if (tx && status === 'completed') {
-      // 1. Update registration_fees sub-table
+    if (request && status === 'Completed') {
+      // 1. Mark Customer as Registered = True
       await supabase
-        .from('registration_fees')
-        .update({ status: 'paid', paid_at: new Date().toISOString(), transaction_id: tx.id })
-        .eq('customer_id', tx.customer_id);
+        .from('customers')
+        .update({ mpesa_registered: true })
+        .eq('id', request.reference);
 
-      // 2. Insert into legacy 'payments' table to satisfy Dashboard/Loans Tab
+      // 2. Insert into payments table
       await supabase
         .from('payments')
         .insert([{
-          customer_id: tx.customer_id,
-          amount: tx.amount,
-          mpesa: tx.mpesa_receipt_no,
+          customer_id: request.reference,
+          amount: amount || 500,
+          mpesa: mpesa_receipt_no,
           date: new Date().toISOString().split('T')[0],
           status: 'Allocated',
           is_reg_fee: true,
-          note: 'M-Pesa Registration Fee'
+          note: 'M-Pesa STK Push Registration Fee'
         }]);
+
+      await supabase.from('audit_log').insert([{
+        user_name: 'System',
+        action: 'Reg Fee Confirmed',
+        target_id: request.reference,
+        detail: `M-Pesa STK push completed OK. Receipt: ${mpesa_receipt_no}`
+      }]);
+    } else if (request && status === 'Failed') {
+      await supabase.from('audit_log').insert([{
+        user_name: 'System',
+        action: 'Reg Fee Push Failed',
+        target_id: request.reference,
+        detail: `STK push failed. Code: ${ResultCode}, Desc: ${ResultDesc}`
+      }]);
     }
 
     res.json({ ResultCode: 0, ResultDesc: 'Success' });
@@ -134,46 +123,105 @@ router.post('/stk-callback', async (req, res) => {
 router.post('/b2c-result', async (req, res) => {
   try {
     const { Result } = req.body;
-    const { ResultCode, ResultDesc, TransactionID, ResultParameters, OriginatorConversationID } = Result;
+    if (!Result) {
+      console.error('[Webhook] B2C Result missing in body:', JSON.stringify(req.body));
+      return res.status(400).json({ ResultCode: 1, ResultDesc: 'Result missing' });
+    }
 
-    console.log(`[Webhook] B2C Result: ${ResultDesc} (${ResultCode})`);
+    const { ResultCode, ResultDesc, TransactionID, OriginatorConversationID, ConversationID } = Result;
+    console.log(`[Webhook] B2C Callback Hit: ${ResultDesc} (Code: ${ResultCode}) | OrigConvID: ${OriginatorConversationID}`);
 
-    const status = ResultCode === 0 ? 'completed' : 'failed';
+    const status = ResultCode === 0 ? 'Completed' : 'Failed';
 
-    const { data: tx } = await supabase
-      .from('transactions')
+    // 1. Update the B2C Disbursement record
+    // We use originator_conversation_id as the primary lookup
+    let { data: disb, error: updateError } = await supabase
+      .from('b2c_disbursements')
       .update({
-        mpesa_receipt_no: TransactionID,
+        mpesa_receipt: TransactionID || null,
         status,
-        notes: ResultDesc,
-        metadata: { ...Result, mpesa_raw: req.body }
-      })
-      .eq('mpesa_transaction_id', TransactionID) // Note: B2C TransID is the unique key here
-      .select()
-      .single();
-
-    // Update loan_disbursements record
-    const { data: disb } = await supabase
-      .from('loan_disbursements')
-      .update({
-        status: ResultCode === 0 ? 'confirmed' : 'failed',
         result_code: ResultCode,
-        result_description: ResultDesc,
-        disbursed_at: new Date().toISOString()
+        result_desc: ResultDesc,
+        updated_at: new Date().toISOString()
       })
-      .eq('mpesa_originator_conversation_id', OriginatorConversationID)
-      .select('loan_id')
-      .single();
+      .eq('originator_conversation_id', OriginatorConversationID)
+      .select()
+      .maybeSingle();
 
-    if (disb && status === 'completed') {
-      // Update legacy 'loans' table status to 'Active'
-      await supabase
+    if (!disb && !updateError) {
+      console.warn(`[Webhook] B2C RECORD NOT FOUND for OriginatorConversationID: ${OriginatorConversationID}. Trying fallback to ConversationID...`);
+      const { data: fallbackData, error: fallbackError } = await supabase
+        .from('b2c_disbursements')
+        .update({
+          mpesa_receipt: TransactionID || null,
+          status,
+          result_code: ResultCode,
+          result_desc: ResultDesc,
+          updated_at: new Date().toISOString()
+        })
+        .eq('conversation_id', ConversationID)
+        .select()
+        .maybeSingle();
+      
+      disb = fallbackData;
+      updateError = fallbackError;
+    }
+
+    if (updateError) {
+      console.error('[Webhook] B2C Database Error:', updateError.message);
+      return res.status(500).json({ ResultCode: 1, ResultDesc: 'Database Error' });
+    }
+
+    if (!disb) {
+      console.warn(`[Webhook] B2C RECORD NOT FOUND even with fallback. OrigConvID: ${OriginatorConversationID}, ConvID: ${ConversationID}`);
+      // Log the mystery arrival to audit log for debugging
+      await supabase.from('audit_log').insert([{
+        user_name: 'System',
+        action: 'Webhook Mismatch',
+        detail: `B2C Callback arrived but no record matched. OrigID: ${OriginatorConversationID}. Body: ${JSON.stringify(Result).substring(0, 150)}`
+      }]);
+      return res.json({ ResultCode: 0, ResultDesc: 'Record not found but acknowledged' });
+    }
+
+    const loanId = disb.loan_id || disb.loanId; // Support both cases
+    if (!loanId) {
+      console.error('[Webhook] B2C Disbursement record found but is MISSING loan_id. Cannot update loan status.');
+      return res.json({ ResultCode: 0, ResultDesc: 'Loan ID missing in record' });
+    }
+
+    if (status === 'Completed') {
+      // Update loan status to 'Active'
+      const { error: loanError } = await supabase
         .from('loans')
         .update({ 
           status: 'Active', 
           disbursed: new Date().toISOString().split('T')[0] 
         })
-        .eq('id', disb.loan_id);
+        .eq('id', loanId)
+        .eq('status', 'Disbursing');
+      
+      if (loanError) console.error(`[Webhook] Failed to update loan ${loanId} to Active:`, loanError.message);
+      else console.log(`[Webhook] Loan ${loanId} successfully promoted to Active.`);
+
+    } else if (status === 'Failed') {
+      // Revert the loan to Approved so it can be re-attempted
+      const { error: loanError } = await supabase
+        .from('loans')
+        .update({ status: 'Approved', disbursed: null })
+        .eq('id', loanId)
+        .eq('status', 'Disbursing');
+      
+      if (loanError) console.error(`[Webhook] Failed to revert loan ${loanId} to Approved:`, loanError.message);
+      else console.warn(`[Webhook] B2C Failed. Loan ${loanId} reverted to Approved.`);
+    }
+
+    if (disb) {
+      await supabase.from('audit_log').insert([{
+        user_name: 'System',
+        action: status === 'Completed' ? 'Daraja Disbursed' : 'Daraja Disburse Failed',
+        target_id: loanId,
+        detail: `B2C Callback: ${status}. Receipt: ${TransactionID || 'N/A'}. Desc: ${ResultDesc}. OrigConvID: ${OriginatorConversationID}`
+      }]);
     }
 
     res.json({ ResultCode: 0, ResultDesc: 'Success' });
@@ -189,17 +237,9 @@ router.post('/b2c-result', async (req, res) => {
 router.post('/c2b-confirmation', async (req, res) => {
   try {
     const data = req.body;
-    const { TransID, TransAmount, MSISDN, FirstName, MiddleName, LastName } = data;
-
-    await upsertTransaction({
-      mpesa_receipt_no: TransID,
-      amount: TransAmount,
-      phone: encrypt(MSISDN),
-      status: 'completed',
-      type: 'paybill_receipt',
-      notes: `C2B Paybill from ${FirstName} ${LastName}`,
-      metadata: { ...data, mpesa_raw: req.body }
-    });
+    
+    // Send to allocation engine
+    await MpesaService.allocatePaymentEngine(data);
 
     res.json({ ResultCode: 0, ResultDesc: 'Success' });
   } catch (err) {
