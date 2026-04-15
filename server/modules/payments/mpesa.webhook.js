@@ -76,17 +76,24 @@ router.post('/stk-callback', async (req, res) => {
       .single();
 
     if (request && status === 'Completed') {
-      // 1. Mark Customer as Registered = True
+      // 1. Mark Customer as Registered = True and fetch their name
+      const { data: customer } = await supabase
+        .from('customers')
+        .select('name')
+        .eq('id', request.reference)
+        .single();
+
       await supabase
         .from('customers')
         .update({ mpesa_registered: true })
         .eq('id', request.reference);
 
-      // 2. Insert into payments table
+      // 2. Insert into payments table (include customer_name so it shows in the UI)
       await supabase
         .from('payments')
         .insert([{
           customer_id: request.reference,
+          customer_name: customer?.name || null,
           amount: amount || 500,
           mpesa: mpesa_receipt_no,
           date: new Date().toISOString().split('T')[0],
@@ -96,6 +103,7 @@ router.post('/stk-callback', async (req, res) => {
         }]);
 
       await supabase.from('audit_log').insert([{
+        ts: new Date().toISOString(),
         user_name: 'System',
         action: 'Reg Fee Confirmed',
         target_id: request.reference,
@@ -103,6 +111,7 @@ router.post('/stk-callback', async (req, res) => {
       }]);
     } else if (request && status === 'Failed') {
       await supabase.from('audit_log').insert([{
+        ts: new Date().toISOString(),
         user_name: 'System',
         action: 'Reg Fee Push Failed',
         target_id: request.reference,
@@ -176,6 +185,7 @@ router.post('/b2c-result', async (req, res) => {
       console.warn(`[Webhook] B2C RECORD NOT FOUND even with fallback. OrigConvID: ${OriginatorConversationID}, ConvID: ${ConversationID}`);
       // Log the mystery arrival to audit log for debugging
       await supabase.from('audit_log').insert([{
+        ts: new Date().toISOString(),
         user_name: 'System',
         action: 'Webhook Mismatch',
         detail: `B2C Callback arrived but no record matched. OrigID: ${OriginatorConversationID}. Body: ${JSON.stringify(Result).substring(0, 150)}`
@@ -217,6 +227,7 @@ router.post('/b2c-result', async (req, res) => {
 
     if (disb) {
       await supabase.from('audit_log').insert([{
+        ts: new Date().toISOString(),
         user_name: 'System',
         action: status === 'Completed' ? 'Daraja Disbursed' : 'Daraja Disburse Failed',
         target_id: loanId,

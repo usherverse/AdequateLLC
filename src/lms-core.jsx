@@ -640,7 +640,7 @@ const AdminPanel = ({onLogout,loans,setLoans,customers,setCustomers,workers,setW
                 {(activeReminderCount + unalloc) > 0 && (
                   <span style={{
                     position:'absolute',top:-4,right:-4,
-                    background: unalloc > 0 ? T.warn : T.danger,
+                    background: T.danger,
                     borderRadius:99,minWidth:14,height:14,padding:'0 4px',
                     display:'flex',alignItems:'center',justifyContent:'center',
                     fontSize:8,fontWeight:900,color:'#fff',boxShadow: '0 0 0 2px #060A10'
@@ -1287,7 +1287,7 @@ export default function App() {
       const [lFast, cFast, pFast, wR, unallocR] = await Promise.all([
         supabase.from('loans').select('id,customer_id,customer_name,amount,balance,status,repayment_type,officer,risk,disbursed,mpesa,phone,days_overdue,created_at').order('created_at', { ascending: false }).range(0, LOANS_FAST - 1),
         // OPTIMIZED: Fetch only essential searchable/navigable fields for global state. Full profiles load lazily in CustomerProfile.
-        supabase.from('customers').select('id,name,phone,id_no,officer,loans,risk,blacklisted,joined,status,assigned_officer').order('name', { ascending: true }).range(0, CUSTOMERS_FAST - 1),
+        supabase.from('customers').select('id,name,phone,id_no,officer,loans,risk,blacklisted,joined,status,assigned_officer,mpesa_registered').order('name', { ascending: true }).range(0, CUSTOMERS_FAST - 1),
         supabase.from('payments').select('id,loan_id,customer_id,customer_name,amount,mpesa,date,status,allocated_by,is_reg_fee').order('date', { ascending: false }).range(0, PAYMENTS_FAST - 1),
         supabase.from('workers').select('id,name,email,phone,role,status').order('name'),
         supabase.from('unallocated_payments').select('*', { count: 'exact', head: true }).eq('status', 'Unallocated'),
@@ -1340,26 +1340,37 @@ export default function App() {
         const missing = [];
         ll.forEach(l => {
           if (l.customer_id && !cids.has(l.customer_id)) {
+            const dbStub = {
+              id: l.customer_id, 
+              name: l.customer_name || 'Unknown', 
+              phone: l.phone || null,
+              alt_phone: null, 
+              id_no: 'PENDING-' + l.customer_id,
+              business: null, 
+              location: null, 
+              residence: null, 
+              assigned_officer: l.officer || null,
+              loans: 1, 
+              risk: 'Medium', 
+              status: 'Active',
+              joined: l.disbursed || null,
+              documents: [],
+              mpesa_registered: false
+            };
             cids.add(l.customer_id);
-            missing.push({
-              id: l.customer_id, name: l.customer_name || 'Unknown', phone: l.phone || null,
-              alt_phone: null, id_no: 'PENDING-' + l.customer_id,
-              business: null, location: null, residence: null, officer: l.officer || null,
-              loans: 1, risk: 'Medium', gender: null, dob: null, blacklisted: false,
-              bl_reason: null, from_lead: null,
-              n1_name: null, n1_phone: null, n1_relation: null,
-              n2_name: null, n2_phone: null, n2_relation: null,
-              n3_name: null, n3_phone: null, n3_relation: null, joined: l.disbursed || null
-            });
+            missing.push(dbStub);
           }
         });
         if (missing.length > 0) {
-          console.warn('[load] Synthesized', missing.length, 'missing customer records from loan data.');
+          console.warn('[load] Synthesized', missing.length, 'missing customer records.');
           setCustomers(cs => {
             const existingIds = new Set(cs.map(c => c.id));
-            const toAdd = missing.filter(m => !existingIds.has(m.id)).map(fromSupabaseCustomer);
+            const toAdd = missing
+              .filter(m => !existingIds.has(m.id))
+              .map(m => ({ ...fromSupabaseCustomer(m), _isSynthesized: true }));
             return toAdd.length > 0 ? [...cs, ...toAdd] : cs;
           });
+          // Upsert to DB — use the sanitized snake_case records
           supabase.from('customers').upsert(missing, { onConflict: 'id' })
             .then(({ error }) => { if (error) console.error('[backfill customers]', error.message); })
             .catch(() => {});
@@ -1412,7 +1423,7 @@ export default function App() {
             while (combined.length < CUSTOMERS_MAX) {
               const { data, error } = await supabase
                 .from('customers')
-                .select('id,name,phone,alt_phone,id_no,business,location,residence,officer,loans,risk,gender,dob,blacklisted,bl_reason,n1_name,n1_phone,n1_relation,n2_name,n2_phone,n2_relation,n3_name,n3_phone,n3_relation,joined,created_at,status,assigned_officer,mpesa_registered,business_name,business_type,business_location')
+                .select('id,name,phone,alt_phone,id_no,business,location,residence,officer,loans,risk,gender,dob,blacklisted,bl_reason,n1_name,n1_phone,n1_relation,n2_name,n2_phone,n2_relation,n3_name,n3_phone,n3_relation,joined,created_at,status,assigned_officer,mpesa_registered,business_name,business_type,business_location,documents,gps_coordinates')
                 .order('name')
                 .range(offset, offset + CUSTOMERS_PAGE - 1);
 
@@ -1426,9 +1437,16 @@ export default function App() {
               // Update progressively so categories populate gradually (not one big freeze)
               // Update progressively and deduplicate
               setCustomers(prev => {
-                const existingIds = new Set(prev.map(c => c.id));
-                const filtered = page.filter(c => !existingIds.has(c.id));
-                return [...prev, ...filtered];
+                const next = [...prev];
+                page.forEach(c => {
+                  const idx = next.findIndex(x => x.id === c.id);
+                  if (idx >= 0) {
+                    if (next[idx]._isSynthesized) next[idx] = c;
+                  } else {
+                    next.push(c);
+                  }
+                });
+                return next;
               });
               writeCache({
                 loans: (readCache()?.loans) || loans,

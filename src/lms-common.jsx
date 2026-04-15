@@ -16,7 +16,7 @@ import {
   Phone, Mail, MapPin, Briefcase, FileText, Check, X,
   Database, Activity, RefreshCw, UserCheck, AlertTriangle, Globe,
   ShieldAlert, History, MessageSquare, Gavel, Ban, Bell, Flame, Zap,
-  ChevronDown
+  ChevronDown, Trash2, Home
 } from "lucide-react";
 import {
   _hashPw,
@@ -4301,6 +4301,19 @@ export const OnboardForm = ({ workers, onSave, onClose, prefill, leadId }) => {
               onChange={s("altPhone")}
               half
             />
+            <div style={{ gridColumn: 'span 2', background: `${T.accent}08`, border: `1px dashed ${T.accent}30`, borderRadius: 16, padding: '16px 20px', marginBottom: 12 }}>
+              <div style={{ color: T.accent, fontWeight: 900, fontSize: 12, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 10, display: 'flex', alignItems: 'center', gap: 8 }}>
+                <Home size={16} /> Home Location Mapping Guide
+              </div>
+              <div style={{ color: T.dim, fontSize: 12, lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>
+                🏠 <b>Home Location (General Description)</b>
+                <br />• Estate/Area Name: &#123;&#123;home_area&#125;&#125;
+                <br />• Nearest Landmark: &#123;&#123;home_landmark&#125;&#125;
+                <br />• Nearby Road: &#123;&#123;home_road&#125;&#125;
+                <br /><br />👉 <b>Description:</b>
+                <br />(e.g., "Behind landmark, near shop or feature")
+              </div>
+            </div>
             <FI
               label="Residence"
               value={f.residence}
@@ -4368,6 +4381,25 @@ export const OnboardForm = ({ workers, onSave, onClose, prefill, leadId }) => {
                 half
               />
             )}
+            <div style={{ gridColumn: 'span 2', background: `${T.accent}08`, border: `1px dashed ${T.accent}30`, borderRadius: 16, padding: '16px 20px', marginBottom: 12, marginTop: 4 }}>
+              <div style={{ color: T.accent, fontWeight: 900, fontSize: 12, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 10, display: 'flex', alignItems: 'center', gap: 8 }}>
+                <MapPin size={16} /> Business Location Mapping Guide
+              </div>
+              <div style={{ color: T.dim, fontSize: 12, lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>
+                📍 <b>Business Location Details</b>
+                <br />• Business Name: &#123;&#123;business_name&#125;&#125;
+                <br />• Town/Area: &#123;&#123;business_area&#125;&#125;
+                <br />• Nearest Main Road: &#123;&#123;main_road&#125;&#125;
+                <br />• Landmark (e.g., school, petrol station): &#123;&#123;business_landmark&#125;&#125;
+                <br />• Building Name/Description: &#123;&#123;building_name&#125;&#125;
+                <br />• Floor/Room (if applicable): &#123;&#123;floor_room&#125;&#125;
+                <br /><br />👉 <b>Directions:</b>
+                <br />(e.g., "Opposite landmark, next to nearby place, position detail")
+              </div>
+              <div style={{ marginTop: 12, fontSize: 11, color: T.warn, fontStyle: 'italic', display: 'flex', alignItems: 'center', gap: 6 }}>
+                <AlertCircle size={14} /> ⚠️ Ensure directions are simple, clear, and easy to follow.
+              </div>
+            </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 6, gridColumn: 'span 1' }}>
               <FI
                 label="Business Location"
@@ -4602,6 +4634,9 @@ export const LoanForm = ({
   workerMode,
   workerName,
 }) => {
+  const vw = typeof window !== "undefined" ? window.innerWidth : 600;
+  const isMobileSize = vw < 600;
+
   const LOAN_DRAFT_KEY = "acl_loan_draft";
   const [draftPrompt, setDraftPrompt] = useState(() => {
     try {
@@ -4797,12 +4832,13 @@ export const LoanForm = ({
   };
 
   return (
-    <div>
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
+      <div style={{ flex: 1, overflowY: 'auto' }}>
       {draftPrompt && (
         <div
           style={{
             background: `${T.gold}10`,
-            border: `1px solid ${T.gold}25`,
+            border: `1px solid ${T.gold}`,
             borderRadius: 16,
             padding: "16px 18px",
             marginBottom: 20,
@@ -5029,62 +5065,16 @@ export const LoanForm = ({
             })}
           </div>
         )}
-      </div>
+        </div>
       {cust && (
-        <>
-          <Alert
-            type={
-              !selectedEligibility.eligible
-                ? "danger"
-                : isNewCust
-                  ? "warn"
-                  : "info"
-            }
-          >
-            <b>{cust.name}</b> · {cust.loans} loan(s) · Risk: {cust.risk}
-            {isNewCust && selectedEligibility.eligible && (
-              <span style={{ color: T.gold }}>
-                {" "}
-                · 🆕 New client — KES 500 registration fee required
-              </span>
-            )}
-            {!isNewCust && selectedEligibility.eligible && (
-              <span style={{ color: T.ok }}> · Repeat client — no fee</span>
-            )}
-            {!selectedEligibility.eligible && (
-              <div style={{ marginTop: 6 }}>
-                <b style={{ color: T.danger }}>⛔ Not eligible:</b>
-                <ul
-                  style={{
-                    margin: "4px 0 0 16px",
-                    padding: 0,
-                    color: T.danger,
-                    fontSize: 12,
-                  }}
-                >
-                  {selectedEligibility.reasons.map((r, i) => (
-                    <li key={i}>{r}</li>
-                  ))}
-                </ul>
-              </div>
-            )}
-          </Alert>
-          {selectedEligibility.eligible &&
-            (selectedEligibility.warnings || []).length > 0 && (
-              <Alert type="warn" style={{ marginTop: 6 }}>
-                ⚠ <b>Incomplete profile:</b>{" "}
-                {(selectedEligibility.warnings || []).join(" · ")}. Loan can be
-                submitted but disbursement should be withheld until documents
-                are uploaded.
-              </Alert>
-            )}
-        </>
-      )}
-      {isNewCust && !hasRegFee && selectedEligibility.eligible && (
-        <Alert type="warn">
-          ⚠ Registration fee not yet confirmed. Admin will need to verify before
-          disbursement.
-        </Alert>
+        <div style={{ marginBottom: 12 }}>
+          <div style={{ fontSize: 13, fontWeight: 700, color: T.accent }}>
+            {cust.name} · {cust.id}
+          </div>
+          <div style={{ fontSize: 11, color: T.muted }}>
+            {cust.loans} previous loan(s) · Risk: {cust.risk}
+          </div>
+        </div>
       )}
       <div
         style={{
@@ -5146,7 +5136,7 @@ export const LoanForm = ({
                 display: "flex",
                 justifyContent: "space-between",
                 padding: "5px 0",
-                borderBottom: `1px solid ${T.border}18`,
+                borderBottom: `1px solid ${T.border}`,
                 fontSize: 13,
               }}
             >
@@ -5167,7 +5157,7 @@ export const LoanForm = ({
               style={{
                 marginTop: 10,
                 paddingTop: 10,
-                borderTop: `1px solid ${T.border}30`,
+                borderTop: `1px solid ${T.border}`,
               }}
             >
               <div
@@ -5206,9 +5196,10 @@ export const LoanForm = ({
               ))}
             </div>
           )}
-        </div>
+      </div>
       )}
-      <div style={{ display: "flex", gap: 9 }}>
+      </div>
+      <div style={{ flexShrink: 0, paddingTop: 16, borderTop: `1px solid ${T.border}`, display: "flex", gap: 9 }}>
         <Btn onClick={handleSave} full disabled={!selectedEligibility.eligible}>
           {workerMode ? "Submit for Admin Approval →" : "Submit Application"}
         </Btn>
@@ -5466,8 +5457,19 @@ const ReminderCard = ({ r, onClick, onDone, onRemove }) => {
           )}
         </div>
         
-        <div style={{ flexShrink: 0 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10, alignItems: "flex-end", flexShrink: 0 }}>
           <Badge sm color={accent}>{r.priority}</Badge>
+          <button 
+            onClick={(e) => { e.stopPropagation(); onRemove(r.id); }}
+            style={{ 
+              background: 'none', border: 'none', color: T.danger, opacity: 0.3, 
+              cursor: 'pointer', padding: 4, transition: 'all 0.2s'
+            }}
+            onMouseEnter={e => e.currentTarget.style.opacity = '1'}
+            onMouseLeave={e => e.currentTarget.style.opacity = '0.3'}
+          >
+            <Trash2 size={16} />
+          </button>
         </div>
       </div>
 
@@ -5787,6 +5789,23 @@ export const RemindersPanel = ({
 
           {/* Alert cards */}
           <div style={{ maxHeight: '55vh', overflowY: 'auto', overflowX: 'hidden' }}>
+            {visibleAlerts.length > 0 && (
+              <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 10 }}>
+                <button 
+                  onClick={() => { 
+                    const allIds = systemAlerts.map(a => a.id);
+                    setDismissed(prev => {
+                      const next = [...new Set([...prev, ...allIds])];
+                      localStorage.setItem('lms_dismissed_alerts', JSON.stringify(next.slice(-500)));
+                      return next;
+                    });
+                  }}
+                  style={{ background: 'none', border: 'none', color: T.accent, fontSize: 11, fontWeight: 800, cursor: 'pointer', padding: '4px 8px', display: 'flex', alignItems: 'center', gap: 4 }}
+                >
+                  <CheckCircle size={14} /> Mark all as read
+                </button>
+              </div>
+            )}
             {visibleAlerts.length === 0 && unallocatedCount === 0 && (
               <div style={{ color: T.muted, textAlign: 'center', padding: '40px 0', fontSize: 13 }}>
                 <div style={{ fontSize: 32, marginBottom: 10, opacity: 0.4 }}>🔔</div>
@@ -5799,44 +5818,38 @@ export const RemindersPanel = ({
                 onClick={() => { if (alert.action && onAction) { onAction(alert.action, alert.actionParams || undefined); onClose(); } }}
                 style={{
                   background: T.card2, border: `1px solid ${T.border}`,
-                  borderLeft: `3px solid ${alert.color}`,
-                  borderRadius: 12, padding: '14px 16px', marginBottom: 8,
+                  borderRadius: 16, padding: '12px 14px', marginBottom: 8,
                   cursor: alert.action ? 'pointer' : 'default',
                   transition: 'all 0.2s', position: 'relative',
+                  display: 'flex', alignItems: 'center', gap: 12
                 }}
-                onMouseEnter={e => { e.currentTarget.style.background = `${alert.color}08`; e.currentTarget.style.borderColor = `${alert.color}40`; }}
+                onMouseEnter={e => { e.currentTarget.style.background = `${alert.color}08`; e.currentTarget.style.borderColor = `${alert.color}30`; }}
                 onMouseLeave={e => { e.currentTarget.style.background = T.card2; e.currentTarget.style.borderColor = T.border; }}
               >
-                <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12 }}>
-                  <div style={{
-                    width: 36, height: 36, borderRadius: 10,
-                    background: `${alert.color}18`,
-                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    fontSize: 18, flexShrink: 0
-                  }}>
-                    {alert.icon}
-                  </div>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
-                      <div style={{ color: T.txt, fontWeight: 800, fontSize: 13 }}>{alert.title}</div>
-                      <button
-                        onClick={(e) => { e.stopPropagation(); dismissAlert(alert.id); }}
-                        style={{
-                          background: 'none', border: 'none', color: T.dim, cursor: 'pointer',
-                          fontSize: 11, fontWeight: 600, padding: '2px 6px', borderRadius: 6,
-                          flexShrink: 0, opacity: 0.5, transition: 'opacity 0.2s'
-                        }}
-                        onMouseEnter={e => e.currentTarget.style.opacity = '1'}
-                        onMouseLeave={e => e.currentTarget.style.opacity = '0.5'}
-                        title="Dismiss"
-                      >✕</button>
-                    </div>
-                    <div style={{ color: T.dim, fontSize: 12, marginTop: 3, lineHeight: 1.4 }}>{alert.detail}</div>
-                    <div style={{ color: T.muted, fontSize: 10, marginTop: 4, fontFamily: T.mono }}>
-                      {alert.date ? new Date(alert.date).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : ''}
-                    </div>
-                  </div>
+                <div style={{
+                  width: 32, height: 32, borderRadius: 10,
+                  background: `${alert.color}15`,
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  fontSize: 16, flexShrink: 0, color: alert.color
+                }}>
+                  {alert.icon}
                 </div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ color: T.txt, fontWeight: 850, fontSize: 13, letterSpacing: '-0.02em' }}>{alert.title}</div>
+                  <div style={{ color: T.dim, fontSize: 11, marginTop: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{alert.detail}</div>
+                </div>
+                <button
+                  onClick={(e) => { e.stopPropagation(); dismissAlert(alert.id); }}
+                  style={{
+                    background: 'none', border: 'none', color: T.dim, cursor: 'pointer',
+                    fontSize: 14, padding: '4px', borderRadius: 8,
+                    flexShrink: 0, opacity: 0.3, transition: 'all 0.2s'
+                  }}
+                  onMouseEnter={e => e.currentTarget.style.opacity = '1'}
+                  onMouseLeave={e => e.currentTarget.style.opacity = '0.3'}
+                >
+                  <Trash2 size={16} />
+                </button>
               </div>
             ))}
           </div>
@@ -7377,7 +7390,6 @@ export var computeLoanSchedule = function (loan, allPayments) {
     s.negBalance = 0; // Clear the old semantic
     s.carriedForward = 0;
     s.isCombined = false;
-    
     // Calculate what is ACTUALLY remaining to pay for this specific slot
     s.totalDue = Math.max(0, s.perSlot - s.paidAmount);
 

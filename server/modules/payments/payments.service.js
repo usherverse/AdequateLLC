@@ -156,13 +156,13 @@ export const allocatePaymentEngine = async (mpesaCallbackData) => {
   }
 
   let matchedCustomer = null;
-
   let targetLoanId = null;
+  let matchConfidence = null; // 'billref' | 'phone' | 'name_exact' | 'name_suggestion'
+  let suggestedCustomer = null; // Set when name partially matches — requires admin confirmation
 
-  // 1. Try matching by BillRefNumber (customer ID or loan ID in payment reference)
+  // 1. BillRefNumber match — highest confidence (exact DB lookup)
   if (BillRefNumber) {
     const ref = BillRefNumber.trim();
-    // Check if it's a loan ID
     const { data: loanMatch } = await supabase
       .from('loans')
       .select('id, customer_id')
@@ -172,17 +172,16 @@ export const allocatePaymentEngine = async (mpesaCallbackData) => {
     if (loanMatch) {
       targetLoanId = loanMatch.id;
       const { data: cus } = await supabase.from('customers').select('id, name').eq('id', loanMatch.customer_id).single();
-      if (cus) { matchedCustomer = cus; console.log(`[C2B Allocation] Matched by loan BillRefNumber: ${ref}`); }
+      if (cus) { matchedCustomer = cus; matchConfidence = 'billref'; console.log(`[C2B Allocation] ✅ HIGH-CONFIDENCE match by loan BillRefNumber: ${ref}`); }
     }
     
-    // Check if it's a customer ID
     if (!matchedCustomer) {
       const { data: cusMatch } = await supabase.from('customers').select('id, name').eq('id', ref).maybeSingle();
-      if (cusMatch) { matchedCustomer = cusMatch; console.log(`[C2B Allocation] Matched by customer BillRefNumber: ${ref}`); }
+      if (cusMatch) { matchedCustomer = cusMatch; matchConfidence = 'billref'; console.log(`[C2B Allocation] ✅ HIGH-CONFIDENCE match by customer BillRefNumber: ${ref}`); }
     }
   }
 
-  // 2. Try exact phone match
+  // 2. Phone match — high confidence (phone registered in our system)
   if (!matchedCustomer) {
     const phoneSuffix = MSISDN.toString().slice(-9);
     const { data: phoneMatch } = await supabase
@@ -191,10 +190,12 @@ export const allocatePaymentEngine = async (mpesaCallbackData) => {
       .like('phone', `%${phoneSuffix}`)
       .limit(1)
       .maybeSingle();
-    if (phoneMatch) { matchedCustomer = phoneMatch; console.log(`[C2B Allocation] Matched by phone suffix: ${phoneSuffix}`); }
+    if (phoneMatch) { matchedCustomer = phoneMatch; matchConfidence = 'phone'; console.log(`[C2B Allocation] ✅ HIGH-CONFIDENCE match by phone suffix: ${phoneSuffix}`); }
   }
 
-  // 3. Try name matching
+  // 3. Name matching — two tiers:
+  //    score 100 (exact full name)  → auto-allocate
+  //    score 80  (first + last hit) → suggestion only, requires admin confirmation
   if (!matchedCustomer && rawSenderName) {
     const { data: allCustomers } = await supabase.from('customers').select('id, name');
     if (allCustomers) {
@@ -208,7 +209,18 @@ export const allocatePaymentEngine = async (mpesaCallbackData) => {
         else if (firstName && cusName.includes(firstName)) score = 50;
         if (score > highestScore) { highestScore = score; bestMatch = cus; }
       }
-      if (highestScore >= 80) { matchedCustomer = bestMatch; console.log(`[C2B Allocation] Matched by name (score ${highestScore}): ${bestMatch.name}`); }
+
+      if (highestScore === 100) {
+        // Full exact match — safe to auto-allocate
+        matchedCustomer = bestMatch;
+        matchConfidence = 'name_exact';
+        console.log(`[C2B Allocation] ✅ EXACT name match: "${bestMatch.name}"`);
+      } else if (highestScore >= 80) {
+        // Partial match — store as suggestion, DO NOT auto-allocate
+        suggestedCustomer = bestMatch;
+        matchConfidence = 'name_suggestion';
+        console.warn(`[C2B Allocation] ⚠️  PARTIAL name match (score ${highestScore}): "${bestMatch.name}" — stored as suggestion, NOT auto-allocated.`);
+      }
     }
   }
 
@@ -234,34 +246,40 @@ export const allocatePaymentEngine = async (mpesaCallbackData) => {
       activeLoan = data;
     }
 
-    // --- Record in payments table ---
-    const { error: payErr } = await supabase.from('payments').insert([{
-      customer_id: matchedCustomer.id,
-      loan_id: activeLoan?.id || null, // LINK TO LOAN
-      customer_name: matchedCustomer.name,
-      amount,
-      mpesa: TransID,
-      date: new Date().toISOString().split('T')[0],
-      status: activeLoan ? 'Allocated' : 'Unallocated',
-      allocated_by: activeLoan ? 'System Engine' : null,
-      allocated_at: activeLoan ? new Date().toISOString() : null,
-      note: (activeLoan ? `Auto-allocated to loan ${activeLoan.id} ` : 'Matched to customer but no active loan found ') + `from ${displayName} (${MSISDN})`
-    }]);
-    if (payErr) console.error('[C2B Allocation] Payment insert error:', payErr.message);
+    // --- Atomically record payment + update loan balance via RPC ---
+    // A single PostgreSQL transaction: if either step fails, both roll back.
+    const { data: rpcResult, error: rpcErr } = await supabase.rpc('apply_c2b_payment', {
+      p_customer_id:   matchedCustomer.id,
+      p_customer_name: matchedCustomer.name,
+      p_loan_id:       activeLoan?.id || null,
+      p_amount:        amount,
+      p_mpesa_txid:    TransID,
+      p_date:          new Date().toISOString().split('T')[0],
+      p_note:          (activeLoan
+        ? `Auto-allocated to loan ${activeLoan.id} `
+        : 'Matched to customer but no active loan found ') + `from ${displayName} (${MSISDN})`
+    });
 
-    if (activeLoan) {
-      const newBal = Math.max(0, parseFloat(activeLoan.balance) - amount);
-      const newStatus = newBal <= 0 ? 'Settled' : activeLoan.status;
-      const { error: loanUpdateErr } = await supabase
-        .from('loans')
-        .update({ balance: newBal, status: newStatus })
-        .eq('id', activeLoan.id);
-      if (loanUpdateErr) console.error('[C2B Allocation] Loan update error:', loanUpdateErr.message);
-      if (loanUpdateErr) console.error('[C2B Allocation] Loan update error:', loanUpdateErr.message);
-      else console.log(`[C2B Allocation] Loan ${activeLoan.id} balance updated: KES ${activeLoan.balance} → KES ${newBal} (${newStatus})`);
-    } else {
-      console.log(`[C2B Allocation] No active loan found for customer ${matchedCustomer.id}. Payment recorded as generic customer payment.`);
+    if (rpcErr) {
+      console.error('[C2B Allocation] RPC error:', rpcErr.message);
+      return { allocated: false, error: rpcErr.message };
     }
+
+    if (!rpcResult?.success) {
+      console.warn('[C2B Allocation] RPC returned failure:', rpcResult?.reason);
+      if (rpcResult?.reason === 'duplicate_txid') {
+        console.log(`[C2B Allocation] Duplicate TxID ${TransID} caught by RPC idempotency guard.`);
+      }
+      return { allocated: false, reason: rpcResult?.reason };
+    }
+
+    const newBal    = rpcResult.new_balance;
+    const newStatus = rpcResult.new_status;
+    console.log(
+      activeLoan
+        ? `[C2B Allocation] ✅ Loan ${activeLoan.id} balance: KES ${activeLoan.balance} → KES ${newBal} (${newStatus}) [ATOMIC]`
+        : `[C2B Allocation] ✅ Payment recorded for customer ${matchedCustomer.id} — no active loan. [ATOMIC]`
+    );
 
     // --- Cleanup deduplication ---
     // If this payment was previously in the unallocated_payments table, remove it now that it's matched
@@ -273,39 +291,43 @@ export const allocatePaymentEngine = async (mpesaCallbackData) => {
       user_name: 'System',
       action: 'C2B Payment Allocated',
       target_id: matchedCustomer.id,
-      detail: `M-Pesa C2B payment ${TransID} of KES ${amount} from ${displayName} (${MSISDN}) allocated to ${matchedCustomer.name}.${activeLoan ? ` Applied to loan ${activeLoan.id}. New balance: KES ${Math.max(0, parseFloat(activeLoan.balance) - amount)}` : ''}`
+      detail: `[${matchConfidence?.toUpperCase()}] M-Pesa C2B ${TransID} of KES ${amount} from ${displayName} (${MSISDN}) allocated to ${matchedCustomer.name}.${rpcResult?.loan_id ? ` Applied to loan ${rpcResult.loan_id}. New balance: KES ${rpcResult.new_balance}` : ''}`
     }]);
     if (auditErr) console.error('[C2B Allocation] Audit log error:', auditErr.message);
     else console.log(`[C2B Allocation] ✅ Audit log recorded for customer ${matchedCustomer.id}`);
 
-    return { allocated: true, customerId: matchedCustomer.id, loanId: activeLoan?.id };
+    return { allocated: true, confidence: matchConfidence, customerId: matchedCustomer.id, loanId: rpcResult?.loan_id };
   } else {
-    // --- 0. Secondary Idempotency for Unallocated ---
+    // --- Secondary Idempotency for Unallocated ---
     const { data: existingUnalloc } = await supabase.from('unallocated_payments').select('id').eq('transaction_id', TransID).maybeSingle();
     if (existingUnalloc) {
       console.log(`[C2B Allocation] Skipping TxID ${TransID}: already in unallocated_payments table.`);
       return;
     }
 
-    // --- Unallocated ---
-    console.warn(`[C2B Allocation] No customer match found for ${displayName} (${MSISDN}). Saving as Unallocated.`);
+    // Store as unallocated — include suggestion if name partially matched
+    console.warn(`[C2B Allocation] No confirmed match for ${displayName} (${MSISDN}). Saving as Unallocated${suggestedCustomer ? ` (suggested: ${suggestedCustomer.name})` : ''}.`);
     const { error: unallocErr } = await supabase.from('unallocated_payments').insert([{
-      transaction_id: TransID,
+      transaction_id:         TransID,
       amount,
-      msisdn: MSISDN,
-      first_name: FirstName,
-      last_name: LastName,
-      status: 'Unallocated'
+      msisdn:                 MSISDN,
+      first_name:             FirstName,
+      last_name:              LastName,
+      status:                 'Unallocated',
+      suggested_customer_id:  suggestedCustomer?.id   || null,
+      suggested_customer_name: suggestedCustomer?.name || null,
     }]);
     if (unallocErr) console.error('[C2B Allocation] Unallocated insert error:', unallocErr.message);
 
     await supabase.from('audit_log').insert([{
       user_name: 'System',
-      action: 'C2B Payment Unallocated',
-      target_id: null,
-      detail: `Unmatched M-Pesa payment ${TransID} of KES ${amount} from ${displayName} (${MSISDN}). Stored for manual review.`
+      action: suggestedCustomer ? 'C2B Payment — Suggested Match' : 'C2B Payment Unallocated',
+      target_id: suggestedCustomer?.id || null,
+      detail: suggestedCustomer
+        ? `Partial name match for TxID ${TransID} of KES ${amount} from ${displayName} (${MSISDN}). Suggested customer: ${suggestedCustomer.name}. Requires admin confirmation.`
+        : `Unmatched M-Pesa payment ${TransID} of KES ${amount} from ${displayName} (${MSISDN}). Stored for manual review.`
     }]);
 
-    return { allocated: false };
+    return { allocated: false, confidence: matchConfidence, suggestedCustomerId: suggestedCustomer?.id };
   }
 };
