@@ -48,11 +48,11 @@ const CollectionsTab = ({loans,customers,payments,setPayments,interactions,setIn
         return acc;
       }, {});
       return loans.filter(l => {
-        const p = paidMap[l.id] || 0;
+        const p = l.disbursed ? (paidMap[l.id] || 0) : 0;
         const e = calculateLoanStatus(l, null, p);
         return e.overdueDays > 0 && !e.isSettled && !e.isWrittenOff;
       }).map(l => {
-        const p = paidMap[l.id] || 0;
+        const p = l.disbursed ? (paidMap[l.id] || 0) : 0;
         const e = calculateLoanStatus(l, null, p);
         return { ...l, balance: e.totalAmountDue, daysOverdue: e.overdueDays, totalDays: e.totalDays };
       });
@@ -84,6 +84,12 @@ const CollectionsTab = ({loans,customers,payments,setPayments,interactions,setIn
     return ov.reduce((s, l) => s + l.balance, 0);
   }, [ov]);
 
+  const regPayments = useMemo(() => {
+    return payments.filter(p => p.isRegFee === true || (p.amount >= 1 && typeof p.note === 'string' && (p.note.toLowerCase().includes('registration') || p.note.toLowerCase().includes('reg fee'))));
+  }, [payments]);
+
+  const regFeeCollected = useMemo(() => regPayments.reduce((sum, p) => sum + p.amount, 0), [regPayments]);
+
   const [showInt,setShowInt]=useState(null);
   const [iF,setIF]=useState({type:'Phone Call',notes:'',pAmt:'',pDate:'',officer:currentUser});
   const [pipeStage,setPipeStage]=useState(null);
@@ -109,7 +115,7 @@ const CollectionsTab = ({loans,customers,payments,setPayments,interactions,setIn
     const cust=customers.find(c=>c.name===selLoan.customer);
     
     if (action === 'Generate Letter') {
-      const paid = payments.filter(p => p.loanId === selLoan.id).reduce((a, p) => a + p.amount, 0);
+      const paid = selLoan.disbursed ? payments.filter(p => p.loanId === selLoan.id).reduce((a, p) => a + p.amount, 0) : 0;
       const e = calculateLoanStatus(selLoan, null, paid);
       
       const html = generateCollectionLetterHTML(stage.id, selLoan, cust, iF.officer || currentUser, e.totalAmountDue);
@@ -195,13 +201,13 @@ const CollectionsTab = ({loans,customers,payments,setPayments,interactions,setIn
                       {k:'id',l:'Loan ID',r:v=><span style={{color:T.accent,fontFamily:T.mono,fontWeight:700,fontSize:12}}>{v}</span>},
                       {k:'customer',l:'Customer',r:(v,r)=>{const c=customers.find(x=>x.name===v);return <span onClick={e=>{e.stopPropagation(); if(c) onOpenCustomerProfile?.(c.id); else openContact(v,c?.phone,e);}} style={{color:T.accent,cursor:'pointer',fontWeight:600,borderBottom:`1px dashed ${T.accent}50`}}>{v}</span>;}},
                       {k:'balance',l:'Remaining',r:(v,r)=>{
-                        const paid = payments.filter(p => p.loanId === r.id).reduce((a, p) => a + p.amount, 0);
+                        const paid = r.disbursed ? payments.filter(p => p.loanId === r.id).reduce((a, p) => a + p.amount, 0) : 0;
                         const e = calculateLoanStatus(r, null, paid);
                         return fmt(e.totalAmountDue);
                       }},
                       {k:'totalDays',l:'Days',r:v=><span style={{color:v>120?T.danger:T.warn,fontWeight:800,fontFamily:T.mono}}>{v}d</span>},
                       {k:'daysOverdue',l:'Total Due',r:(_,r)=>{
-                        const paid = payments.filter(p => p.loanId === r.id).reduce((a, p) => a + p.amount, 0);
+                        const paid = r.disbursed ? payments.filter(p => p.loanId === r.id).reduce((a, p) => a + p.amount, 0) : 0;
                         const e=calculateLoanStatus(r, null, paid);
                         return <span style={{color:T.accent,fontFamily:T.mono}}>{fmt(e.totalPayable)}</span>;
                       }},
@@ -211,7 +217,8 @@ const CollectionsTab = ({loans,customers,payments,setPayments,interactions,setIn
                     rows={kpiDrill.rows}
                     onRow={r=>setShowInt(r)}
                   />
-                :<DT
+                :kpiDrill.type==='interactions'
+                ?<DT
                     cols={[
                       {k:'date',l:'Date'},
                       {k:'loanId',l:'Loan'},
@@ -223,6 +230,16 @@ const CollectionsTab = ({loans,customers,payments,setPayments,interactions,setIn
                     ]}
                     rows={kpiDrill.rows}
                   />
+                :<DT
+                    cols={[
+                      {k:'date',l:'Date'},
+                      {k:'customer',l:'Customer',r:v=><span style={{color:T.accent,fontWeight:600}}>{v}</span>},
+                      {k:'amount',l:'Amount',r:v=><span style={{color:T.gold,fontFamily:T.mono,fontWeight:700}}>{fmt(v)}</span>},
+                      {k:'mpesa',l:'M-Pesa Ref',r:v=><Badge color={T.muted}>{v}</Badge>},
+                      {k:'officer',l:'Logged By'}
+                    ]}
+                    rows={kpiDrill.rows}
+                  />
               }
             </div>
           </div>
@@ -230,6 +247,12 @@ const CollectionsTab = ({loans,customers,payments,setPayments,interactions,setIn
       )}
       <div style={{marginBottom:6}}/>
       <div className='kpi-row' style={{display:'flex',gap:10,marginBottom:16,flexWrap:'wrap'}}>
+        <KPI label='Registration Fees' icon={User}
+          value={fmtM(regFeeCollected)} color={T.gold} delay={0}
+          onClick={()=>{
+            setKpiDrill({title:'Collected Registration Fees',color:T.gold,rows:regPayments,type:'payments'});
+            try{SFX.notify();}catch(e){}
+          }}/>
         <KPI label='Newly Overdue' icon={AlertOctagon}
           value={ov.filter(l=>l.daysOverdue >= 1 && l.daysOverdue < 2).length} color={T.danger} delay={1}
           onClick={()=>{
@@ -264,7 +287,7 @@ const CollectionsTab = ({loans,customers,payments,setPayments,interactions,setIn
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 12 }}>
             {PIPELINE_STAGES.map(stage => {
               const count = stage.id === 'Reminder' ? ov.length : stage.id === 'Written Off' ? loans.filter(l => {
-                const paid = payments.filter(p => p.loanId === l.id && p.status === "Allocated").reduce((s, p) => s + p.amount, 0);
+                const paid = l.disbursed ? payments.filter(p => p.loanId === l.id && p.status === "Allocated").reduce((s, p) => s + p.amount, 0) : 0;
                 return calculateLoanStatus(l, null, paid).isWrittenOff;
               }).length : 0;
               const isActive = pipeStage?.id === stage.id;
@@ -334,15 +357,15 @@ const CollectionsTab = ({loans,customers,payments,setPayments,interactions,setIn
       <Card style={{marginBottom:13}}>
         <CH title='Overdue Accounts'/>
         <DT cols={[{k:'id',l:'Loan ID',r:(v,row)=><span onClick={e=>{e.stopPropagation();setModalLoan(row);}} style={{color:T.accent,fontFamily:T.mono,fontWeight:700,fontSize:12,cursor:'pointer',borderBottom:`1px dashed ${T.accent}50`}}>{v}</span>},{k:'customer',l:'Customer',r:(v,r)=>{const c=customers.find(x=>x.name===v);return <span onClick={e=>{e.stopPropagation();if(c)onOpenCustomerProfile?.(c.id);else openContact(v,r.phone,e);}} style={{color:T.accent,cursor:'pointer',fontWeight:600,borderBottom:`1px dashed ${T.accent}50`}}>{v}</span>;}},{k:'balance',l:'Remaining',r:(v,r)=>{
-            const paid = payments.filter(p => p.loanId === r.id).reduce((a, p) => a + p.amount, 0);
+            const paid = r.disbursed ? payments.filter(p => p.loanId === r.id).reduce((a, p) => a + p.amount, 0) : 0;
             const e = calculateLoanStatus(r, null, paid);
             return <span style={{color:e.totalAmountDue > 0 ? (e.isFrozen?T.muted:T.danger) : T.ok,fontFamily:T.mono,fontWeight:700}}>{fmt(e.totalAmountDue)}</span>;
           }},{k:'totalDays',l:'Days',r:v=><span style={{color:v>120?T.danger:T.txt,fontWeight:800,fontFamily:T.mono}}>{v}d</span>},{k:'daysOverdue',l:'Total Due',r:(_,r)=>{
-            const paid = payments.filter(p => p.loanId === r.id).reduce((a, p) => a + p.amount, 0);
+            const paid = r.disbursed ? payments.filter(p => p.loanId === r.id).reduce((a, p) => a + p.amount, 0) : 0;
             const e=calculateLoanStatus(r, null, paid);
             return <span style={{color:T.accent,fontFamily:T.mono}}>{fmt(e.totalPayable)}</span>;
           }},{k:'status',l:'Phase',r:(_,r)=>{
-            const paid = payments.filter(p => p.loanId === r.id).reduce((a, p) => a + p.amount, 0);
+            const paid = r.disbursed ? payments.filter(p => p.loanId === r.id).reduce((a, p) => a + p.amount, 0) : 0;
             const e=calculateLoanStatus(r, null, paid);
             return <span style={{fontSize:11,fontWeight:700,color:e.isFrozen?T.muted:e.phase==='penalty'?T.danger:T.warn}}>{e.isFrozen?'❄ Frozen':e.phase==='penalty'?'Penalty':'Interest'}</span>;
           }},{k:'risk',l:'Risk',r:v=><Badge color={RC[v]}>{v}</Badge>},{k:'officer',l:'Officer'}]}

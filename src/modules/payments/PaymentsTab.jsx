@@ -1,9 +1,9 @@
 import CustomerProfile from "@/modules/customers/CustomerProfile";
-import React, { useState, useMemo } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { CreditCard, Check, TrendingUp, Wallet, AlertCircle, Clock, ArrowUpRight, Search as SearchIcon, Download, RefreshCw, FileText } from 'lucide-react';
 import { T, SC, Card, CH, DT, KPI, Btn, Badge, Search, Pills, FI, Alert, Dialog, RefreshBtn,
   LoanModal, fmt, sbWrite, sbInsert, toSupabasePayment, useContactPopup,
-  ModuleHeader, now } from '@/lms-common';
+  ModuleHeader, now, calculateLoanStatus } from '@/lms-common';
 import { useModuleFilter } from '@/hooks/useModuleFilter';
 
 const PaymentsTab = ({payments,setPayments,loans,setLoans,customers,setCustomers,interactions,setInteractions,workers,addAudit,showToast=()=>{},onRefresh,onOpenCustomerProfile}) => {
@@ -13,7 +13,7 @@ const PaymentsTab = ({payments,setPayments,loans,setLoans,customers,setCustomers
   const [af,setAf]=useState({loanId:'',note:''});
   const [showUnalloc, setShowUnalloc] = useState(false);
 
-  const STATUS_OPTS = ['All', 'Allocated', 'Unallocated', 'Reversal'];
+  const STATUS_OPTS = ['Allocated', 'Unallocated'];
 
   const {
     q: payQ, setQ: setPayQ, tab: flt, setTab: setFlt,
@@ -21,7 +21,7 @@ const PaymentsTab = ({payments,setPayments,loans,setLoans,customers,setCustomers
     filtered, handleExport
   } = useModuleFilter({
     data: payments,
-    initialTab: 'All',
+    initialTab: 'Allocated',
     dateKey: 'date',
     searchFields: ['id', 'customer', 'mpesa', 'loanId', 'status', 'allocatedBy'],
     reportId: 'payments',
@@ -53,10 +53,11 @@ const PaymentsTab = ({payments,setPayments,loans,setLoans,customers,setCustomers
     if(!loan){showToast('⚠ Loan not found. Please select a valid loan.','warn');return;}
     const allocTs=new Date().toLocaleString('en-KE',{day:'2-digit',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit'});
     const allocBy=(af.allocatedBy||'').trim()||'Admin';
+    const amt = Number(showA.amount || 0);
     const allocUpd={...showA,status:'Allocated',loanId:af.loanId,customerId:loan.customerId,customer:loan.customer,allocatedBy:allocBy,allocatedAt:allocTs,note:af.note};
     setPayments(ps=>ps.map(p=>p.id===showA.id?allocUpd:p));
     sbWrite('payments',toSupabasePayment(allocUpd));
-    const totalPaid = payments.filter(p => p.loanId === af.loanId).reduce((s, p) => s + p.amount, 0) + amt;
+    const totalPaid = payments.filter(p => p.loanId === af.loanId).reduce((s, p) => s + (Number(p.amount) || 0), 0) + amt;
     const e = calculateLoanStatus(loan, null, totalPaid);
     
     setLoans(ls => ls.map(l => {
@@ -111,7 +112,7 @@ const PaymentsTab = ({payments,setPayments,loans,setLoans,customers,setCustomers
       </div>
 
       <div style={{marginBottom:4}}/>
-      {unalloc.length > 0 && (flt === 'All' || flt === 'Unallocated') && (
+      {unalloc.length > 0 && (
         <Card style={{marginBottom:13, border: `1px solid ${showUnalloc ? T.danger : T.border}38`, transition: 'all .2s'}}>
           <div 
             onClick={() => setShowUnalloc(!showUnalloc)}

@@ -87,9 +87,10 @@ export const useModuleFilter = ({
 
   const handleExport = useCallback((format, title, cols) => {
     const rData = {
+      name: reportId || 'report',
       title,
-      cols,
-      rows: filtered
+      hdr: cols.map(c => c.l),
+      rows: filtered.map(item => cols.map(c => item[c.k]))
     };
 
     if (format === 'CSV') dlReportCSV(rData);

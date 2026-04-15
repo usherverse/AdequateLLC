@@ -1,6 +1,6 @@
 import CustomerProfile from "@/modules/customers/CustomerProfile";
 import React, { useState, useMemo, useEffect, useRef, useCallback, memo } from 'react';
-import { Target, Check, Phone, Briefcase, MapPin, FastForward, UserCheck, AlertCircle, Sparkles, MessageSquare, Plus, Filter, LayoutGrid } from 'lucide-react';
+import { Target, Check, Phone, Briefcase, MapPin, FastForward, UserCheck, AlertCircle, Sparkles, MessageSquare, Plus, Filter, LayoutGrid, ChevronLeft, ChevronRight } from 'lucide-react';
 import { T, SC, RC, SFX, Card, CH, KPI, DT, Btn, Badge, Av, Bar, BackBtn, RefreshBtn,
   FI, PhoneInput, NumericInput, Search, Pills, Alert, Dialog, ConfirmDialog, ToastContainer,
   LoanModal, LoanForm, RepayTracker, ValidationPopup, OnboardForm,
@@ -19,7 +19,46 @@ import { useModuleFilter } from '@/hooks/useModuleFilter';
 const LeadsTab = ({leads,setLeads,workers,customers,setCustomers,loans,addAudit,isWorker,currentWorker,showToast=()=>{},onNav}) => {
   const [showNew,setShowNew]=useState(false);
   const [conv,setConv]=useState(null);
-  const [f,setF]=useState({name:'',phone:'',business:'',location:'',source:'Referral',officer:currentWorker?.name||''});
+  const LEAD_DRAFT_KEY = "acl_lead_draft";
+  const [draftPrompt, setDraftPrompt] = useState(() => {
+    try {
+      const d = JSON.parse(localStorage.getItem(LEAD_DRAFT_KEY) || "null");
+      return d && d.name ? d : null;
+    } catch (e) {
+      return null;
+    }
+  });
+  
+  const initialF = {name:'',phone:'',business:'',location:'',source:'Referral',officer:currentWorker?.name||''};
+  const [f,setF]=useState(initialF);
+  
+  useEffect(() => {
+    try {
+      if (f.name || f.phone || f.business || f.location) {
+        localStorage.setItem(LEAD_DRAFT_KEY, JSON.stringify(f));
+      }
+    } catch (e) {}
+  }, [f]);
+  
+  const clearDraft = () => {
+    try {
+      localStorage.removeItem(LEAD_DRAFT_KEY);
+    } catch (e) {}
+  };
+
+  const continueDraft = () => {
+    if (draftPrompt) {
+      setF({...draftPrompt, officer: f.officer || draftPrompt.officer});
+      setShowNew(true);
+    }
+    setDraftPrompt(null);
+  };
+  
+  const startFresh = () => {
+    setF(initialF);
+    setDraftPrompt(null);
+    clearDraft();
+  };
   const [showVal,setShowVal]=useState(false);
   const stages=['New','Contacted','Interested','New Customer','Not Interested'];
   const [collapsed, setCollapsed] = useState(['New','Contacted','Interested','New Customer','Not Interested']); 
@@ -108,20 +147,53 @@ const LeadsTab = ({leads,setLeads,workers,customers,setCustomers,loans,addAudit,
     if(!f.name) missing.push('Lead Name');
     if(!f.phone) missing.push('Phone Number');
     if(missing.length){setShowVal(missing);try{SFX.error();}catch(e){};return;}
+    
+    // Robust phone validation (match last 9 digits)
+    const p = f.phone.replace(/\D/g, '').slice(-9);
+    if (p) {
+      const existingCust = customers.find(c => (c.phone || '').replace(/\D/g, '').slice(-9) === p);
+      if (existingCust) {
+        showToast(`❌ Conflict: "${existingCust.name}" is already a registered customer.`, 'danger', 6000);
+        try { SFX.error(); } catch(e) {}
+        return;
+      }
+      const existingLead = leads.find(l => (l.phone || '').replace(/\D/g, '').slice(-9) === p);
+      if (existingLead) {
+        showToast(`⚠ A lead already exists with this phone number (${existingLead.name}).`, 'warn');
+        return;
+      }
+    }
     const lead={id:uid('LD'),...f,status:'New',date:now(),notes:''};
     setLeads(ls=>[lead,...ls]);
     sbInsert('leads',toSupabaseLead(lead));
     addAudit('Lead Added',lead.id,f.name);
     showToast(`✅ Lead "${f.name}" added`,'ok');SFX.save();
     setShowNew(false);
-    setF({name:'',phone:'',business:'',location:'',source:'Referral',officer:currentWorker?.name||''});
+    clearDraft();
+    setDraftPrompt(null);
+    setF(initialF);
   };
   const VALID_TRANSITIONS={New:['Contacted','Not Interested'],Contacted:['Interested','Not Interested'],Interested:['New Customer','Not Interested']};
   const mv=(lead,status)=>{
     const allowed=VALID_TRANSITIONS[lead.status]||[];
     if(!allowed.includes(status)){showToast('⚠ Invalid lead stage transition','warn');return;}
-    const leadUpd={...lead,status};
-    setLeads(ls=>ls.map(l=>l.id===lead.id?leadUpd:l));
+    const leadUpd={...lead,status, _movedAt: Date.now()};
+    setLeads(ls => {
+      const rest = ls.filter(x => x.id !== lead.id);
+      return [leadUpd, ...rest];
+    });
+    
+    // Automatically expand target shelf to show the animation
+    setCollapsed(prev => prev.filter(s => s !== status));
+    
+    // Scroll the target shelf to 0 smoothly
+    setTimeout(() => {
+      const el = document.getElementById(`shelf-${status}`);
+      if (el) {
+        el.scrollTo({ left: 0, behavior: 'smooth' });
+      }
+    }, 100);
+
     sbWrite('leads',toSupabaseLead(leadUpd));
     addAudit('Lead Stage Changed',lead.id,`${lead.status} → ${status}`);
     showToast(`Lead moved to ${status}`,'info');
@@ -150,13 +222,22 @@ const LeadsTab = ({leads,setLeads,workers,customers,setCustomers,loans,addAudit,
       }
     }
 
-    const convUpd={...conv,status:'New Customer'};
-    setLeads(ls=>ls.map(l=>l.id===conv.id?convUpd:l));
+    const convUpd={...conv,status:'New Customer', _movedAt: Date.now()};
+    setLeads(ls => {
+      const rest = ls.filter(x => x.id !== conv.id);
+      return [convUpd, ...rest];
+    });
+    setCollapsed(prev => prev.filter(s => s !== 'New Customer'));
+    setTimeout(() => {
+      const el = document.getElementById(`shelf-New Customer`);
+      if (el) el.scrollTo({ left: 0, behavior: 'smooth' });
+    }, 100);
+
     sbWrite('leads',toSupabaseLead(convUpd));
     addAudit('Lead Converted',conv.id,`→ Customer ${cust.id}`);
-    showToast(`🎉 Lead converted to customer: ${cust.name}`,'ok',4000);SFX.save();
+    showToast(`🎉 Registration Complete! Lead converted to customer: ${cust.name}`,'ok',4000);
+    try { SFX.save(); } catch(e) {}
     setConv(null);
-    if(onNav) onNav('paymentshub', { tab: 'registration-fee', customerId: cust.id }); // MODIFIED: Context-aware redirect
   };
 
   const exportCols = [
@@ -187,6 +268,49 @@ const LeadsTab = ({leads,setLeads,workers,customers,setCustomers,loans,addAudit,
       <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 20 }}>
         <Btn onClick={() => setShowNew(true)} icon={Plus} v="accent">Add New Lead</Btn>
       </div>
+
+      {draftPrompt && (
+        <div
+          style={{
+            background: `${T.gold}10`,
+            border: `1px solid ${T.gold}25`,
+            borderRadius: 16,
+            padding: "16px 18px",
+            marginBottom: 20,
+            backdropFilter: 'blur(10px)',
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            gap: 16
+          }}
+        >
+          <div style={{ flex: 1 }}>
+            <div
+              style={{
+                color: T.gold,
+                fontWeight: 900,
+                fontSize: 12,
+                letterSpacing: '0.05em',
+                textTransform: 'uppercase',
+                marginBottom: 2,
+              }}
+            >
+              📝 Recovery Available
+            </div>
+            <div style={{ color: T.muted, fontSize: 13 }}>
+              Continue draft lead for <b style={{ color: T.txt }}>{draftPrompt.name || "unknown"}</b>?
+            </div>
+          </div>
+          <div style={{ display: "flex", gap: 8 }}>
+            <Btn onClick={continueDraft} sm v="accent" style={{ background: T.gold, color: '#000' }}>
+              Resume
+            </Btn>
+            <Btn v="ghost" onClick={startFresh} sm style={{ color: T.muted }}>
+              Discard
+            </Btn>
+          </div>
+        </div>
+      )}
 
       <div style={{
         display: 'flex', 
@@ -248,21 +372,59 @@ const LeadsTab = ({leads,setLeads,workers,customers,setCustomers,loans,addAudit,
 
               {/* Shelf Content (Horizontal scrolling cards) */}
               {!isCollapsed && (
-                <div style={{
-                  padding: '4px 24px 24px 24px',
-                  display: 'flex',
-                  gap: 16,
-                  overflowX: 'auto',
-                  scrollSnapType: 'x proximity',
-                  animation: 'fadeIn 0.35s ease'
-                }} className='main-scroll'>
+                <div style={{ position: 'relative' }}>
+                  {sl.length > 0 && (
+                    <button
+                      onClick={() => {
+                        const el = document.getElementById(`shelf-${stage}`);
+                        if (el) el.scrollBy({ left: -320, behavior: 'smooth' });
+                      }}
+                      style={{
+                        position: 'absolute',
+                        left: 8,
+                        top: '50%',
+                        transform: 'translateY(-50%)',
+                        zIndex: 10,
+                        width: 36,
+                        height: 36,
+                        borderRadius: '50%',
+                        background: `${T.surface}D0`,
+                        backdropFilter: 'blur(4px)',
+                        border: `1px solid ${T.border}`,
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        color: T.txt,
+                        cursor: 'pointer',
+                        boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
+                      }}
+                    >
+                      <ChevronLeft size={20} />
+                    </button>
+                  )}
+                  
+                  <div id={`shelf-${stage}`} style={{
+                    padding: '4px 24px 24px 24px',
+                    display: 'flex',
+                    gap: 16,
+                    overflowX: 'auto',
+                    scrollSnapType: 'x proximity',
+                    animation: 'fadeIn 0.35s ease',
+                    scrollBehavior: 'smooth'
+                  }} className='main-scroll'>
                   {sl.length === 0 ? (
                     <div style={{
                       flex: 1, height: 80, display: 'flex', alignItems: 'center', justifyContent: 'center',
                       color: T.muted, fontSize: 13, border: `1px dashed ${T.border}`, borderRadius: 16,
                     }}>No leads found in this stage</div>
-                  ) : sl.map(l => (
-                    <div key={l.id} className='lead-card' style={{
+                  ) : sl.map(l => {
+                    const isJustMoved = l._movedAt && (Date.now() - l._movedAt < 2500);
+                    const matchedCust = stage === 'New Customer' 
+                      ? customers?.find(c => c.phone && l.phone && c.phone.replace(/\s/g,'') === l.phone.replace(/\s/g,'')) 
+                      : null;
+                      
+                    return (
+                    <div key={l.id} className={`lead-card ${isJustMoved ? 'just-moved' : ''}`} style={{
                       flex: '0 0 300px',
                       background: T.card,
                       borderRadius: 20,
@@ -313,9 +475,57 @@ const LeadsTab = ({leads,setLeads,workers,customers,setCustomers,loans,addAudit,
                              Convert
                           </Btn>
                         )}
+                        {stage === 'New Customer' && matchedCust && (
+                          matchedCust.mpesaRegistered ? (
+                            <div style={{ width: '100%', padding: '8px', borderRadius: 10, background: `${T.ok}15`, color: T.ok, fontSize: 13, fontWeight: 800, textAlign: 'center', border: `1px solid ${T.ok}40` }}>
+                              ✓ Fee Paid
+                            </div>
+                          ) : (
+                            <Btn sm full onClick={() => onNav && onNav('paymentshub', { tab: 'registration-fee', customerId: matchedCust.id })} style={{ background: `${T.gold}15`, color: T.gold, border: `1px solid ${T.gold}40` }}>
+                               💳 Pay Reg Fee
+                            </Btn>
+                          )
+                        )}
+                        {stage === 'New Customer' && !matchedCust && (
+                             <div style={{ width: '100%', padding: '8px', borderRadius: 10, background: `${T.surface}`, color: T.muted, fontSize: 13, fontWeight: 800, textAlign: 'center', border: `1px dashed ${T.border}` }}>
+                               ⏳ Linked Profile missing
+                             </div>
+                        )}
                       </div>
                     </div>
-                  ))}
+                    );
+                  })}
+                  </div>
+                  
+                  {sl.length > 0 && (
+                    <button
+                      onClick={() => {
+                        const el = document.getElementById(`shelf-${stage}`);
+                        if (el) el.scrollBy({ left: 320, behavior: 'smooth' });
+                      }}
+                      style={{
+                        position: 'absolute',
+                        right: 8,
+                        top: '50%',
+                        transform: 'translateY(-50%)',
+                        zIndex: 10,
+                        width: 36,
+                        height: 36,
+                        borderRadius: '50%',
+                        background: `${T.surface}D0`,
+                        backdropFilter: 'blur(4px)',
+                        border: `1px solid ${T.border}`,
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        color: T.txt,
+                        cursor: 'pointer',
+                        boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
+                      }}
+                    >
+                      <ChevronRight size={20} />
+                    </button>
+                  )}
                 </div>
               )}
             </div>
@@ -328,6 +538,16 @@ const LeadsTab = ({leads,setLeads,workers,customers,setCustomers,loans,addAudit,
         .lead-pipeline::-webkit-scrollbar { height: 8px; }
         .lead-pipeline::-webkit-scrollbar-track { background: transparent; }
         .lead-pipeline::-webkit-scrollbar-thumb { background: ${T.border}; border-radius: 10px; }
+        
+        @keyframes rippleGlow {
+          0% { box-shadow: 0 0 0 0px ${T.accent}80; background: ${T.accent}15; border-color: ${T.accent}; transform: scale(0.98); }
+          40% { box-shadow: 0 0 0 10px ${T.accent}00; background: ${T.card}; transform: scale(1.02); }
+          100% { box-shadow: 0 0 0 20px rgba(0,0,0,0); border-color: ${T.border}; transform: scale(1); }
+        }
+        .just-moved {
+          animation: rippleGlow 1.2s cubic-bezier(0.2, 0.8, 0.4, 1) forwards !important;
+          border-color: ${T.accent} !important;
+        }
       `}</style>
       {showNew&&(
         <Dialog title='Add New Lead' onClose={()=>setShowNew(false)}>

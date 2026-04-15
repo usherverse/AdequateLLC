@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { supabase } from '@/config/supabaseClient';
-import { Image as ImageIcon, FileText, File, Download, Maximize2, Eye, X, Loader2, FolderIcon, HardDrive } from 'lucide-react';
+import { Image as ImageIcon, FileText, File, Download, Maximize2, Eye, X, Loader2, FolderIcon, HardDrive, PhoneCall, MessageSquare, MapPin, Monitor, CheckCircle2 } from 'lucide-react';
 import { T, SC, Card, DT, Btn, Pills, Badge, FI, Alert, Dialog, CustomerEditForm, fmt, now, calculateLoanStatus, uid, useToast, fromSupabaseLoan, fromSupabaseCustomer, fromSupabasePayment, fromSupabaseInteraction, toSupabaseCustomer, toSupabaseInteraction } from '@/lms-common';
 
 export default function CustomerProfile({ 
@@ -23,6 +23,13 @@ export default function CustomerProfile({
   const [payments, setPayments]   = useState(() => globalPayments?.filter(p => p.customerId === customerId) || []);
   const [interactions, setInters] = useState(() => globalInteractions?.filter(i => i.customerId === customerId) || []);
   const [workers, setWorkers]     = useState(globalWorkers || []);
+
+  const [isMobile, setIsMobile] = useState(window.innerWidth <= 1024);
+  useEffect(() => {
+    const handleResize = () => setIsMobile(window.innerWidth <= 1024);
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
 
 
 
@@ -47,7 +54,24 @@ export default function CustomerProfile({
           .eq('id', customerId)
           .single();
 
-        if (cErr) throw cErr;
+        if (cErr) {
+          if (cErr.code === 'PGRST116') {
+             // Profile doesn't exist on server yet (e.g. schema cache failure during registration)
+             const localCust = customers?.find(c => c.id === customerId);
+             if (!localCust) throw new Error('Customer not found in database or local cache.');
+             console.warn('[CustomerProfile] Server says profile missing. Falling back to local cache.');
+             // Skip network dependent steps and return early with local fallback
+             if (active) {
+                setCustomer(localCust);
+                setLoans([]);
+                setPayments([]);
+                setInters([]);
+                setLoading(false);
+             }
+             return;
+          }
+          throw cErr;
+        }
         if (!cData) throw new Error('Customer not found');
 
         const [lRes, pRes, iRes] = await Promise.allSettled([
@@ -153,19 +177,37 @@ export default function CustomerProfile({
   const totalBorrowed = loans.reduce((acc, l) => acc + Number(l.amount || 0), 0);
   
   // Calculate Live Loan Statuses using identical logic to lms-core
+  // IMPORTANT: must pass totalPaid as 3rd arg — otherwise the function derives it
+  // from balance (which is 0 in records that track balance separately), causing
+  // every loan to appear fully-paid/settled and the "Account is clean" message to
+  // show even when active loans exist.
   const processedLoans = loans.map(l => {
-    // Supabase sometimes stores mapped items differently natively
+    const totalPaid = l.disbursed ? payments
+      .filter(p => p.loanId === l.id)
+      .reduce((sum, p) => sum + Number(p.amount || 0), 0) : 0;
     const stub = { 
       balance: Number(l.balance || 0), 
       daysOverdue: Number(l.daysOverdue || 0), 
       status: l.status, 
-      amount: Number(l.amount || 0) 
+      amount: Number(l.amount || 0),
+      disbursed: l.disbursed,
     };
-    const snap = calculateLoanStatus(stub);
-    return { ...l, ...snap, actualBalance: snap.totalAmountDue, totalPayable: snap.totalPayable };
+    const snap = calculateLoanStatus(stub, null, totalPaid);
+    // Preserve the original DB status BEFORE snap can override it.
+    // This lets the filter below trust the ground-truth DB value.
+    return { ...l, dbStatus: l.status, ...snap, actualBalance: snap.totalAmountDue, totalPayable: snap.totalPayable };
   });
 
-  const activeLoans = processedLoans.filter(l => l.status !== 'Settled' && l.status !== 'Written off');
+  // A loan is shown as "active" if EITHER:
+  //  (a) The DB explicitly marks it as an in-progress status — always trust the
+  //      ground truth. The calculateLoanStatus heuristics (isWrittenOff, isSettled)
+  //      can misfire when payments aren't loaded yet or disbursed date is missing.
+  //  (b) The computed badgeStatus is not a terminal state.
+  const ACTIVE_DB_STATUSES = ['Active', 'Overdue', 'Disbursing', 'Approved', 'Application submitted', 'worker-pending'];
+  const activeLoans = processedLoans.filter(l =>
+    ACTIVE_DB_STATUSES.includes(l.dbStatus) ||
+    (l.badgeStatus !== 'Settled' && l.badgeStatus !== 'Written off')
+  );
 
   return (
     <div 
@@ -267,7 +309,30 @@ export default function CustomerProfile({
               <div className="grouped-list">
                 <div className="row-grouped"><span style={{ color: T.dim, fontSize: 13 }}>Trading Name</span><span style={{ color: T.txt, fontWeight: 700 }}>{customer.businessName || '—'}</span></div>
                 <div className="row-grouped"><span style={{ color: T.dim, fontSize: 13 }}>Business Category</span><span style={{ color: T.txt }}>{customer.businessType || '—'}</span></div>
-                <div className="row-grouped" style={{ border: 'none' }}><span style={{ color: T.dim, fontSize: 13 }}>Premises / Location</span><span style={{ color: T.txt }}>{customer.location || '—'}</span></div>
+                <div className="row-grouped" style={{ border: 'none', alignItems: 'flex-start' }}>
+                  <span style={{ color: T.dim, fontSize: 13 }}>Premises / Location</span>
+                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 8 }}>
+                    <span style={{ color: T.txt, textAlign: 'right' }}>{customer.location || '—'}</span>
+                    {customer.gps && (
+                      <button 
+                        onClick={() => window.open(`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(customer.gps.replace(' ', ''))}`, '_blank')}
+                        style={{
+                           display: 'inline-flex', alignItems: 'center', gap: 6,
+                           background: `${T.accent}15`, color: T.accent,
+                           border: `1px solid ${T.accent}40`, borderRadius: 99,
+                           padding: '6px 14px', fontSize: 12, fontWeight: 800,
+                           cursor: 'pointer', transition: 'all 0.2s cubic-bezier(0.2, 0.8, 0.2, 1)',
+                           boxShadow: `0 4px 12px rgba(0, 212, 170, 0.1)`,
+                           letterSpacing: 0.5, textTransform: 'uppercase'
+                        }}
+                        onMouseEnter={e => e.currentTarget.style.background = `${T.accent}25`}
+                        onMouseLeave={e => e.currentTarget.style.background = `${T.accent}15`}
+                      >
+                        <MapPin size={14} strokeWidth={2.5} /> View GPS Map
+                      </button>
+                    )}
+                  </div>
+                </div>
               </div>
             </Card>
 
@@ -391,7 +456,24 @@ function InteractionsTab({ customerId, initialRecords, workerContext, setGlobalI
   const [logs, setLogs] = useState(initialRecords);
   const [f, setF] = useState({ type: 'Phone Call', notes: '', date: now() });
   const [saving, setSaving] = useState(false);
+  const [justSaved, setJustSaved] = useState(false);
   const { show } = useToast();
+
+  const [isMobile, setIsMobile] = useState(window.innerWidth <= 1024);
+  useEffect(() => {
+    const handleResize = () => setIsMobile(window.innerWidth <= 1024);
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
+  const TYPE_ICONS = {
+    'Phone Call': <PhoneCall size={16} />,
+    'SMS': <MessageSquare size={16} />,
+    'WhatsApp': <MessageSquare size={16} color="#25D366" />,
+    'Field Visit': <MapPin size={16} />,
+    'System Note': <Monitor size={16} />,
+    'Demand Letter': <FileText size={16} />
+  };
 
   const handleSave = async () => {
     if (!f.notes) { show('Notes required', 'warn'); return; }
@@ -413,14 +495,20 @@ function InteractionsTab({ customerId, initialRecords, workerContext, setGlobalI
       const { error } = await supabase.from('interactions').insert([entry]);
       if (error) throw error;
       
-      show('Interaction logged!', 'ok');
       const interactionFull = fromSupabaseInteraction({...entry, created_at: nowTs});
       if (!interactionFull.officer) interactionFull.officer = interactionObj.officer;
       
+      // Attach a temporary animated flag
+      interactionFull._isNew = true;
       setLogs([interactionFull, ...logs]);
       if (setGlobalInteractions) setGlobalInteractions(prev => [interactionFull, ...prev]);
       if (addAudit) addAudit('Interaction Logged', customerId, `Logged ${f.type}`);
+      
+      // UX Feedback
       setF({ type: 'Phone Call', notes: '', date: now() });
+      setJustSaved(true);
+      setTimeout(() => setJustSaved(false), 2000);
+
     } catch (e) {
       show('Failed to log interaction', 'danger');
       console.error(e);
@@ -430,57 +518,135 @@ function InteractionsTab({ customerId, initialRecords, workerContext, setGlobalI
   };
 
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: 'minmax(300px, 340px) 1fr', gap: 32, paddingBottom: 64 }}>
-      <div style={{ position: 'sticky', top: 0, height: 'fit-content' }}>
-        <Card style={{ padding: 24, background: T.card, border: `1px solid ${T.hi}`, borderRadius: 20 }}>
-          <h3 style={{ color: T.txt, fontSize: 16, fontWeight: 800, margin: '0 0 20px', display: 'flex', alignItems: 'center', gap: 10 }}>
-            <span style={{ fontSize: 20 }}>✍️</span> Record Interaction
+    <div style={{ 
+      display: isMobile ? 'flex' : 'grid', 
+      flexDirection: 'column',
+      gridTemplateColumns: isMobile ? 'none' : 'minmax(300px, 360px) 1fr', 
+      gap: isMobile ? 24 : 40, 
+      paddingBottom: 32,
+      padding: isMobile ? '0 4px' : 0
+    }}>
+      <div style={{ position: isMobile ? 'relative' : 'sticky', top: 0, height: 'fit-content', zIndex: 10 }}>
+        <Card style={{ 
+          padding: isMobile ? 20 : 28, 
+          background: `linear-gradient(145deg, ${T.card}, rgba(0,0,0,0.4))`, 
+          border: `1px solid ${T.hi}`, 
+          borderRadius: isMobile ? 20 : 24,
+          boxShadow: `0 12px 32px rgba(0,0,0,0.15)`
+        }}>
+          <h3 style={{ color: T.txt, fontSize: isMobile ? 15 : 17, fontWeight: 800, margin: '0 0 20px', display: 'flex', alignItems: 'center', gap: 10 }}>
+            <span style={{ fontSize: isMobile ? 18 : 22, filter: 'drop-shadow(0 2px 8px rgba(0,212,170,0.3))' }}>💬</span> Record Interaction
           </h3>
-          <FI label="Communication Type" type="select" options={['Phone Call', 'SMS', 'WhatsApp', 'Field Visit', 'System Note', 'Demand Letter']} 
-             value={f.type} onChange={v=>setF({...f, type: v})} />
-          <FI label="Log Date" type="date" value={f.date} onChange={v=>setF({...f, date: v})} />
-          <FI label="Notes & Outcome" type="textarea" value={f.notes} onChange={v=>setF({...f, notes: v})} placeholder="Summarize the discussion..." />
-          <Btn onClick={handleSave} disabled={saving} full v='gold' style={{ height: 48, marginTop: 8 }}>+ Save to Timeline</Btn>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+            <FI label="Communication Type" type="select" options={['Phone Call', 'SMS', 'WhatsApp', 'Field Visit', 'System Note', 'Demand Letter']} 
+               value={f.type} onChange={v=>setF({...f, type: v})} />
+            <FI label="Log Date" type="date" value={f.date} onChange={v=>setF({...f, date: v})} />
+            <FI label="Notes & Outcome" type="textarea" value={f.notes} onChange={v=>setF({...f, notes: v})} placeholder="Summarize the discussion..." />
+          </div>
+          
+          <button 
+            onClick={handleSave} 
+            disabled={saving || justSaved}
+            style={{ 
+              width: '100%',
+              height: 48, 
+              marginTop: 16,
+              borderRadius: 14,
+              border: 'none',
+              background: justSaved ? `linear-gradient(135deg, ${T.ok} 0%, #00a884 100%)` : saving ? `${T.cardHi}` : `linear-gradient(135deg, ${T.accent} 0%, #00a884 100%)`,
+              color: justSaved ? '#fff' : saving ? T.muted : '#000',
+              fontWeight: 800,
+              fontSize: 14,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: 8,
+              cursor: saving || justSaved ? 'not-allowed' : 'pointer',
+              transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+              boxShadow: justSaved ? `0 8px 24px ${T.ok}40` : saving ? 'none' : `0 8px 24px ${T.accent}40`,
+              transform: saving ? 'scale(0.98)' : 'scale(1)'
+            }}
+          >
+            {justSaved ? <><CheckCircle2 size={18} /> Recorded Successfully</> : saving ? <><Loader2 className="spin" size={18} /> Processing...</> : '+ Save to Timeline'}
+          </button>
         </Card>
       </div>
 
-      <div style={{ borderLeft: `2px solid ${T.border}`, paddingLeft: 32, marginLeft: 16 }}>
+      <div style={{ paddingLeft: isMobile ? 0 : 10 }}>
         {logs.length === 0 ? <Alert type='info'>No prior interactions recorded on this file.</Alert> : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
-             {logs.map((log, idx) => {
-               const dtStr = log.created_at || log.createdAt || log.date;
-               const dt = new Date(dtStr);
-               // Handle the "3.00" bug by checking if the date string lacks time precision
-               const day = dt.toLocaleDateString('en-KE', { weekday: 'short', day: 'numeric', month: 'short' });
-               const time = dt.toLocaleTimeString('en-KE', { hour: '2-digit', minute: '2-digit', hour12: false });
-               
-               return (
-                 <div key={log.id} style={{ position: 'relative' }}>
-                   {/* Timeline Marker */}
-                   <div style={{ 
-                     position: 'absolute', left: -41, top: 4, width: 16, height: 16, borderRadius: 99, 
-                     background: SC[log.type] || T.blue, border: `4px solid ${T.bg}`,
-                     boxShadow: `0 0 10px ${SC[log.type] || T.blue}50`, zIndex: 2 
-                   }} />
-                   
-                   <div className="pop" style={{ animationDelay: `${idx * 0.05}s` }}>
-                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                          <span style={{ color: T.txt, fontWeight: 800, fontSize: 13, textTransform: 'uppercase', letterSpacing: 0.5 }}>{log.type}</span>
-                          <span style={{ width: 4, height: 4, borderRadius: 2, background: T.muted }} />
-                          <span style={{ color: T.accent, fontSize: 11, fontWeight: 700, fontFamily: T.mono }}>{day} • {time}</span>
-                        </div>
-                        <div style={{ color: T.muted, fontSize: 11, background: T.surface, padding: '2px 8px', borderRadius: 99, border: `1px solid ${T.border}` }}>
-                          {log.officer || 'System'}
-                        </div>
+          <div style={{ position: 'relative' }}>
+            {/* Master Timeline Line */}
+            <div style={{ position: 'absolute', left: 24, top: 20, bottom: 0, width: 2, background: `linear-gradient(to bottom, ${T.border}, transparent)`, zIndex: 0 }} />
+            
+            <div style={{ display: 'flex', flexDirection: 'column', gap: isMobile ? 20 : 28, position: 'relative', zIndex: 1 }}>
+               {logs.map((log, idx) => {
+                 const dtStr = log.created_at || log.createdAt || log.date;
+                 const dt = new Date(dtStr);
+                 const day = dt.toLocaleDateString('en-KE', { weekday: 'short', day: 'numeric', month: 'short' });
+                 const time = dt.toLocaleTimeString('en-KE', { hour: '2-digit', minute: '2-digit', hour12: false });
+                 const accentColor = SC[log.type] || T.accent;
+                 
+                 return (
+                   <div key={log.id} style={{ position: 'relative', display: 'flex', gap: isMobile ? 16 : 24, paddingLeft: isMobile ? 4 : 8 }}>
+                     {/* Modern Icon Bubble */}
+                     <div style={{ 
+                       flexShrink: 0,
+                       width: 36, height: 36, borderRadius: 12, 
+                       background: `${accentColor}15`, border: `1px solid ${accentColor}40`,
+                       display: 'flex', alignItems: 'center', justifyContent: 'center', color: accentColor,
+                       boxShadow: `0 4px 12px ${accentColor}20`,
+                       marginTop: 2,
+                       animation: log._isNew ? 'pulseGlow 2s forwards' : 'none'
+                     }}>
+                       {TYPE_ICONS[log.type] || <FileText size={16} />}
                      </div>
-                     <Card style={{ padding: 18, background: T.cardHi || T.surface, border: `1px solid ${T.border}` }}>
-                       <div style={{ color: T.txt, fontSize: 14, lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>{log.notes}</div>
-                     </Card>
+                     
+                     <div className="pop" style={{ 
+                       flex: 1, 
+                       animationDelay: `${idx * 0.05}s`,
+                       animation: log._isNew ? 'slideInRight 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards' : undefined
+                     }}>
+                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 6 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                            <span style={{ color: T.txt, fontWeight: 800, fontSize: 13, textTransform: 'uppercase', letterSpacing: 0.8 }}>{log.type}</span>
+                            <span style={{ color: T.muted, fontSize: 11, fontWeight: 700, fontFamily: T.mono }}>{day} • {time}</span>
+                          </div>
+                       </div>
+                       
+                       <Card style={{ 
+                         padding: 20, 
+                         background: log._isNew ? `${T.card}` : T.surface, 
+                         border: `1px solid ${log._isNew ? accentColor : T.border}`,
+                         borderRadius: 20,
+                         borderTopLeftRadius: 4,
+                       }}>
+                         <div style={{ color: T.txt, fontSize: 14, lineHeight: 1.6, whiteSpace: 'pre-wrap', marginBottom: 12 }}>{log.notes}</div>
+                         
+                         <div style={{ display: 'flex', alignItems: 'center', gap: 6, color: T.dim, fontSize: 11, fontWeight: 600 }}>
+                           <div style={{ width: 16, height: 16, borderRadius: 8, background: T.border, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 9 }}>👤</div>
+                           {log.officer || 'System'}
+                         </div>
+                       </Card>
+                     </div>
+                     
+                     {/* Inline animation styles for new logs */}
+                     {log._isNew && (
+                       <style>{`
+                         @keyframes slideInRight {
+                           0% { opacity: 0; transform: translateX(20px) scale(0.95); }
+                           100% { opacity: 1; transform: translateX(0) scale(1); }
+                         }
+                         @keyframes pulseGlow {
+                           0% { box-shadow: 0 0 0 0 ${accentColor}80; }
+                           70% { box-shadow: 0 0 0 10px ${accentColor}00; }
+                           100% { box-shadow: 0 0 0 0 ${accentColor}00; }
+                         }
+                       `}</style>
+                     )}
                    </div>
-                 </div>
-               );
-             })}
+                 );
+               })}
+            </div>
           </div>
         )}
       </div>

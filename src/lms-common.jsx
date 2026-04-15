@@ -8,14 +8,15 @@ import React, {
   memo,
 } from "react";
 import {
-  Search as SearchIcon, ChevronLeft, RotateCcw, User, ShieldCheck, 
+  Search as SearchIcon, ChevronLeft, ChevronRight, RotateCcw, User, ShieldCheck, 
   AlertCircle, CheckCircle, Info, Clock, MoreHorizontal,
   ArrowUpRight, ArrowRight, Download, Upload, Send, 
   CreditCard, LayoutDashboard, Users, UserPlus, 
   Settings, LogOut, Calendar, BarChart3, HelpCircle, 
   Phone, Mail, MapPin, Briefcase, FileText, Check, X,
   Database, Activity, RefreshCw, UserCheck, AlertTriangle, Globe,
-  ShieldAlert, History, MessageSquare, Gavel, Ban, Bell, Flame, Zap
+  ShieldAlert, History, MessageSquare, Gavel, Ban, Bell, Flame, Zap,
+  ChevronDown
 } from "lucide-react";
 import {
   _hashPw,
@@ -392,6 +393,14 @@ export const Styles = () => (
     .fade{animation:fadeIn .22s ease both}
     .dialog-backdrop{animation:fadeIn .2s ease both; backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); background: rgba(0,0,0,0.6) !important;}
     .toast-enter{animation:slideUp .28s cubic-bezier(.22,1,.36,1) both}
+    @keyframes appleIn {
+      from { opacity: 0; transform: translate(-50%, -40px) scale(0.92); filter: blur(4px); }
+      to { opacity: 1; transform: translate(-50%, 0) scale(1); filter: blur(0); }
+    }
+    .apple-toast {
+      animation: appleIn 0.5s cubic-bezier(0.16, 1, 0.3, 1) both;
+      transform-origin: top center;
+    }
 
     .nb:hover{background:var(--a-lo)!important;color:var(--accent)!important}
     .row-hover:hover{background:var(--surface);transition:background .15s}
@@ -1318,10 +1327,15 @@ export const Btn = ({
 };
 
 // ── Back Button (apple-style) ──────────────────────────────
-export const BackBtn = ({ onClick, label = "Back" }) => (
-  <button className="back-btn" onClick={onClick}>
-    <ChevronLeft size={16} strokeWidth={2.5} />
-    <span>{label}</span>
+export const BackBtn = ({ onClick, disabled }) => (
+  <button className="back-btn" onClick={onClick} disabled={disabled} style={{ width: 36, height: 34, justifyContent: 'center', padding: 0, opacity: disabled ? 0.4 : 1, cursor: disabled ? 'not-allowed' : 'pointer' }}>
+    <ChevronLeft size={18} strokeWidth={2.5} />
+  </button>
+);
+
+export const ForwardBtn = ({ onClick, disabled }) => (
+  <button className="back-btn" onClick={onClick} disabled={disabled} style={{ width: 36, height: 34, justifyContent: 'center', padding: 0, opacity: disabled ? 0.4 : 1, cursor: disabled ? 'not-allowed' : 'pointer' }}>
+    <ChevronRight size={18} strokeWidth={2.5} />
   </button>
 );
 
@@ -1364,7 +1378,6 @@ export const RefreshBtn = ({ onRefresh }) => {
           flexShrink: 0,
         }}
       />
-      <span>{done ? "✓ Done" : "Refresh"}</span>
     </button>
   );
 };
@@ -1539,19 +1552,23 @@ export const PhoneInput = ({
       {/* Dropdown */}
       {open && (
         <div
+          className="pop-in"
           style={{
             position: "absolute",
             top: "100%",
             left: 0,
             zIndex: 9999,
-            background: T.card,
-            border: `1px solid ${T.border}`,
-            borderRadius: 10,
-            boxShadow: "0 8px 30px #00000060",
+            background: "var(--card)",
+            backdropFilter: "blur(30px)",
+            WebkitBackdropFilter: "blur(30px)",
+            border: `1px solid var(--border)`,
+            borderRadius: 16,
+            boxShadow: "0 12px 48px rgba(0,0,0,0.5), 0 0 0 1px rgba(255,255,255,0.05)",
             width: 220,
             maxHeight: 220,
             overflowY: "auto",
-            marginTop: 4,
+            marginTop: 8,
+            padding: 4,
           }}
         >
           {DIAL_CODES.map((d) => (
@@ -1564,25 +1581,30 @@ export const PhoneInput = ({
                 gap: 9,
                 padding: "9px 14px",
                 cursor: "pointer",
-                background: d.code === dialCode ? T.aLo : "transparent",
-                transition: "background .1s",
+                background: d.code === dialCode ? "var(--a-lo)" : "transparent",
+                color: d.code === dialCode ? "var(--accent)" : "var(--txt)",
+                transition: "all .1s",
+                borderRadius: 12,
+                marginBottom: 2
               }}
-              onMouseEnter={(e) => (e.currentTarget.style.background = T.card2)}
-              onMouseLeave={(e) =>
-                (e.currentTarget.style.background =
-                  d.code === dialCode ? T.aLo : "transparent")
-              }
+              onMouseEnter={(e) => {
+                if (d.code !== dialCode) e.currentTarget.style.background = "var(--surface)";
+              }}
+              onMouseLeave={(e) => {
+                if (d.code !== dialCode) e.currentTarget.style.background = "transparent";
+              }}
             >
               <span style={{ fontSize: 18 }}>{d.flag}</span>
-              <span style={{ color: T.txt, fontSize: 12, fontWeight: 600 }}>
+              <span style={{ color: d.code === dialCode ? "var(--accent)" : "var(--txt)", fontSize: 12, fontWeight: 600, transition: "color .1s" }}>
                 {d.name}
               </span>
               <span
                 style={{
-                  color: T.muted,
+                  color: d.code === dialCode ? "var(--accent)" : "var(--muted)",
                   fontSize: 11,
                   marginLeft: "auto",
                   fontFamily: T.mono,
+                  transition: "color .1s"
                 }}
               >
                 {d.code}
@@ -1688,18 +1710,56 @@ export const NumericInput = ({
 };
 
 // Enhanced FI with red-star required validation
+const parseLocalDate = (s) => {
+  if (!s) return new Date();
+  const [y, m, d] = s.split("-").map(Number);
+  return new Date(y, m - 1, d || 1);
+};
+
 const ModernDatePicker = ({ value, onChange, onClose, T }) => {
-  const [viewDate, setViewDate] = useState(value ? new Date(value) : new Date());
+  const [viewDate, setViewDate] = useState(() => parseLocalDate(value));
+  
+  useEffect(() => {
+    if (value) {
+      const d = parseLocalDate(value);
+      setViewDate(d);
+    }
+  }, [value]);
+
   const month = viewDate.getMonth();
   const year = viewDate.getFullYear();
 
   const daysInMonth = new Date(year, month + 1, 0).getDate();
   const startDay = new Date(year, month, 1).getDay(); // 0-6 (Sun-Sat)
   
-  const setMonth = (m) => setViewDate(new Date(year, parseInt(m), 1));
-  const setYear = (y) => setViewDate(new Date(parseInt(y), month, 1));
-  const prevMonth = () => setViewDate(new Date(year, month - 1, 1));
-  const nextMonth = () => setViewDate(new Date(year, month + 1, 1));
+  const updateParent = (nextDate) => {
+    const offset = nextDate.getTimezoneOffset();
+    const adjusted = new Date(nextDate.getTime() - (offset * 60 * 1000));
+    onChange(adjusted.toISOString().split('T')[0]);
+  };
+
+  const setMonth = (m) => {
+    const nextM = parseInt(m);
+    const maxD = new Date(year, nextM + 1, 0).getDate();
+    const nextDate = new Date(year, nextM, Math.min(viewDate.getDate(), maxD));
+    updateParent(nextDate);
+  };
+  const setYear = (y) => {
+    const nextY = parseInt(y);
+    if (!isNaN(nextY)) {
+      const maxD = new Date(nextY, month + 1, 0).getDate();
+      const nextDate = new Date(nextY, month, Math.min(viewDate.getDate(), maxD));
+      updateParent(nextDate);
+    }
+  };
+  const prevMonth = () => {
+    const nextDate = new Date(year, month - 1, 1);
+    updateParent(nextDate);
+  };
+  const nextMonth = () => {
+    const nextDate = new Date(year, month + 1, 1);
+    updateParent(nextDate);
+  };
 
   const selectDay = (d) => {
     const selected = new Date(year, month, d);
@@ -1711,7 +1771,9 @@ const ModernDatePicker = ({ value, onChange, onClose, T }) => {
 
   const monthNames = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
   const days = ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"];
-  const years = Array.from({ length: 21 }, (_, i) => year - 10 + i);
+  
+  // Broad "all years" range (1900 to 2100) behaving like standard OS date pickers
+  const years = Array.from({ length: 201 }, (_, i) => 1900 + i);
 
   return (
     <div className="cal-pop pop" onClick={e => e.stopPropagation()}>
@@ -1766,37 +1828,57 @@ export const FI = ({
   error,
   min,
   max,
+  name,
+  defaultValue,
+  onKeyDown,
+  variant = 'base' // Add variant support
 }) => {
   const [showPicker, setShowPicker] = useState(false);
+  const [showSelect, setShowSelect] = useState(false);
+  const [search, setSearch] = useState('');
   const [isFocused, setIsFocused] = useState(false);
   const containerRef = useRef(null);
 
   useEffect(() => {
-    if (!showPicker) return;
+    if (!showPicker && !showSelect) return;
     const clickOut = (e) => {
-      if (containerRef.current && !containerRef.current.contains(e.target)) setShowPicker(false);
+      if (containerRef.current && !containerRef.current.contains(e.target)) {
+        setShowPicker(false);
+        setShowSelect(false);
+      }
     };
     document.addEventListener('mousedown', clickOut);
     return () => document.removeEventListener('mousedown', clickOut);
-  }, [showPicker]);
+  }, [showPicker, showSelect]);
 
-  const hasErr = error && required && !value;
-  const s = {
+  const hasErr = !!(error && required && !value);
+
+  // v2.0 Fix: Do not concatenate CSS variables with hex opacity. 
+  // Use the variables directly or standard colors.
+  const inputStyle = {
     width: "100%",
-    border: `1px solid ${hasErr ? T.danger : T.border}`,
-    transition: "all .2s cubic-bezier(0.2, 0.8, 0.2, 1)",
-    position: 'relative'
+    padding: "11px 16px",
+    borderRadius: 14,
+    border: `1.5px solid ${hasErr ? 'rgba(239, 68, 68, 0.5)' : isFocused ? 'var(--accent)' : 'rgba(0, 0, 0, 0.1)'}`,
+    background: isFocused ? 'var(--surface)' : 'var(--card)',
+    backdropFilter: 'blur(10px)',
+    color: 'var(--txt)',
+    fontSize: 14,
+    fontWeight: 500,
+    outline: "none",
+    transition: "all .25s ease",
+    boxShadow: isFocused ? '0 0 0 4px rgba(0, 212, 170, 0.15)' : 'none',
   };
 
   const handleChange = (e) => {
-    onChange(e.target.value);
+    if (onChange) onChange(e.target.value);
   };
 
   return (
     <div
       ref={containerRef}
       style={{
-        marginBottom: 12,
+        marginBottom: 16,
         gridColumn: half ? "span 1" : "span 2",
         minWidth: 0,
         position: 'relative'
@@ -1806,17 +1888,18 @@ export const FI = ({
         <label
           style={{
             display: "block",
-            color: hasErr ? T.danger : isFocused ? T.accent : T.dim,
-            fontSize: 11,
+            color: hasErr ? T.danger : isFocused ? T.accent : T.muted,
+            fontSize: 10,
             fontWeight: 800,
-            marginBottom: 5,
-            letterSpacing: 1,
+            marginBottom: 6,
+            marginLeft: 4,
+            letterSpacing: '0.05em',
             textTransform: "uppercase",
             transition: 'color 0.2s',
           }}
         >
           {label}
-          {required && <span style={{ color: T.danger }}> ★</span>}
+          {required && <span style={{ color: T.danger }}> *</span>}
         </label>
       )}
 
@@ -1825,11 +1908,12 @@ export const FI = ({
           <div style={{ position: 'relative' }}>
             <input
               type="text"
+              name={name}
               readOnly
               value={value || ''}
               onClick={() => setShowPicker(!showPicker)}
               placeholder={placeholder || 'Select date...'}
-              style={{ ...s, cursor: 'pointer', paddingRight: 40 }}
+              style={{ ...inputStyle, cursor: 'pointer', paddingRight: 40 }}
             />
             <div 
               style={{ position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none', color: T.accent, opacity: 0.8 }}
@@ -1839,42 +1923,155 @@ export const FI = ({
             {showPicker && <ModernDatePicker value={value} onChange={onChange} onClose={() => setShowPicker(false)} T={T} />}
           </div>
         ) : type === "select" ? (
-          <select
-            value={value}
-            onChange={(e) => onChange(e.target.value)}
-            onFocus={() => setIsFocused(true)}
-            onBlur={() => setIsFocused(false)}
-            style={s}
-          >
-            <option value="">— Select —</option>
-            {(options || []).map((o) => (
-              <option key={o} value={o}>
-                {o}
-              </option>
-            ))}
-          </select>
+          <div style={{ position: 'relative' }}>
+            {/* Display Field */}
+            <div
+              onClick={() => setShowSelect(!showSelect)}
+              onFocus={() => setIsFocused(true)}
+              onBlur={() => setIsFocused(false)}
+              tabIndex={0}
+              style={{ 
+                ...inputStyle, 
+                cursor: 'pointer', 
+                display: 'flex', 
+                alignItems: 'center', 
+                justifyContent: 'space-between',
+                paddingRight: 12
+              }}
+            >
+            <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {value ? (() => {
+                  const found = options?.find(o => (typeof o === 'object' ? (o.v !== undefined ? o.v : o.value) : o) === value);
+                  if (!found) return value;
+                  if (typeof found === 'string') return found;
+                  return found.l || found.label || found.v || found.value || String(value);
+                })() : <span style={{ opacity: 0.5 }}>{placeholder || '— Select —'}</span>}
+              </div>
+              <ChevronDown size={14} style={{ opacity: 0.6, flexShrink: 0, transform: showSelect ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s' }} />
+            </div>
+            {/* Hidden native input so FormData.get(name) works on form submit */}
+            {name && <input type="hidden" name={name} value={value ?? ''} readOnly />}
+
+            {/* Custom List Dropdown */}
+            {showSelect && (
+              <div 
+                className="pop-in"
+                style={{
+                  position: 'absolute',
+                  top: '100%',
+                  left: 0,
+                  right: 0,
+                  marginTop: 8,
+                  background: 'var(--card)',
+                  backdropFilter: 'blur(30px)',
+                  WebkitBackdropFilter: 'blur(30px)',
+                  border: '1px solid var(--border)',
+                  borderRadius: 20,
+                  boxShadow: '0 20px 60px rgba(0,0,0,0.5), 0 0 0 1px rgba(255,255,255,0.05)',
+                  zIndex: 9999,
+                  maxHeight: 350,
+                  overflow: 'hidden',
+                  display: 'flex',
+                  flexDirection: 'column'
+                }}
+              >
+                {/* Search if many items */}
+                {(options || []).length > 8 && (
+                  <div style={{ padding: 12, borderBottom: '1px solid var(--hi)', background: 'rgba(255,255,255,0.02)' }}>
+                    <div style={{ position: 'relative' }}>
+                      <input 
+                        type="text"
+                        autoFocus
+                        placeholder="Type to filter..."
+                        value={search}
+                        onChange={e => setSearch(e.target.value)}
+                        onClick={e => e.stopPropagation()}
+                        style={{
+                          width: '100%', padding: '8px 12px 8px 34px', borderRadius: 12, background: 'var(--surface)', border: '1px solid var(--border)', color: 'var(--txt)', fontSize: 13
+                        }}
+                      />
+                      <SearchIcon size={14} style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', opacity: 0.5 }} />
+                    </div>
+                  </div>
+                )}
+
+                <div style={{ overflowY: 'auto', flex: 1, padding: 8, WebkitOverflowScrolling: 'touch' }}>
+                  {(options || [])
+                    .filter(o => {
+                      if (!search) return true;
+                      const lbl = typeof o === 'object' ? (o.l || o.label) : String(o);
+                      return lbl.toLowerCase().includes(search.toLowerCase());
+                    })
+                    .map((o, i) => {
+                      const lbl = typeof o === 'object' ? (o.l || o.label) : o;
+                      const val = typeof o === 'object' ? (o.v !== undefined ? o.v : o.value) : o;
+                      const isSel = value === val;
+                      return (
+                        <div
+                          key={i}
+                          onClick={() => {
+                            if (onChange) onChange(val);
+                            setShowSelect(false);
+                            setSearch('');
+                          }}
+                          style={{
+                            padding: '12px 14px',
+                            borderRadius: 12,
+                            cursor: 'pointer',
+                            fontSize: 13,
+                            fontWeight: isSel ? 700 : 500,
+                            color: isSel ? 'var(--accent)' : 'var(--txt)',
+                            background: isSel ? 'var(--a-lo)' : 'transparent',
+                            transition: 'all 0.2s',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 10,
+                            marginBottom: 2
+                          }}
+                          onMouseEnter={e => !isSel && (e.currentTarget.style.background = 'var(--surface)')}
+                          onMouseLeave={e => !isSel && (e.currentTarget.style.background = 'transparent')}
+                        >
+                          <div style={{ flex: 1 }}>{lbl}</div>
+                          {isSel && <Check size={14} />}
+                        </div>
+                      );
+                    })}
+                  {(options || []).length > 0 && (options || []).filter(o => {
+                    const lbl = typeof o === 'object' ? (o.l || o.label) : String(o);
+                    return !search || lbl.toLowerCase().includes(search.toLowerCase());
+                  }).length === 0 && (
+                    <div style={{ padding: 20, textAlign: 'center', color: T.muted, fontSize: 12 }}>No matching results found</div>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
         ) : type === "textarea" ? (
           <textarea
+            name={name}
             value={value}
+            defaultValue={defaultValue}
             onChange={handleChange}
             placeholder={placeholder}
             rows={3}
             onFocus={() => setIsFocused(true)}
             onBlur={() => setIsFocused(false)}
-            style={{ ...s, resize: "vertical" }}
+            onKeyDown={onKeyDown}
+            style={{ ...inputStyle, minHeight: 100, resize: "vertical" }}
           />
         ) : (
           <input
             type={type}
+            name={name}
             value={value}
+            defaultValue={defaultValue}
             onChange={handleChange}
             placeholder={placeholder}
             autoComplete={type === "password" ? "new-password" : undefined}
             onFocus={() => setIsFocused(true)}
             onBlur={() => setIsFocused(false)}
-            onFocus={() => setIsFocused(true)}
-            onBlur={() => setIsFocused(false)}
-            style={{ ...s, WebkitTextFillColor: T.txt, caretColor: T.txt }}
+            onKeyDown={onKeyDown}
+            style={{ ...inputStyle, WebkitTextFillColor: 'var(--txt)', caretColor: 'var(--txt)' }}
           />
         )}
       </div>
@@ -1918,43 +2115,69 @@ export const ToastContainer = ({ toasts }) => (
     aria-label="Notifications"
     style={{
       position: "fixed",
-      bottom: 20,
-      right: 20,
-      zIndex: 99999,
+      top: 24,
+      left: "50%",
+      transform: "translateX(-50%)",
+      zIndex: 999999,
       display: "flex",
       flexDirection: "column",
-      gap: 8,
+      alignItems: "center",
+      gap: 12,
       pointerEvents: "none",
+      width: "100%",
+      maxWidth: 400,
     }}
   >
     {toasts.map((t) => {
+      const isAllocation = t.msg.toLowerCase().includes("allocated");
       const cols = {
-        ok: [T.ok, T.oLo],
-        danger: [T.danger, T.dLo],
-        warn: [T.warn, T.wLo],
-        info: [T.blue, T.bLo],
+        ok: ['#00D4AA', 'rgba(0, 212, 170, 0.08)'],
+        danger: ['#FF4D4D', 'rgba(255, 77, 77, 0.08)'],
+        warn: ['#FFB020', 'rgba(255, 176, 32, 0.08)'],
+        info: ['#2E90FF', 'rgba(46, 144, 255, 0.08)'],
       };
       const [c, bg] = cols[t.type] || cols.ok;
+      
       return (
         <div
           key={t.id}
           role="alert"
           aria-live={t.type === "danger" ? "assertive" : "polite"}
-          className="toast-enter"
+          className="apple-toast"
           style={{
-            background: bg,
-            border: `1px solid ${c}50`,
-            borderRadius: 10,
-            padding: "10px 16px",
-            color: c,
-            fontSize: 13,
+            background: isAllocation ? 'rgba(12, 18, 30, 0.85)' : bg,
+            backdropFilter: 'blur(24px)',
+            WebkitBackdropFilter: 'blur(24px)',
+            border: isAllocation ? `1px solid rgba(255,255,255,0.12)` : `1px solid ${c}40`,
+            borderRadius: 16,
+            padding: "14px 20px",
+            color: isAllocation ? '#fff' : c,
+            fontSize: 14,
             fontWeight: 600,
-            boxShadow: `0 4px 20px ${c}20`,
-            maxWidth: 320,
+            boxShadow: `0 20px 60px rgba(0,0,0,0.4), 0 0 0 1px rgba(255,255,255,0.05)`,
+            width: "fit-content",
+            minWidth: 280,
+            maxWidth: "90vw",
             pointerEvents: "auto",
+            display: "flex",
+            alignItems: "center",
+            gap: 12,
           }}
         >
-          {t.msg}
+          <div style={{
+            width: 28, height: 28, borderRadius: 99, 
+            background: isAllocation ? '#00D4AA' : c, 
+            color: isAllocation ? '#000' : '#fff',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            flexShrink: 0,
+            boxShadow: `0 4px 12px ${isAllocation ? '#00D4AA40' : c + '40'}`
+          }}>
+            {t.type === 'danger' ? '✕' : <Check size={16} strokeWidth={3} />}
+          </div>
+          <div style={{ flex: 1 }}>
+            {isAllocation && <div style={{ fontSize: 10, fontWeight: 800, color: '#00D4AA', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 2 }}>System Confirmation</div>}
+            <div style={{ lineHeight: 1.4 }}>{t.msg}</div>
+          </div>
         </div>
       );
     })}
@@ -1962,10 +2185,10 @@ export const ToastContainer = ({ toasts }) => (
 );
 export const Alert = ({ type = "warn", children }) => {
   const m = {
-    warn: [T.warn, T.wLo],
-    danger: [T.danger, T.dLo],
-    ok: [T.ok, T.oLo],
-    info: [T.blue, T.bLo],
+    warn: ['#F59E0B', 'rgba(245, 158, 11, 0.08)'],
+    danger: ['#EF4444', 'rgba(239, 68, 68, 0.08)'],
+    ok: ['#10B981', 'rgba(16, 185, 129, 0.08)'],
+    info: ['#3B82F6', 'rgba(59, 130, 246, 0.08)'],
   };
   const [c, bg] = m[type] || m.warn;
   return (
@@ -2027,6 +2250,7 @@ export const Dialog = ({
   ).current;
   const vw = typeof window !== "undefined" ? window.innerWidth : 600;
   const vh = typeof window !== "undefined" ? window.innerHeight : 800;
+  const isMobileSize = vw < 600;
   const mw = Math.min(width, vw - 16);
   const maxH = Math.min(
     vh - MODAL_TOP_OFFSET - MODAL_BOT_PAD,
@@ -2103,12 +2327,12 @@ export const Dialog = ({
         bottom: 0,
         zIndex,
         display: "flex",
-        alignItems: "flex-start",
+        alignItems: isMobileSize ? "center" : "flex-start",
         justifyContent: "center",
-        padding: `${MODAL_TOP_OFFSET}px 8px ${MODAL_BOT_PAD}px`,
+        padding: isMobileSize ? `0 6px` : `${MODAL_TOP_OFFSET}px 8px ${MODAL_BOT_PAD}px`,
         backdropFilter: "var(--glass-blur)",
         WebkitBackdropFilter: "var(--glass-blur)",
-        background: "rgba(4,8,16,0.72)",
+        background: "rgba(4,8,16,0.82)",
         overflowY: "auto",
         overflowX: "hidden",
       }}
@@ -2123,10 +2347,10 @@ export const Dialog = ({
         style={{
           background: T.card,
           border: `1px solid ${T.hi}`,
-          borderRadius: 18,
+          borderRadius: isMobileSize ? 20 : 18,
           width: "100%",
           maxWidth: mw,
-          maxHeight: maxH,
+          maxHeight: isMobileSize ? 'calc(100svh - 24px)' : maxH,
           minHeight: minHeight || undefined,
           display: "flex",
           flexDirection: "column",
@@ -2867,16 +3091,27 @@ export const Search = ({ value, onChange, placeholder, debounceMs = 180 }) => {
         value={local}
         onChange={(e) => setLocal(e.target.value)}
         placeholder={placeholder || "Search…"}
+        onFocus={(e) => {
+          e.target.style.borderColor = T.accent;
+          e.target.style.background = T.card;
+          e.target.style.boxShadow = `0 0 0 4px ${T.accent}15`;
+        }}
+        onBlur={(e) => {
+          e.target.style.borderColor = T.border;
+          e.target.style.background = T.card2;
+          e.target.style.boxShadow = 'none';
+        }}
         aria-label={placeholder || "Search"}
         style={{
           background: T.card2,
           border: `1px solid ${T.border}`,
-          borderRadius: 9,
-          padding: "9px 12px 9px 28px",
+          borderRadius: 12,
+          padding: "10px 12px 10px 40px",
           color: T.txt,
           fontSize: 13,
           outline: "none",
           width: "100%",
+          transition: 'all 0.2s ease'
         }}
       />
     </div>
@@ -3075,15 +3310,16 @@ const DOC_SLOTS = [
   },
 ];
 
-export const StructuredDocUpload = ({ docs, onAdd, onRemove }) => {
+export const StructuredDocUpload = ({ docs, onAdd, onRemove, showVal }) => {
   const [uploading, setUploading] = useState({});
   const [viewing, setViewing] = useState(null);
 
-  const handleFile = (e, slot) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+  const handleFile = async (e, slot) => {
+    const originalFile = e.target.files?.[0];
+    if (!originalFile) return;
     e.target.value = "";
     setUploading((u) => ({ ...u, [slot.key]: true }));
+    const file = await compressImage(originalFile);
     const reader = new FileReader();
     reader.onload = (ev) => {
       const existing = docs.find((d) => d.key === slot.key);
@@ -3117,18 +3353,19 @@ export const StructuredDocUpload = ({ docs, onAdd, onRemove }) => {
         const doc = docs.find((d) => d.key === slot.key);
         const busy = uploading[slot.key];
         const isReady = !!doc;
+        const isMissing = showVal && slot.required && !isReady;
         return (
           <div
             key={slot.key}
             style={{
-              background: T.surface,
-              border: `1.5px solid ${isReady ? T.ok : slot.required ? T.border : T.border}`,
+              background: isMissing ? `${T.danger}0a` : T.surface,
+              border: `1.5px solid ${isReady ? T.ok : isMissing ? T.danger : T.border + '30'}`,
               borderRadius: 12,
               padding: "12px 14px",
               display: "flex",
               alignItems: "center",
               gap: 12,
-              transition: "border-color .2s",
+              transition: "all .3s ease",
             }}
           >
             {/* Step number */}
@@ -3137,8 +3374,8 @@ export const StructuredDocUpload = ({ docs, onAdd, onRemove }) => {
                 width: 26,
                 height: 26,
                 borderRadius: 99,
-                background: isReady ? T.ok : T.border,
-                color: isReady ? "#fff" : T.muted,
+                background: isReady ? T.ok : isMissing ? T.danger : T.border,
+                color: isReady || isMissing ? "#fff" : T.muted,
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "center",
@@ -3158,13 +3395,10 @@ export const StructuredDocUpload = ({ docs, onAdd, onRemove }) => {
                 </span>
                 {slot.required && (
                   <span
-                    style={{ color: T.danger, fontSize: 11, fontWeight: 700 }}
+                    style={{ color: isMissing ? T.danger : T.muted, fontSize: 10, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.05em' }}
                   >
-                    ★ Required
+                    ★ Mandatory
                   </span>
-                )}
-                {!slot.required && (
-                  <span style={{ color: T.muted, fontSize: 11 }}>Optional</span>
                 )}
               </div>
               {isReady ? (
@@ -3172,10 +3406,8 @@ export const StructuredDocUpload = ({ docs, onAdd, onRemove }) => {
                   ✓ Uploaded · {doc.uploaded}
                 </div>
               ) : (
-                <div style={{ color: T.muted, fontSize: 11, marginTop: 2 }}>
-                  {slot.required
-                    ? "Must upload before proceeding"
-                    : "Upload if available"}
+                <div style={{ color: isMissing ? T.danger : T.muted, fontSize: 11, marginTop: 2 }}>
+                  {isMissing ? "⚠ This document is required to continue" : slot.required ? "Must upload before proceeding" : "Upload if available"}
                 </div>
               )}
             </div>
@@ -3309,12 +3541,13 @@ const DocUpload = ({ docs, onAdd, onRemove, label }) => {
     setTimeout(() => setToast(""), 2800);
   };
 
-  const handleFile = (e, source) => {
-    const files = Array.from(e.target.files || []);
-    if (!files.length) return;
-    const ids = files.map(() => uid("DOC"));
+  const handleFile = async (e, source) => {
+    const originalFiles = Array.from(e.target.files || []);
+    if (!originalFiles.length) return;
+    const ids = originalFiles.map(() => uid("DOC"));
     setUploading(ids);
-    files.forEach((file, fi) => {
+    originalFiles.forEach(async (origFile, fi) => {
+      const file = await compressImage(origFile);
       const reader = new FileReader();
       reader.onload = (ev) => {
         const doc = {
@@ -3550,6 +3783,22 @@ const DocUpload = ({ docs, onAdd, onRemove, label }) => {
           ))}
         </div>
       )}
+      <style>{`
+        .pop {
+          animation: popIn 0.35s cubic-bezier(0.16, 1, 0.3, 1) both;
+        }
+        @media(max-width:600px) {
+           .pop { animation: slideUpIn 0.4s cubic-bezier(0.16, 1, 0.3, 1) both; }
+        }
+        @keyframes popIn {
+          from { opacity: 0; transform: scale(0.95) translateY(10px); }
+          to { opacity: 1; transform: scale(1) translateY(0); }
+        }
+        @keyframes slideUpIn {
+          from { opacity: 0; transform: translateY(100%) scale(1); }
+          to { opacity: 1; transform: translateY(0) scale(1); }
+        }
+      `}</style>
       {(!docs || docs.length === 0) && (
         <div
           style={{
@@ -3591,77 +3840,67 @@ export const ValidationPopup = ({ fields, onClose }) => {
     <div
       role="alertdialog"
       aria-modal="true"
-      aria-label="Validation errors — required fields missing"
       style={{
-        position: "fixed",
-        top: 0,
-        left: 0,
-        right: 0,
-        bottom: 0,
-        background: "rgba(4,8,16,0.88)",
+        position: "fixed", top: 0, left: 0, right: 0, bottom: 0,
+        background: "rgba(8,12,20,0.8)",
         zIndex: 9999,
-        display: "flex",
-        alignItems: "flex-start",
-        justifyContent: "center",
-        padding: `${MODAL_TOP_OFFSET + 40}px 12px 12px`,
+        display: "flex", alignItems: "center", justifyContent: "center",
+        padding: 20,
+        backdropFilter: 'blur(10px)',
+        animation: 'vdPop .4s cubic-bezier(0.16, 1, 0.3, 1) forwards'
       }}
       onClick={onClose}
     >
+      <style>{`
+        @keyframes vdPop {
+          from { opacity: 0; }
+          to { opacity: 1; }
+        }
+        @keyframes vdContent {
+          from { opacity: 0; transform: translateY(20px) scale(0.95); }
+          to { opacity: 1; transform: translateY(0) scale(1); }
+        }
+      `}</style>
       <div
-        className="shake pop"
+        className="shake"
         style={{
           background: T.card,
-          border: `2px solid ${T.danger}`,
-          borderRadius: 18,
-          padding: 28,
-          maxWidth: 400,
-          width: "100%",
-          boxShadow: `0 0 40px ${T.danger}40`,
+          border: `1px solid ${T.danger}30`,
+          borderRadius: 24,
+          padding: 30,
+          width: "100%", maxWidth: 440,
+          boxShadow: '0 20px 40px rgba(0,0,0,0.4), inset 0 1px 1px rgba(255,255,255,0.05)',
+          animation: 'vdContent .5s cubic-bezier(0.16, 1, 0.3, 1) forwards',
+          textAlign: 'center'
         }}
         onClick={(e) => e.stopPropagation()}
       >
-        <div style={{ textAlign: "center", marginBottom: 16 }}>
-          <div style={{ fontSize: 36, marginBottom: 8 }}>⚠️</div>
-          <div
-            style={{
-              fontFamily: T.head,
-              color: T.danger,
-              fontSize: 17,
-              fontWeight: 800,
-            }}
-          >
-            Required Fields Missing
-          </div>
-          <div style={{ color: T.muted, fontSize: 13, marginTop: 4 }}>
-            Please fill in all required fields before continuing.
-          </div>
+        <div style={{ 
+          width: 60, height: 60, borderRadius: 30, background: `${T.danger}15`, 
+          display: 'flex', alignItems: 'center', justifyContent: 'center', 
+          margin: '0 auto 20px', color: T.danger 
+        }}>
+          <AlertCircle size={32} />
         </div>
-        <div
-          style={{
-            background: T.dLo,
-            borderRadius: 10,
-            padding: "12px 14px",
-            marginBottom: 16,
-          }}
-        >
-          {fields.map((f) => (
-            <div
-              key={f}
-              style={{
-                color: T.danger,
-                fontSize: 13,
-                padding: "3px 0",
-                display: "flex",
-                alignItems: "center",
-                gap: 7,
-              }}
-            >
-              <span style={{ color: T.danger }}>★</span> {f}
+        <h2 style={{ color: T.txt, fontSize: 20, fontWeight: 800, marginBottom: 8 }}>Incomplete Form</h2>
+        <p style={{ color: T.muted, fontSize: 14, marginBottom: 24, lineHeight: 1.5 }}>
+          Please complete the following mandatory fields before proceeding:
+        </p>
+
+        <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 30, textAlign: 'left' }}>
+          {fields.map((f, i) => (
+            <div key={i} style={{ 
+              display: "flex", alignItems: "center", gap: 10, padding: '10px 14px', 
+              background: `${T.surface}60`, borderRadius: 12, border: `1px solid ${T.border}10`
+            }}>
+              <div style={{ width: 6, height: 6, borderRadius: 3, background: T.danger }} />
+              <div style={{ color: T.txt, fontSize: 13, fontWeight: 600 }}>{f}</div>
             </div>
           ))}
         </div>
-        <Btn onClick={onClose} v="danger" full>
-          OK, I'll fix it
+
+        <Btn onClick={onClose} full v="danger" style={{ padding: '14px', borderRadius: 16 }}>
+          Got it
         </Btn>
       </div>
     </div>
@@ -3672,6 +3911,9 @@ export const ValidationPopup = ({ fields, onClose }) => {
 // ═══════════════════════════════════════════
 const ONBOARD_DRAFT_KEY = "acl_onboard_draft";
 export const OnboardForm = ({ workers, onSave, onClose, prefill, leadId }) => {
+  const vw = typeof window !== "undefined" ? window.innerWidth : 600;
+  const isMobileSize = vw < 600;
+
   const [draftPrompt, setDraftPrompt] = useState(() => {
     try {
       const d = JSON.parse(localStorage.getItem(ONBOARD_DRAFT_KEY) || "null");
@@ -3702,13 +3944,36 @@ export const OnboardForm = ({ workers, onSave, onClose, prefill, leadId }) => {
     n3p: "",
     n3r: "",
     customBusinessType: "",
+    gps: "",
   };
   const [f, setF] = useState(blankF);
   const [docs, setDocs] = useState([]);
   const [step, setStep] = useState(1);
   const [valErr, setValErr] = useState(null);
   const [showVal, setShowVal] = useState(false);
+  const [fetchingGps, setFetchingGps] = useState(false);
   const s = (k) => (v) => setF((p) => ({ ...p, [k]: v }));
+
+  const loadGps = () => {
+    if (!navigator.geolocation) {
+      alert("Geolocation is not supported by your browser");
+      return;
+    }
+    setFetchingGps(true);
+    navigator.geolocation.getCurrentPosition(
+      pos => {
+        const coords = `${pos.coords.latitude.toFixed(6)}, ${pos.coords.longitude.toFixed(6)}`;
+        setF(p => ({ ...p, gps: coords }));
+        setFetchingGps(false);
+        try { SFX.save(); } catch(e) {}
+      },
+      err => {
+        setFetchingGps(false);
+        alert(`Failed to fetch location: ${err.message}`);
+      },
+      { enableHighAccuracy: true, timeout: 10000 }
+    );
+  };
 
   // Autosave draft on every change
   useEffect(() => {
@@ -3749,20 +4014,21 @@ export const OnboardForm = ({ workers, onSave, onClose, prefill, leadId }) => {
   const renderSH = ({ title, icon }) => (
     <div
       style={{
-        color: T.accent,
-        fontSize: 10,
-        fontWeight: 700,
-        letterSpacing: 1,
+        color: T.muted,
+        fontSize: isMobileSize ? 9 : 10,
+        fontWeight: 900,
+        letterSpacing: '0.1em',
         textTransform: "uppercase",
-        margin: "4px 0 10px",
+        margin: isMobileSize ? "8px 0 12px" : "12px 0 16px",
+        paddingBottom: 8,
+        borderBottom: `1px solid ${T.border}15`,
         gridColumn: "span 2",
-        fontFamily: T.head,
         display: "flex",
         alignItems: "center",
-        gap: 6,
+        gap: 8,
       }}
     >
-      <span>{icon}</span>
+      <span style={{ fontSize: isMobileSize ? 12 : 14 }}>{icon}</span>
       {title}
     </div>
   );
@@ -3779,6 +4045,17 @@ export const OnboardForm = ({ workers, onSave, onClose, prefill, leadId }) => {
     const missing = [];
     if (step === 1) {
       if (!f.name) missing.push("Full Name");
+      if (!f.dob) missing.push("Date of Birth");
+      else {
+        const birthDate = new Date(f.dob);
+        const today = new Date();
+        let age = today.getFullYear() - birthDate.getFullYear();
+        const m = today.getMonth() - birthDate.getMonth();
+        if (m < 0 || (m === 0 && today.getDate() < birthDate.getDate())) {
+          age--;
+        }
+        if (age < 18) missing.push("Applicant must be at least 18 years old");
+      }
       if (!f.idNo) missing.push("National ID Number");
       if (!f.phone) missing.push("Primary Phone");
       if (!f.residence) missing.push("Residence");
@@ -3819,14 +4096,14 @@ export const OnboardForm = ({ workers, onSave, onClose, prefill, leadId }) => {
     setStep((s) => Math.min(s + 1, 5));
   };
 
-  const save = () => {
+  const save = async () => {
     const finalData = { ...f };
     if (finalData.businessType === "Other" && finalData.customBusinessType) {
       finalData.businessType = finalData.customBusinessType;
     }
     delete finalData.customBusinessType;
 
-    onSave({
+    return await onSave({
       id: uid("CUS"),
       ...finalData,
       loans: 0,
@@ -3839,15 +4116,31 @@ export const OnboardForm = ({ workers, onSave, onClose, prefill, leadId }) => {
   };
   const [isSaving, setIsSaving] = useState(false);
 
-  const handleSave = () => {
+  const handleSave = async () => {
     if (isSaving) return;
     setIsSaving(true);
-    clearDraft();
-    save();
+    try {
+      const res = await save();
+      if (res !== false) {
+        clearDraft();
+      }
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   return (
-    <div>
+    <div
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' && !e.target.tagName.match(/textarea|button/i)) {
+           e.preventDefault();
+           if (step < 5) next();
+           else if (step === 5 && !isSaving) handleSave();
+        }
+      }}
+    >
       {showVal && valErr && (
         <ValidationPopup fields={valErr} onClose={() => setShowVal(false)} />
       )}
@@ -3855,34 +4148,41 @@ export const OnboardForm = ({ workers, onSave, onClose, prefill, leadId }) => {
       {draftPrompt && (
         <div
           style={{
-            background: T.gLo,
-            border: `1px solid ${T.gold}38`,
-            borderRadius: 12,
-            padding: "14px 16px",
-            marginBottom: 16,
+            background: `${T.gold}10`,
+            border: `1px solid ${T.gold}25`,
+            borderRadius: 16,
+            padding: "16px 18px",
+            marginBottom: 20,
+            backdropFilter: 'blur(10px)',
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            gap: 16
           }}
         >
-          <div
-            style={{
-              color: T.gold,
-              fontWeight: 800,
-              fontSize: 14,
-              marginBottom: 4,
-            }}
-          >
-            📝 Unsaved Draft Found
-          </div>
-          <div style={{ color: T.muted, fontSize: 12, marginBottom: 10 }}>
-            You have an unfinished registration for{" "}
-            <b style={{ color: T.txt }}>{draftPrompt.f?.name || "unknown"}</b>{" "}
-            saved at {draftPrompt.savedAt}. Continue where you left off?
+          <div style={{ flex: 1 }}>
+            <div
+              style={{
+                color: T.gold,
+                fontWeight: 900,
+                fontSize: 12,
+                letterSpacing: '0.05em',
+                textTransform: 'uppercase',
+                marginBottom: 2,
+              }}
+            >
+              📝 Recovery Available
+            </div>
+            <div style={{ color: T.muted, fontSize: 13 }}>
+              Continue registration for <b style={{ color: T.txt }}>{draftPrompt.f?.name || "unknown"}</b>?
+            </div>
           </div>
           <div style={{ display: "flex", gap: 8 }}>
-            <Btn onClick={continueDraft} sm>
-              Continue Draft →
+            <Btn onClick={continueDraft} sm v="accent" style={{ background: T.gold, color: '#000' }}>
+              Resume
             </Btn>
-            <Btn v="secondary" onClick={startFresh} sm>
-              Start Fresh
+            <Btn v="ghost" onClick={startFresh} sm style={{ color: T.muted }}>
+              Discard
             </Btn>
           </div>
         </div>
@@ -3891,11 +4191,14 @@ export const OnboardForm = ({ workers, onSave, onClose, prefill, leadId }) => {
       <div
         style={{
           display: "flex",
-          gap: 0,
-          marginBottom: 20,
-          borderRadius: 10,
-          overflow: "hidden",
-          border: `1px solid ${T.border}`,
+          gap: 12,
+          marginBottom: 28,
+          padding: "6px",
+          borderRadius: 20,
+          background: `${T.surface}60`,
+          backdropFilter: "blur(20px)",
+          border: `1px solid ${T.border}30`,
+          boxShadow: 'inset 0 1px 1px rgba(255,255,255,0.05)',
         }}
       >
         {STEPS.map((st) => (
@@ -3903,27 +4206,32 @@ export const OnboardForm = ({ workers, onSave, onClose, prefill, leadId }) => {
             key={st.n}
             style={{
               flex: 1,
-              padding: "8px 4px",
+              padding: "10px 4px",
               textAlign: "center",
-              background: step >= st.n ? T.aMid : T.surface,
-              borderRight: st.n < 5 ? `1px solid ${T.border}` : "none",
-              transition: "background .2s",
+              background: step === st.n ? T.accent : step > st.n ? `${T.accent}15` : 'transparent',
+              borderRadius: 16,
+              transition: "all .4s cubic-bezier(0.16, 1, 0.3, 1)",
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              gap: 2
             }}
           >
             <div
               style={{
-                color: step > st.n ? T.accent : step === st.n ? T.txt : T.muted,
+                color: step === st.n ? '#fff' : step > st.n ? T.accent : T.muted,
                 fontSize: 10,
-                fontWeight: 800,
+                fontWeight: 900,
               }}
             >
               {step > st.n ? "✓" : st.n}
             </div>
             <div
               style={{
-                color: step >= st.n ? T.accent : T.muted,
+                color: step === st.n ? '#fff' : step > st.n ? T.accent : T.muted,
                 fontSize: 9,
-                marginTop: 2,
+                fontWeight: 700,
+                opacity: step >= st.n ? 1 : 0.6
               }}
             >
               {st.label}
@@ -3932,7 +4240,7 @@ export const OnboardForm = ({ workers, onSave, onClose, prefill, leadId }) => {
         ))}
       </div>
 
-      <div style={{ maxHeight: "55vh", overflowY: "auto", paddingRight: 4 }}>
+      <div style={{ flex: 1, overflowY: "auto", paddingRight: 4, paddingBottom: 24 }}>
         {step === 1 && (
           <div
             className="mob-grid1"
@@ -3942,13 +4250,13 @@ export const OnboardForm = ({ workers, onSave, onClose, prefill, leadId }) => {
               gap: "0 14px",
             }}
           >
-            {renderSH({ title: "Personal Details", icon: "👤" })}
+            {renderSH({ title: "Personal Details", icon: <User size={14} /> })}
             <FI
               label="Full Name"
               value={f.name}
               onChange={s("name")}
               required
-              error={true}
+              error={showVal}
               half
             />
             <FI
@@ -3956,6 +4264,8 @@ export const OnboardForm = ({ workers, onSave, onClose, prefill, leadId }) => {
               value={f.dob}
               onChange={s("dob")}
               type="date"
+              required
+              error={showVal}
               max={new Date(new Date().setFullYear(new Date().getFullYear() - 18)).toISOString().split("T")[0]}
               min={new Date(new Date().setFullYear(new Date().getFullYear() - 100)).toISOString().split("T")[0]}
               half
@@ -3973,6 +4283,7 @@ export const OnboardForm = ({ workers, onSave, onClose, prefill, leadId }) => {
               value={f.idNo}
               onChange={s("idNo")}
               required
+              error={showVal}
               half
               placeholder="e.g. 12345678"
             />
@@ -3981,6 +4292,7 @@ export const OnboardForm = ({ workers, onSave, onClose, prefill, leadId }) => {
               value={f.phone}
               onChange={s("phone")}
               required
+              error={showVal}
               half
             />
             <PhoneInput
@@ -3994,7 +4306,7 @@ export const OnboardForm = ({ workers, onSave, onClose, prefill, leadId }) => {
               value={f.residence}
               onChange={s("residence")}
               required
-              error={true}
+              error={showVal}
               half
             />
           </div>
@@ -4008,13 +4320,13 @@ export const OnboardForm = ({ workers, onSave, onClose, prefill, leadId }) => {
               gap: "0 14px",
             }}
           >
-            {renderSH({ title: "Business Details", icon: "🏪" })}
+            {renderSH({ title: "Business Details", icon: <Briefcase size={14} /> })}
             <FI
               label="Business Name"
               value={f.businessName}
               onChange={s("businessName")}
               required
-              error={true}
+              error={showVal}
               half
             />
             <FI
@@ -4052,17 +4364,40 @@ export const OnboardForm = ({ workers, onSave, onClose, prefill, leadId }) => {
                 onChange={s("customBusinessType")}
                 placeholder="Specify your business..."
                 required
+                error={showVal}
                 half
               />
             )}
-            <FI
-              label="Business Location"
-              value={f.businessLocation}
-              onChange={s("businessLocation")}
-              required
-              error={true}
-              half
-            />
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6, gridColumn: 'span 1' }}>
+              <FI
+                label="Business Location"
+                value={f.businessLocation}
+                onChange={s("businessLocation")}
+                required
+                error={showVal}
+              />
+              <div 
+                onClick={(e) => {
+                  if (fetchingGps) return;
+                  if (f.gps) {
+                    window.open(`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(f.gps.replace(' ', ''))}`, '_blank');
+                  } else {
+                    loadGps();
+                  }
+                }} 
+                style={{ 
+                  display: 'inline-flex', alignItems: 'center', gap: 8, padding: '10px 16px', 
+                  borderRadius: 99, background: f.gps ? `linear-gradient(135deg, ${T.ok} 0%, #00a884 100%)` : T.cardHi || T.surface,
+                  color: f.gps ? '#000' : T.txt, fontSize: 13, fontWeight: 800, 
+                  cursor: fetchingGps ? 'wait' : 'pointer', border: `1px solid ${f.gps ? 'transparent' : T.border}`,
+                  boxShadow: f.gps ? `0 6px 16px ${T.ok}40` : '0 2px 8px rgba(0,0,0,0.05)',
+                  transition: 'all 0.3s cubic-bezier(0.2, 0.8, 0.2, 1)', alignSelf: 'flex-start'
+                }}
+              >
+                <MapPin size={16} /> 
+                {fetchingGps ? "Acquiring satellite lock..." : f.gps ? "✓ View Pinned Map" : "Tag GPS Location"}
+              </div>
+            </div>
             <FI
               label="Assigned Officer"
               value={f.officer}
@@ -4072,7 +4407,7 @@ export const OnboardForm = ({ workers, onSave, onClose, prefill, leadId }) => {
                 .filter((w) => w.status === "Active")
                 .map((w) => w.name)}
               required
-              error={true}
+              error={showVal}
               half
             />
           </div>
@@ -4086,7 +4421,7 @@ export const OnboardForm = ({ workers, onSave, onClose, prefill, leadId }) => {
               gap: "0 14px",
             }}
           >
-            {renderSH({ title: "Next of Kin — 1 required", icon: "👨‍👩‍👧" })}
+            {renderSH({ title: "Next of Kin — 1 required", icon: <Users size={14} /> })}
             {[
               [1, "n1n", "n1p", "n1r"],
               [2, "n2n", "n2p", "n2r"],
@@ -4098,7 +4433,7 @@ export const OnboardForm = ({ workers, onSave, onClose, prefill, leadId }) => {
                 value={f[nk]}
                 onChange={s(nk)}
                 required
-                error={true}
+                error={showVal}
                 half
               />,
               <PhoneInput
@@ -4107,6 +4442,7 @@ export const OnboardForm = ({ workers, onSave, onClose, prefill, leadId }) => {
                 value={f[pk]}
                 onChange={s(pk)}
                 required
+                error={showVal}
                 half
               />,
               <FI
@@ -4125,7 +4461,7 @@ export const OnboardForm = ({ workers, onSave, onClose, prefill, leadId }) => {
                   "Colleague",
                 ]}
                 required
-                error={true}
+                error={showVal}
                 half
               />,
               <div
@@ -4186,7 +4522,7 @@ export const OnboardForm = ({ workers, onSave, onClose, prefill, leadId }) => {
                 ["Residence", f.residence],
                 ["Business", f.businessName],
                 ["Business Type", f.businessType],
-                ["Bus. Location", f.businessLocation],
+                ["Bus. Location", `${f.businessLocation}${f.gps ? ` (${f.gps})` : ''}`],
                 ["Officer", f.officer],
                 ["NOK 1", `${f.n1n} · ${f.n1p}`],
                 ["NOK 2", `${f.n2n} · ${f.n2p}`],
@@ -4225,28 +4561,28 @@ export const OnboardForm = ({ workers, onSave, onClose, prefill, leadId }) => {
       <div
         style={{
           display: "flex",
-          gap: 9,
-          marginTop: 14,
-          paddingTop: 12,
-          borderTop: `1px solid ${T.border}`,
+          gap: 10,
+          marginTop: 20,
+          paddingTop: 16,
+          borderTop: `1px solid ${T.border}20`,
         }}
       >
         {step > 1 && (
-          <Btn v="secondary" onClick={() => setStep((s) => s - 1)}>
+          <Btn v="secondary" onClick={() => setStep((s) => s - 1)} style={{ background: `${T.surface}80`, backdropFilter: 'blur(10px)' }}>
             ← Back
           </Btn>
         )}
         {step < 5 && (
-          <Btn onClick={next} full>
-            Next →
+          <Btn onClick={next} full v="accent" style={{ borderRadius: 14 }}>
+            Continue →
           </Btn>
         )}
         {step === 5 && (
-          <Btn onClick={handleSave} full>
-            💾 Save Customer
+          <Btn disabled={isSaving} onClick={handleSave} full v="ok" style={{ borderRadius: 14, opacity: isSaving ? 0.7 : 1 }}>
+            {isSaving ? "⏳ Saving Profile..." : "💾 Complete Registration"}
           </Btn>
         )}
-        <Btn v="ghost" onClick={onClose}>
+        <Btn v="ghost" onClick={onClose} style={{ color: T.muted }}>
           Cancel
         </Btn>
       </div>
@@ -4266,10 +4602,58 @@ export const LoanForm = ({
   workerMode,
   workerName,
 }) => {
+  const LOAN_DRAFT_KEY = "acl_loan_draft";
+  const [draftPrompt, setDraftPrompt] = useState(() => {
+    try {
+      const d = JSON.parse(localStorage.getItem(LOAN_DRAFT_KEY) || "null");
+      return d && d.f?.cid ? d : null;
+    } catch (e) {
+      return null;
+    }
+  });
+
   const [f, setF] = useState({ cid: "", repayType: "Monthly", amount: 5000 });
   const [showVal, setShowVal] = useState(false);
   const [custSearch, setCustSearch] = useState("");
   const [showCustDrop, setShowCustDrop] = useState(false);
+  
+  // Autosave draft
+  useEffect(() => {
+    try {
+      if (f.cid || f.amount !== 5000) {
+        localStorage.setItem(
+          LOAN_DRAFT_KEY,
+          JSON.stringify({
+            f,
+            custSearch,
+            savedAt: new Date().toLocaleTimeString("en-KE"),
+          })
+        );
+      }
+    } catch (e) {}
+  }, [f, custSearch]);
+
+  const clearDraft = () => {
+    try {
+      localStorage.removeItem(LOAN_DRAFT_KEY);
+    } catch (e) {}
+  };
+
+  const continueDraft = () => {
+    if (draftPrompt) {
+      setF(draftPrompt.f);
+      if (draftPrompt.custSearch) setCustSearch(draftPrompt.custSearch);
+    }
+    setDraftPrompt(null);
+  };
+
+  const startFresh = () => {
+    setF({ cid: "", repayType: "Monthly", amount: 5000 });
+    setCustSearch("");
+    clearDraft();
+    setDraftPrompt(null);
+  };
+
   const s = (k) => (v) => setF((p) => ({ ...p, [k]: v }));
   const cust = customers.find((c) => c.id === f.cid);
   const interest = Math.round(Number(f.amount || 0) * 0.3);
@@ -4369,21 +4753,16 @@ export const LoanForm = ({
     return [];
   };
 
-  const save = () => {
+  const save = async () => {
     if (!f.cid || Number(f.amount) < 500) {
       setShowVal(true);
-      return;
+      return false;
     }
     if (!selectedEligibility.eligible) {
-      showToast(
-        "⚠ This customer is not eligible for a new loan: " +
-          selectedEligibility.reasons.join("; "),
-        "danger",
-      );
-      return;
+      return false;
     }
     const status = workerMode ? "worker-pending" : "Application submitted";
-    onSave({
+    return await onSave({
       id: uid("LN"),
       customerId: f.cid,
       customer: cust.name,
@@ -4401,8 +4780,67 @@ export const LoanForm = ({
     });
   };
 
+  const [isSaving, setIsSaving] = useState(false);
+  const handleSave = async () => {
+    if (isSaving) return;
+    setIsSaving(true);
+    try {
+      const res = await save();
+      if (res !== false) {
+        clearDraft();
+      }
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
   return (
     <div>
+      {draftPrompt && (
+        <div
+          style={{
+            background: `${T.gold}10`,
+            border: `1px solid ${T.gold}25`,
+            borderRadius: 16,
+            padding: "16px 18px",
+            marginBottom: 20,
+            backdropFilter: 'blur(10px)',
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            gap: 16
+          }}
+        >
+          <div style={{ flex: 1 }}>
+            <div
+              style={{
+                color: T.gold,
+                fontWeight: 900,
+                fontSize: 12,
+                letterSpacing: '0.05em',
+                textTransform: 'uppercase',
+                marginBottom: 2,
+              }}
+            >
+              📝 Recovery Available
+            </div>
+            <div style={{ color: T.muted, fontSize: 13 }}>
+              Continue draft loan for <b style={{ color: T.txt }}>{customers.find(c => c.id === draftPrompt.f.cid)?.name || draftPrompt.f.cid}</b>?
+            </div>
+          </div>
+          <div style={{ display: "flex", gap: 8 }}>
+            <Btn onClick={continueDraft} sm v="accent" style={{ background: T.gold, color: '#000' }}>
+              Resume
+            </Btn>
+            <Btn v="ghost" onClick={startFresh} sm style={{ color: T.muted }}>
+              Discard
+            </Btn>
+          </div>
+        </div>
+      )}
+
       {showVal && (
         <ValidationPopup
           fields={["Customer selection", "Loan amount (min KES 500)"]}
@@ -4771,7 +5209,7 @@ export const LoanForm = ({
         </div>
       )}
       <div style={{ display: "flex", gap: 9 }}>
-        <Btn onClick={save} full disabled={!selectedEligibility.eligible}>
+        <Btn onClick={handleSave} full disabled={!selectedEligibility.eligible}>
           {workerMode ? "Submit for Admin Approval →" : "Submit Application"}
         </Btn>
         <Btn v="secondary" onClick={onClose}>
@@ -5062,14 +5500,30 @@ const ReminderCard = ({ r, onClick, onDone, onRemove }) => {
 
 export const RemindersPanel = ({
   reminders,
+  unallocatedCount = 0,
+  loans = [],
+  customers = [],
+  payments = [],
   onAdd,
   onDone,
   onRemove,
   onUpdate,
   onClose,
+  onAction,
 }) => {
+  const [tab, setTab] = useState('alerts');
   const [showNew, setShowNew] = useState(false);
-  const [sel, setSel] = useState(null); // reading/editing a reminder
+  const [sel, setSel] = useState(null);
+  const [dismissed, setDismissed] = useState(() => {
+    try { return JSON.parse(localStorage.getItem('lms_dismissed_alerts') || '[]'); } catch { return []; }
+  });
+  const dismissAlert = (id) => {
+    setDismissed(prev => {
+      const next = [...prev, id];
+      localStorage.setItem('lms_dismissed_alerts', JSON.stringify(next.slice(-500)));
+      return next;
+    });
+  };
   const [f, setF] = useState({
     title: "",
     note: "",
@@ -5085,13 +5539,7 @@ export const RemindersPanel = ({
     onAdd(rem);
     SFX.save();
     setShowNew(false);
-    setF({
-      title: "",
-      note: "",
-      dueDate: now(),
-      dueTime: "09:00",
-      priority: "Medium",
-    });
+    setF({ title: "", note: "", dueDate: now(), dueTime: "09:00", priority: "Medium" });
   };
 
   const saveEdit = () => {
@@ -5102,295 +5550,398 @@ export const RemindersPanel = ({
   };
 
   const active = useMemo(
-    () =>
-      reminders
-        .filter((r) => !r.done)
-        .sort(
-          (a, b) =>
-            new Date(a.dueDate + "T" + a.dueTime) -
-            new Date(b.dueDate + "T" + b.dueTime),
-        ),
+    () => reminders.filter((r) => !r.done).sort(
+      (a, b) => new Date(a.dueDate + "T" + a.dueTime) - new Date(b.dueDate + "T" + b.dueTime)
+    ),
     [reminders],
   );
   const completed = useMemo(() => reminders.filter((r) => r.done), [reminders]);
 
+  // ── System Alerts — auto-generated from business data ──
+  const systemAlerts = useMemo(() => {
+    const alerts = [];
+    const today = new Date();
+    const todayStr = today.toISOString().split('T')[0];
+    const msInDay = 1000 * 60 * 60 * 24;
+
+    // Helper – calculate days since a date string
+    const daysSince = (dateStr) => {
+      if (!dateStr) return Infinity;
+      const d = new Date(dateStr);
+      return isNaN(d.getTime()) ? Infinity : Math.floor((today - d) / msInDay);
+    };
+
+    // Helper – build date for a payment
+    const payDate = (p) => p.date || p.created_at || p.createdAt || '';
+
+    // 1. Recent payments (last 3 days)
+    payments.forEach(p => {
+      if (p.status === 'Unallocated') return; // handled by unallocated banner
+      const ds = daysSince(payDate(p));
+      if (ds <= 3 && p.amount > 0) {
+        const isRegFee = p.isRegFee === true || (typeof p.note === 'string' && (p.note.toLowerCase().includes('registration') || p.note.toLowerCase().includes('reg fee')));
+        if (isRegFee) {
+          const cust = customers.find(c => c.id === p.customerId);
+          alerts.push({
+            id: `reg-${p.id}`,
+            type: 'reg_fee',
+            icon: '🔑',
+            color: T.gold,
+            title: `Registration Fee Paid`,
+            detail: `${cust?.name || 'Customer'} paid KES ${fmt(p.amount)}`,
+            date: payDate(p),
+            action: 'paymentshub',
+            actionParams: { tab: 'registration-fee' },
+            priority: 1
+          });
+        } else if (p.loanId && p.status === 'Allocated') {
+          const cust = customers.find(c => c.id === p.customerId || c.name === p.customer);
+          alerts.push({
+            id: `pay-${p.id}`,
+            type: 'payment',
+            icon: '💰',
+            color: T.ok,
+            title: `Payment Received`,
+            detail: `KES ${fmt(p.amount)} from ${cust?.name || p.customer || 'Customer'} → Loan ${p.loanId}`,
+            date: payDate(p),
+            action: 'payments',
+            actionParams: null,
+            priority: 2
+          });
+        }
+      }
+    });
+
+    // 2. Recently disbursed loans (last 3 days)
+    loans.forEach(l => {
+      const dbs = l.disbursed || l.disbursed_at || l.disbursedAt;
+      if (dbs && daysSince(dbs) <= 3 && ['Active', 'Overdue'].includes(l.status)) {
+        alerts.push({
+          id: `disb-${l.id}`,
+          type: 'disbursement',
+          icon: '🏦',
+          color: T.blue,
+          title: `Loan Disbursed`,
+          detail: `KES ${fmt(l.amount)} disbursed to ${l.customer}`,
+          date: dbs,
+          action: 'paymentshub',
+          actionParams: { tab: 'disbursements' },
+          priority: 1
+        });
+      }
+    });
+
+    // 3. Loans about to be due (within 5 days)
+    loans.forEach(l => {
+      const dbs = l.disbursed || l.disbursed_at || l.disbursedAt;
+      if (!dbs || l.status !== 'Active') return;
+      const dueDate = new Date(dbs);
+      dueDate.setDate(dueDate.getDate() + 30);
+      const daysUntilDue = Math.floor((dueDate - today) / msInDay);
+      if (daysUntilDue >= 0 && daysUntilDue <= 5) {
+        alerts.push({
+          id: `due-soon-${l.id}`,
+          type: 'due_soon',
+          icon: '⏰',
+          color: T.warn,
+          title: daysUntilDue === 0 ? `Loan Due Today` : `Loan Due in ${daysUntilDue}d`,
+          detail: `${l.customer} · KES ${fmt(l.amount)} · Loan ${l.id}`,
+          date: dueDate.toISOString(),
+          action: 'collections',
+          actionParams: null,
+          priority: 0
+        });
+      }
+    });
+
+    // 4. Loans that became overdue (currently overdue, within first 7 days of being overdue)
+    loans.forEach(l => {
+      if (!['Overdue'].includes(l.status)) return;
+      const od = l.daysOverdue || 0;
+      if (od > 0 && od <= 7) {
+        alerts.push({
+          id: `overdue-${l.id}`,
+          type: 'overdue',
+          icon: '🚨',
+          color: T.danger,
+          title: `Loan Now Overdue`,
+          detail: `${l.customer} · ${od} day${od > 1 ? 's' : ''} overdue · KES ${fmt(l.amount)}`,
+          date: todayStr,
+          action: 'collections',
+          actionParams: null,
+          priority: 0
+        });
+      }
+    });
+
+    // 5. Recently settled loans (last 7 days) — status is Settled
+    loans.forEach(l => {
+      if (l.status !== 'Settled') return;
+      // Approximate settled date from last payment
+      const loanPayments = payments.filter(p => p.loanId === l.id && p.status === 'Allocated');
+      const lastPay = loanPayments.sort((a, b) => new Date(payDate(b)) - new Date(payDate(a)))[0];
+      if (lastPay && daysSince(payDate(lastPay)) <= 7) {
+        alerts.push({
+          id: `settled-${l.id}`,
+          type: 'settled',
+          icon: '✅',
+          color: T.ok,
+          title: `Loan Settled`,
+          detail: `${l.customer} fully paid off Loan ${l.id}`,
+          date: payDate(lastPay),
+          action: 'loans',
+          actionParams: null,
+          priority: 1
+        });
+      }
+    });
+
+    // 6. New customers (last 3 days)
+    customers.forEach(c => {
+      const cDate = c.created_at || c.createdAt || c.joinDate || '';
+      if (cDate && daysSince(cDate) <= 3) {
+        alerts.push({
+          id: `new-cust-${c.id}`,
+          type: 'new_customer',
+          icon: '👤',
+          color: T.accent,
+          title: `New Customer Registered`,
+          detail: `${c.name} · ${c.phone || 'No phone'}`,
+          date: cDate,
+          action: 'customers',
+          actionParams: null,
+          priority: 2
+        });
+      }
+    });
+
+    // Sort by priority (lower = more urgent), then by date desc
+    alerts.sort((a, b) => a.priority - b.priority || new Date(b.date) - new Date(a.date));
+    return alerts;
+  }, [loans, customers, payments]);
+
+  const visibleAlerts = useMemo(() => systemAlerts.filter(a => !dismissed.includes(a.id)), [systemAlerts, dismissed]);
+
+  const NOTIF_ICONS = { reg_fee: '🔑', payment: '💰', disbursement: '🏦', due_soon: '⏰', overdue: '🚨', settled: '✅', new_customer: '👤' };
+  const TAB_STYLE = (isActive) => ({
+    flex: 1, padding: '10px 0', textAlign: 'center', fontSize: 12, fontWeight: 800,
+    letterSpacing: 0.5, textTransform: 'uppercase', cursor: 'pointer',
+    color: isActive ? T.accent : T.muted,
+    background: 'none',
+    borderTop: 'none',
+    borderLeft: 'none',
+    borderRight: 'none',
+    borderBottom: `2.5px solid ${isActive ? T.accent : 'transparent'}`,
+    transition: 'all 0.2s'
+  });
+
   return (
     <Panel
-      title="Reminders"
-      subtitle={`${active.length} active · ${completed.length} completed`}
+      title="Notifications"
+      subtitle={`${visibleAlerts.length} alerts · ${active.length} reminders`}
       onClose={onClose}
       width={480}
     >
-      <div style={{ marginBottom: 14 }}>
-        <Btn full onClick={() => setShowNew((s) => !s)}>
-          + New Reminder
-        </Btn>
+      {/* Tab bar */}
+      <div style={{ display: 'flex', borderBottom: `1px solid ${T.border}`, marginBottom: 16, gap: 0 }}>
+        <button onClick={() => setTab('alerts')} style={TAB_STYLE(tab === 'alerts')}>
+          🔔 System Alerts {visibleAlerts.length > 0 && <span style={{ background: T.danger, color: '#fff', borderRadius: 99, padding: '1px 6px', fontSize: 9, fontWeight: 900, marginLeft: 6 }}>{visibleAlerts.length}</span>}
+        </button>
+        <button onClick={() => setTab('reminders')} style={TAB_STYLE(tab === 'reminders')}>
+          📌 My Reminders {active.length > 0 && <span style={{ background: T.accent, color: '#000', borderRadius: 99, padding: '1px 6px', fontSize: 9, fontWeight: 900, marginLeft: 6 }}>{active.length}</span>}
+        </button>
       </div>
 
-      {showNew && (
-        <div
-          style={{
-            background: T.card2,
-            border: `1px solid ${T.border}`,
-            borderRadius: 14,
-            padding: "16px 16px",
-            marginBottom: 18,
-          }}
-        >
-          <div
-            style={{
-              color: T.txt,
-              fontWeight: 700,
-              fontSize: 13,
-              marginBottom: 12,
-            }}
-          >
-            New Reminder
-          </div>
-          <FI
-            label="Title"
-            value={f.title}
-            onChange={s("title")}
-            required
-            placeholder="e.g. Call Peter about overdue loan"
-          />
-          <FI
-            label="Notes"
-            type="textarea"
-            value={f.note}
-            onChange={s("note")}
-            placeholder="Add details, context, or instructions…"
-          />
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: "1fr 1fr",
-              gap: "0 14px",
-            }}
-          >
-            <FI
-              label="Date"
-              type="date"
-              value={f.dueDate}
-              onChange={s("dueDate")}
-              half
-            />
-            <FI
-              label="Time"
-              type="time"
-              value={f.dueTime}
-              onChange={s("dueTime")}
-              half
-            />
-          </div>
-          <FI
-            label="Priority"
-            type="select"
-            options={["High", "Medium", "Low"]}
-            value={f.priority}
-            onChange={s("priority")}
-          />
-          <div style={{ display: "flex", gap: 9 }}>
-            <Btn full onClick={save}>
-              Save Reminder
-            </Btn>
-            <Btn v="secondary" onClick={() => setShowNew(false)}>
-              Cancel
-            </Btn>
-          </div>
-        </div>
-      )}
-
-      {/* Read / Edit modal */}
-      {sel && (
-        <div
-          className="dialog-backdrop"
-          style={{
-            position: "fixed",
-            top: 0,
-            left: 0,
-            right: 0,
-            bottom: 0,
-            zIndex: 9999,
-            display: "flex",
-            alignItems: "flex-start",
-            justifyContent: "center",
-            paddingTop: MODAL_TOP_OFFSET + 30,
-            paddingLeft: 20,
-            paddingRight: 20,
-            background: "rgba(4,8,16,0.7)",
-            backdropFilter: "var(--glass-blur)",
-            overflow: "hidden",
-          }}
-        >
-          <div
-            className="pop"
-            style={{
-              background: T.card,
-              border: `1px solid ${T.hi}`,
-              borderRadius: 20,
-              width: "100%",
-              maxWidth: 440,
-              maxHeight: "90vh",
-              display: "flex",
-              flexDirection: "column",
-              boxShadow: "0 40px 80px #000000D0",
-            }}
-          >
-            <div
+      {/* ═══ System Alerts Tab ═══ */}
+      {tab === 'alerts' && (
+        <div>
+          {/* Unallocated Payments banner */}
+          {unallocatedCount > 0 && (
+            <div 
+              onClick={() => { onAction && onAction('paymentshub', { tab: 'paybill' }); onClose(); }}
               style={{
-                display: "flex",
-                justifyContent: "space-between",
-                alignItems: "center",
-                padding: "18px 22px 14px",
-                borderBottom: `1px solid ${T.border}`,
-                flexShrink: 0,
+                background: `linear-gradient(135deg, ${T.warn}1a 0%, ${T.warn}05 100%)`,
+                border: `1px solid ${T.warn}40`,
+                borderRadius: 16, padding: '16px 18px', marginBottom: 12,
+                display: 'flex', alignItems: 'center', gap: 14,
+                cursor: 'pointer', transition: 'transform 0.2s',
               }}
+              onMouseEnter={e => e.currentTarget.style.transform = 'translateY(-2px)'}
+              onMouseLeave={e => e.currentTarget.style.transform = 'translateY(0)'}
             >
-              <div
-                style={{
-                  color: T.txt,
-                  fontWeight: 800,
-                  fontSize: 15,
-                  fontFamily: T.head,
-                }}
-              >
-                Edit Reminder
+              <div style={{
+                width: 44, height: 44, borderRadius: 12, background: T.warn,
+                display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff'
+              }}>
+                <CreditCard size={22} />
               </div>
-              <button
-                onClick={() => {
-                  setSel(null);
-                }}
-                style={{
-                  background: T.card2,
-                  border: `1px solid ${T.border}`,
-                  color: T.muted,
-                  borderRadius: 99,
-                  width: 28,
-                  height: 28,
-                  cursor: "pointer",
-                  fontSize: 13,
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                }}
-              >
-                ✕
-              </button>
+              <div style={{ flex: 1 }}>
+                <div style={{ color: T.txt, fontWeight: 800, fontSize: 14 }}>Unallocated Payments</div>
+                <div style={{ color: T.muted, fontSize: 12, marginTop: 2 }}>
+                  <span style={{ color: T.warn, fontWeight: 800 }}>{unallocatedCount}</span> M-Pesa records waiting to be assigned.
+                </div>
+              </div>
+              <div style={{ color: T.warn }}><ArrowRight size={20} /></div>
             </div>
-            <div style={{ flex: 1, overflowY: "auto", padding: "18px 22px" }}>
-              <FI
-                label="Title"
-                value={sel.title}
-                onChange={(v) => setSel((s) => ({ ...s, title: v }))}
-                required
-              />
-              <FI
-                label="Notes"
-                type="textarea"
-                value={sel.note || ""}
-                onChange={(v) => setSel((s) => ({ ...s, note: v }))}
-                placeholder="Notes…"
-              />
+          )}
+
+          {/* Alert cards */}
+          <div style={{ maxHeight: '55vh', overflowY: 'auto', overflowX: 'hidden' }}>
+            {visibleAlerts.length === 0 && unallocatedCount === 0 && (
+              <div style={{ color: T.muted, textAlign: 'center', padding: '40px 0', fontSize: 13 }}>
+                <div style={{ fontSize: 32, marginBottom: 10, opacity: 0.4 }}>🔔</div>
+                No new system alerts
+              </div>
+            )}
+            {visibleAlerts.map(alert => (
               <div
+                key={alert.id}
+                onClick={() => { if (alert.action && onAction) { onAction(alert.action, alert.actionParams || undefined); onClose(); } }}
                 style={{
-                  display: "grid",
-                  gridTemplateColumns: "1fr 1fr",
-                  gap: "0 14px",
+                  background: T.card2, border: `1px solid ${T.border}`,
+                  borderLeft: `3px solid ${alert.color}`,
+                  borderRadius: 12, padding: '14px 16px', marginBottom: 8,
+                  cursor: alert.action ? 'pointer' : 'default',
+                  transition: 'all 0.2s', position: 'relative',
                 }}
+                onMouseEnter={e => { e.currentTarget.style.background = `${alert.color}08`; e.currentTarget.style.borderColor = `${alert.color}40`; }}
+                onMouseLeave={e => { e.currentTarget.style.background = T.card2; e.currentTarget.style.borderColor = T.border; }}
               >
-                <FI
-                  label="Date"
-                  type="date"
-                  value={sel.dueDate}
-                  onChange={(v) => setSel((s) => ({ ...s, dueDate: v }))}
-                  half
-                />
-                <FI
-                  label="Time"
-                  type="time"
-                  value={sel.dueTime}
-                  onChange={(v) => setSel((s) => ({ ...s, dueTime: v }))}
-                  half
-                />
+                <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12 }}>
+                  <div style={{
+                    width: 36, height: 36, borderRadius: 10,
+                    background: `${alert.color}18`,
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    fontSize: 18, flexShrink: 0
+                  }}>
+                    {alert.icon}
+                  </div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+                      <div style={{ color: T.txt, fontWeight: 800, fontSize: 13 }}>{alert.title}</div>
+                      <button
+                        onClick={(e) => { e.stopPropagation(); dismissAlert(alert.id); }}
+                        style={{
+                          background: 'none', border: 'none', color: T.dim, cursor: 'pointer',
+                          fontSize: 11, fontWeight: 600, padding: '2px 6px', borderRadius: 6,
+                          flexShrink: 0, opacity: 0.5, transition: 'opacity 0.2s'
+                        }}
+                        onMouseEnter={e => e.currentTarget.style.opacity = '1'}
+                        onMouseLeave={e => e.currentTarget.style.opacity = '0.5'}
+                        title="Dismiss"
+                      >✕</button>
+                    </div>
+                    <div style={{ color: T.dim, fontSize: 12, marginTop: 3, lineHeight: 1.4 }}>{alert.detail}</div>
+                    <div style={{ color: T.muted, fontSize: 10, marginTop: 4, fontFamily: T.mono }}>
+                      {alert.date ? new Date(alert.date).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : ''}
+                    </div>
+                  </div>
+                </div>
               </div>
-              <FI
-                label="Priority"
-                type="select"
-                options={["High", "Medium", "Low"]}
-                value={sel.priority}
-                onChange={(v) => setSel((s) => ({ ...s, priority: v }))}
-              />
-              <div style={{ display: "flex", gap: 9 }}>
-                <Btn full onClick={saveEdit}>
-                  Save Changes
-                </Btn>
-                <Btn v="secondary" onClick={() => setSel(null)}>
-                  Cancel
-                </Btn>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {active.length === 0 && (
-        <div
-          style={{
-            color: T.muted,
-            textAlign: "center",
-            padding: "24px 0",
-            fontSize: 13,
-          }}
-        >
-          No active reminders
-        </div>
-      )}
-      <div
-        style={{ maxHeight: "40vh", overflowY: "auto", overflowX: "hidden" }}
-      >
-        {active.map((r) => (
-          <ReminderCard
-            key={r.id}
-            r={r}
-            onClick={() => setSel({ ...r })}
-            onDone={onDone}
-            onRemove={onRemove}
-          />
-        ))}
-      </div>
-
-      {completed.length > 0 && (
-        <div style={{ marginTop: 20 }}>
-          <div
-            style={{
-              color: T.muted,
-              fontSize: 11,
-              fontWeight: 700,
-              letterSpacing: 0.8,
-              textTransform: "uppercase",
-              marginBottom: 10,
-            }}
-          >
-            Completed ({completed.length})
-          </div>
-          <div
-            style={{
-              maxHeight: "40vh",
-              overflowY: "auto",
-              overflowX: "hidden",
-            }}
-          >
-            {completed.map((r) => (
-              <ReminderCard
-                key={r.id}
-                r={r}
-                onClick={() => setSel({ ...r })}
-                onDone={onDone}
-                onRemove={onRemove}
-              />
             ))}
           </div>
+
+          {/* Clear all dismissed */}
+          {dismissed.length > 0 && (
+            <div style={{ textAlign: 'center', marginTop: 12 }}>
+              <button
+                onClick={() => { setDismissed([]); localStorage.removeItem('lms_dismissed_alerts'); }}
+                style={{
+                  background: 'none', border: `1px dashed ${T.border}`, color: T.dim,
+                  borderRadius: 8, padding: '6px 14px', fontSize: 11, fontWeight: 600, cursor: 'pointer'
+                }}
+              >
+                Restore {dismissed.length} dismissed alert{dismissed.length > 1 ? 's' : ''}
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ═══ My Reminders Tab ═══ */}
+      {tab === 'reminders' && (
+        <div>
+          <div style={{ marginBottom: 14 }}>
+            <Btn full onClick={() => setShowNew((s) => !s)} v="secondary">
+              + New Personal Reminder
+            </Btn>
+          </div>
+
+          {showNew && (
+            <div style={{ background: T.card2, border: `1px solid ${T.border}`, borderRadius: 14, padding: "16px 16px", marginBottom: 18 }}>
+              <div style={{ color: T.txt, fontWeight: 700, fontSize: 13, marginBottom: 12 }}>New Reminder</div>
+              <FI label="Title" value={f.title} onChange={s("title")} required placeholder="e.g. Call Peter about overdue loan" />
+              <FI label="Notes" type="textarea" value={f.note} onChange={s("note")} placeholder="Add details, context, or instructions…" />
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0 14px" }}>
+                <FI label="Date" type="date" value={f.dueDate} onChange={s("dueDate")} half />
+                <FI label="Time" type="time" value={f.dueTime} onChange={s("dueTime")} half />
+              </div>
+              <FI label="Priority" type="select" options={["High", "Medium", "Low"]} value={f.priority} onChange={s("priority")} />
+              <div style={{ display: "flex", gap: 9 }}>
+                <Btn full onClick={save}>Save Reminder</Btn>
+                <Btn v="secondary" onClick={() => setShowNew(false)}>Cancel</Btn>
+              </div>
+            </div>
+          )}
+
+          {/* Read / Edit modal */}
+          {sel && (
+            <div className="dialog-backdrop" style={{
+              position: "fixed", top: 0, left: 0, right: 0, bottom: 0, zIndex: 9999,
+              display: "flex", alignItems: "flex-start", justifyContent: "center",
+              paddingTop: MODAL_TOP_OFFSET + 30, paddingLeft: 20, paddingRight: 20,
+              background: "rgba(4,8,16,0.7)", backdropFilter: "var(--glass-blur)", overflow: "hidden",
+            }}>
+              <div className="pop" style={{
+                background: T.card, border: `1px solid ${T.hi}`, borderRadius: 20,
+                width: "100%", maxWidth: 440, maxHeight: "90vh",
+                display: "flex", flexDirection: "column", boxShadow: "0 40px 80px #000000D0",
+              }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "18px 22px 14px", borderBottom: `1px solid ${T.border}`, flexShrink: 0 }}>
+                  <div style={{ color: T.txt, fontWeight: 800, fontSize: 15, fontFamily: T.head }}>Edit Reminder</div>
+                  <button onClick={() => setSel(null)} style={{ background: T.card2, border: `1px solid ${T.border}`, color: T.muted, borderRadius: 99, width: 28, height: 28, cursor: "pointer", fontSize: 13, display: "flex", alignItems: "center", justifyContent: "center" }}>✕</button>
+                </div>
+                <div style={{ flex: 1, overflowY: "auto", padding: "18px 22px" }}>
+                  <FI label="Title" value={sel.title} onChange={(v) => setSel((s) => ({ ...s, title: v }))} required />
+                  <FI label="Notes" type="textarea" value={sel.note || ""} onChange={(v) => setSel((s) => ({ ...s, note: v }))} placeholder="Notes…" />
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0 14px" }}>
+                    <FI label="Date" type="date" value={sel.dueDate} onChange={(v) => setSel((s) => ({ ...s, dueDate: v }))} half />
+                    <FI label="Time" type="time" value={sel.dueTime} onChange={(v) => setSel((s) => ({ ...s, dueTime: v }))} half />
+                  </div>
+                  <FI label="Priority" type="select" options={["High", "Medium", "Low"]} value={sel.priority} onChange={(v) => setSel((s) => ({ ...s, priority: v }))} />
+                  <div style={{ display: "flex", gap: 9 }}>
+                    <Btn full onClick={saveEdit}>Save Changes</Btn>
+                    <Btn v="secondary" onClick={() => setSel(null)}>Cancel</Btn>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {active.length === 0 && (
+            <div style={{ color: T.muted, textAlign: "center", padding: "24px 0", fontSize: 13 }}>
+              <div style={{ fontSize: 32, marginBottom: 10, opacity: 0.4 }}>📌</div>
+              No active reminders
+            </div>
+          )}
+          <div style={{ maxHeight: "40vh", overflowY: "auto", overflowX: "hidden" }}>
+            {active.map((r) => (
+              <ReminderCard key={r.id} r={r} onClick={() => setSel({ ...r })} onDone={onDone} onRemove={onRemove} />
+            ))}
+          </div>
+
+          {completed.length > 0 && (
+            <div style={{ marginTop: 20 }}>
+              <div style={{ color: T.muted, fontSize: 11, fontWeight: 700, letterSpacing: 0.8, textTransform: "uppercase", marginBottom: 10 }}>
+                Completed ({completed.length})
+              </div>
+              <div style={{ maxHeight: "40vh", overflowY: "auto", overflowX: "hidden" }}>
+                {completed.map((r) => (
+                  <ReminderCard key={r.id} r={r} onClick={() => setSel({ ...r })} onDone={onDone} onRemove={onRemove} />
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       )}
     </Panel>
@@ -5891,7 +6442,7 @@ export const deriveDashboardMetrics = (loans, payments, customers) => {
   const activeList = [], ovList = [];
 
   loans.forEach(l => {
-    const p = paidMap[l.id] || 0;
+    const p = l.disbursed ? (paidMap[l.id] || 0) : 0;
     const e = calculateLoanStatus(l, null, p);
     
     if (e.isSettled) {
@@ -11901,6 +12452,7 @@ export const toSupabaseCustomer = (c) => ({
   business_name: c.businessName || c.business || null,
   business_type: c.businessType || null,
   business_location: c.businessLocation || c.location || null,
+  gps_coordinates: c.gps || null,
   residence: c.residence || null,
   officer: c.officer || null,
   loans: c.loans || 0,
@@ -11935,6 +12487,7 @@ export const fromSupabaseCustomer = (r) => ({
   businessType: r.business_type,
   businessLocation: r.business_location || r.location,
   location: r.business_location || r.location,
+  gps: r.gps_coordinates,
   residence: r.residence || r.address,
   officer: r.assigned_officer || r.officer,
   loans: r.loans || 0,
@@ -12106,8 +12659,14 @@ export const sbAuditInsert = async (row) => {
     const meta = await buildAuditMeta();
     const mergedRow = { ...row, ...meta };
     const { error } = await supabase.from("audit_log").insert([mergedRow]);
-    if (error) _sbErr("insert", "audit_log", error.message);
+    if (error) {
+       console.error("[Audit] Insert Error:", error.message);
+       _sbErr("insert", "audit_log", error.message);
+    } else {
+       console.log(`[Audit] Logged: ${row.action} for ${row.target_id || 'System'}`);
+    }
   } catch (e) {
+    console.error("[Audit] Fatal Error:", e.message);
     _sbErr("import", "sbAuditInsert", e.message);
   }
 };
@@ -12165,6 +12724,51 @@ export const WORKER_NAV = [
   { id: "leads", l: "Leads", i: UserPlus, c: T.accent },
   { id: "documents", l: "Documents", i: FileText, c: T.dim },
 ];
+
+export const compressImage = (file, maxWidth = 1600, quality = 0.8) => {
+  return new Promise((resolve) => {
+    if (!file || !file.type || !file.type.startsWith('image/')) {
+      return resolve(file); // Only compress images, skip PDFs/etc
+    }
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const img = new Image();
+      img.onload = () => {
+        let { width, height } = img;
+        // Calculate new dimensions while keeping aspect ratio
+        if (width > maxWidth) {
+          height = Math.round(height * (maxWidth / width));
+          width = maxWidth;
+        }
+        const canvas = document.createElement('canvas');
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        ctx.imageSmoothingEnabled = true;
+        ctx.imageSmoothingQuality = 'high';
+        ctx.drawImage(img, 0, 0, width, height);
+
+        canvas.toBlob(
+          (blob) => {
+            if (!blob) return resolve(file);
+            const newFile = new File([blob], file.name, {
+              type: 'image/jpeg',
+              lastModified: Date.now()
+            });
+            // Ensure we actually shrunk the file. If compression made it larger somehow, use original.
+            resolve(newFile.size < file.size ? newFile : file);
+          },
+          'image/jpeg',
+          quality
+        );
+      };
+      img.onerror = () => resolve(file);
+      img.src = e.target.result;
+    };
+    reader.onerror = () => resolve(file);
+    reader.readAsDataURL(file);
+  });
+};
 
 export const dataUrlToBlob = (dataUrl) => {
   const arr = dataUrl.split(",");
@@ -12231,27 +12835,30 @@ export const ExportMenu = ({ onExport }) => {
       </Btn>
       {open && (
         <div
+          className="pop-in"
           style={{
             position: "absolute",
             top: "100%",
             right: 0,
-            marginTop: 6,
-            background: T.card,
-            border: `1px solid ${T.border}`,
-            borderRadius: 12,
-            boxShadow: "0 12px 48px rgba(0,0,0,0.6), 0 0 0 1px rgba(255,255,255,0.05)",
+            marginTop: 8,
+            background: "var(--card)",
+            backdropFilter: "blur(30px)",
+            WebkitBackdropFilter: "blur(30px)",
+            border: `1px solid var(--border)`,
+            borderRadius: 16,
+            boxShadow: "0 12px 48px rgba(0,0,0,0.5), 0 0 0 1px rgba(255,255,255,0.05)",
             zIndex: 9999,
             minWidth: 220,
             overflow: "hidden",
+            padding: "4px"
           }}
         >
           <div
             style={{
-              padding: "8px 12px",
-              borderBottom: `1px solid ${T.border}`,
+              padding: "10px 12px 6px",
               fontSize: 10,
               fontWeight: 800,
-              color: T.muted,
+              color: 'var(--muted)',
               textTransform: "uppercase",
               letterSpacing: 0.5,
             }}
@@ -12271,19 +12878,21 @@ export const ExportMenu = ({ onExport }) => {
                 gap: 10,
                 padding: "10px 14px",
                 cursor: "pointer",
-                transition: "background .2s",
+                transition: "all .2s",
+                borderRadius: 12,
+                margin: "2px",
               }}
               onMouseEnter={(e) => {
-                e.currentTarget.style.background = T.surface;
+                e.currentTarget.style.background = "var(--surface)";
               }}
               onMouseLeave={(e) => {
-                e.currentTarget.style.background = "none";
+                e.currentTarget.style.background = "transparent";
               }}
             >
               <span style={{ display: "flex", alignItems: "center", color: item.color }}>
                 <item.icon size={18} strokeWidth={2.5} />
               </span>
-              <span style={{ color: T.txt, fontSize: 13, fontWeight: 600 }}>
+              <span style={{ color: "var(--txt)", fontSize: 13, fontWeight: 600 }}>
                 {item.label}
               </span>
             </div>
@@ -12293,6 +12902,24 @@ export const ExportMenu = ({ onExport }) => {
     </div>
   );
 };
+
+const DateTrigger = ({ label, val, type, active, T, onClick }) => (
+  <div 
+    onClick={() => onClick(type)}
+    style={{
+      display: "flex", flexDirection: "column", cursor: 'pointer',
+      padding: "6px 16px", borderRadius: 12,
+      background: active === type ? T.aLo : 'transparent',
+      transition: 'all .25s ease',
+      minWidth: 100
+    }}
+  >
+    <label style={{ fontSize: 9, fontWeight: 800, color: T.muted, textTransform: "uppercase", marginBottom: 3, letterSpacing: '0.05em' }}>{label}</label>
+    <div style={{ fontSize: 13, fontWeight: 700, color: T.txt, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+      <span>{val || '—'}</span> <Calendar size={13} color={T.accent} style={{ opacity: active === type ? 1 : 0.6 }} />
+    </div>
+  </div>
+);
 
 // ── Date Range Picker ─────────────────────────────────────
 export const DateRangePicker = ({
@@ -12314,22 +12941,7 @@ export const DateRangePicker = ({
     return () => document.removeEventListener('mousedown', clickOut);
   }, [active]);
 
-  const DateTrigger = ({ label, val, type }) => (
-    <div 
-      onClick={() => setActive(active === type ? null : type)}
-      style={{
-        display: "flex", flexDirection: "column", cursor: 'pointer',
-        padding: "4px 12px", borderRadius: 10,
-        background: active === type ? T.aLo : 'transparent',
-        transition: 'all .2s'
-      }}
-    >
-      <label style={{ fontSize: 9, fontWeight: 800, color: T.muted, textTransform: "uppercase", marginBottom: 2 }}>{label}</label>
-      <div style={{ fontSize: 13, fontWeight: 700, color: T.txt, display: 'flex', alignItems: 'center', gap: 6 }}>
-        {val || '—'} <Calendar size={12} color={T.accent} opacity={0.6} />
-      </div>
-    </div>
-  );
+  const handleTriggerClick = (type) => setActive(active === type ? null : type);
 
   return (
     <div ref={ref} style={{ display: "flex", gap: 10, alignItems: "center", position: 'relative' }}>
@@ -12340,9 +12952,9 @@ export const DateRangePicker = ({
           boxShadow: '0 4px 12px rgba(0,0,0,0.05)'
         }}
       >
-        <DateTrigger label="From" val={start} type="start" />
+        <DateTrigger label="From" val={start} type="start" active={active} T={T} onClick={handleTriggerClick} />
         <div style={{ width: 1, height: 24, background: T.border }} />
-        <DateTrigger label="To" val={end} type="end" />
+        <DateTrigger label="To" val={end} type="end" active={active} T={T} onClick={handleTriggerClick} />
         
         {active && (
           <div style={{ 
@@ -12389,7 +13001,7 @@ export const ModuleHeader = ({
         gap: 16,
         marginBottom: 18,
         position: "relative",
-        zIndex: 10,
+        zIndex: 200,
         overflow: "visible",
       }}
     >
@@ -12615,21 +13227,23 @@ export const dlReportCSV = ({name, hdr, rows}) => {
   dlBlob(toCSV(hdr, rows), `${name}-${now()}.csv`, 'text/csv;charset=utf-8;');
 };
 
-export const dlReportPDF = ({title, hdr, rows}) => {
+export const dlReportPDF = ({title, hdr = [], rows = []}) => {
+  if (!hdr || !rows) return;
   const esc = s => String(s??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
   const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>${esc(title)}</title>
 <style>body{font-family:Arial,sans-serif;font-size:11px;padding:20px}h1{font-size:15px;margin:0 0 4px}p{color:#666;font-size:10px;margin:0 0 14px}table{width:100%;border-collapse:collapse}th{background:#1a2740;color:#fff;padding:6px 10px;text-align:left;font-size:10px}td{padding:5px 10px;border-bottom:1px solid #e2e8f0;font-size:10px}tr:nth-child(even)td{background:#f8fafc}@media print{body{padding:8px}}</style>
 </head><body><h1>${esc(title)}</h1><p>Generated: ${new Date().toLocaleString('en-KE')} - Adequate Capital Ltd</p>
 <table><thead><tr>${hdr.map(h=>`<th>${esc(h)}</th>`).join('')}</tr></thead>
-<tbody>${rows.map(r=>`<tr>${r.map(c=>`<td>${esc(c)}</td>`).join('')}</tr>`).join('')}</tbody></table>
+<tbody>${rows.map(r=>`<tr>${(Array.isArray(r)?r:[]).map(c=>`<td>${esc(c)}</td>`).join('')}</tr>`).join('')}</tbody></table>
 </body></html>`;
   dlBlob(html, `${title.replace(/\s+/g,'-')}-${now()}.html`, 'text/html;charset=utf-8;');
 };
 
-export const dlReportWord = ({title, hdr, rows}) => {
+export const dlReportWord = ({title, hdr = [], rows = []}) => {
+  if (!hdr || !rows) return;
   const esc = s => String(s??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
   const headerRow = `<w:tr>${hdr.map(h=>`<w:tc><w:p><w:r><w:rPr><w:b/></w:rPr><w:t>${esc(h)}</w:t></w:r></w:p></w:tc>`).join('')}</w:tr>`;
-  const tableRows = rows.map(r=>`<w:tr>${r.map(c=>`<w:tc><w:p><w:r><w:t>${esc(c)}</w:t></w:r></w:p></w:tc>`).join('')}</w:tr>`).join('');
+  const tableRows = rows.map(r=>`<w:tr>${(Array.isArray(r)?r:[]).map(c=>`<w:tc><w:p><w:r><w:t>${esc(c)}</w:t></w:r></w:p></w:tc>`).join('')}</w:tr>`).join('');
   const xml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><?mso-application progid="Word.Document"?>
 <w:wordDocument xmlns:w="http://schemas.microsoft.com/office/word/2003/wordml">
 <w:body>

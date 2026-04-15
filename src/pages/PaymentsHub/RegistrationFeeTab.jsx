@@ -28,14 +28,26 @@ const RegistrationFeeTab = ({ customers = [], payments = [], showToast, onManual
 
   useEffect(() => {
     if (customerIdParam) {
-      supabase.from('customers').select('*').eq('id', customerIdParam).single().then(({ data }) => {
+      // First, attempt to locate securely from the pre-loaded global local state cache
+      const localCust = customers?.find(c => c.id === customerIdParam);
+      if (localCust) {
+        setCustomer(localCust);
+        setPhone(localCust.phone);
+        return;
+      }
+      // If not populated in state (e.g. strict direct navigation link), query the server
+      supabase.from('customers').select('*').eq('id', customerIdParam).single().then(({ data, error }) => {
         if (data) {
           setCustomer(data);
           setPhone(data.phone);
+        } else {
+          // Break endless hang if fetching utterly fails
+          console.error('[RegistrationFeeTab] Could not load customer:', error);
+          setCustomer({ id: customerIdParam, name: 'Unknown/Unsynced Customer', phone: '' });
         }
       });
     }
-  }, [customerIdParam]);
+  }, [customerIdParam, customers]);
 
   const handlePush = async () => {
     if (!phone) return;
@@ -242,37 +254,67 @@ const RegistrationFeeTab = ({ customers = [], payments = [], showToast, onManual
         )}
 
         {customerIdParam && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-            <Btn
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+
+            {/* Primary: STK Push */}
+            <button
               onClick={handlePush}
               disabled={loading || loadingLocal || !customer || status === 'paid'}
-              v="primary"
-              full
-              style={{ padding: '16px 24px', fontSize: 18, height: 'auto' }}
+              style={{
+                width: '100%',
+                padding: '15px 24px',
+                borderRadius: 14,
+                border: 'none',
+                background: loading || loadingLocal || !customer || status === 'paid'
+                  ? 'rgba(0,212,170,0.2)'
+                  : 'linear-gradient(135deg, #00D4AA 0%, #00a884 100%)',
+                color: loading || loadingLocal || !customer || status === 'paid' ? 'rgba(0,0,0,0.35)' : '#000',
+                fontSize: 15,
+                fontWeight: 900,
+                cursor: loading || loadingLocal || !customer || status === 'paid' ? 'not-allowed' : 'pointer',
+                letterSpacing: '0.02em',
+                boxShadow: loading || loadingLocal || status === 'paid' ? 'none' : '0 6px 24px rgba(0, 212, 170, 0.4)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: 8,
+                transition: 'all 0.2s ease',
+              }}
+              onMouseEnter={e => { if (!e.currentTarget.disabled) e.currentTarget.style.boxShadow = '0 8px 32px rgba(0, 212, 170, 0.6)'; }}
+              onMouseLeave={e => { if (!e.currentTarget.disabled) e.currentTarget.style.boxShadow = '0 6px 24px rgba(0, 212, 170, 0.4)'; }}
             >
-              {loading || loadingLocal ? (
-                <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
-                  <Rocket size={18} /> Initiating Push...
-                </span>
-              ) : (
-                <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
-                  <Smartphone size={18} /> Trigger KES 1 STK Push
-                </span>
-              )}
-            </Btn>
+              {loading || loadingLocal
+                ? <><Rocket size={16} /> Sending...</>
+                : <><Smartphone size={16} /> Send STK Push</>
+              }
+            </button>
 
-            <Btn
+            {/* Secondary: Manual Log — clean ghost */}
+            <button
               onClick={() => onManualLog(customer)}
               disabled={status === 'paid'}
-              v="ghost"
-              full
-              style={{ padding: '12px 24px', fontSize: 14, height: 'auto', border: `1px dashed ${T.border}` }}
+              style={{
+                width: '100%',
+                padding: '11px 24px',
+                borderRadius: 14,
+                border: 'none',
+                background: 'transparent',
+                color: status === 'paid' ? T.dim : T.muted,
+                fontSize: 14,
+                fontWeight: 700,
+                cursor: status === 'paid' ? 'not-allowed' : 'pointer',
+                letterSpacing: '0.02em',
+                transition: 'color 0.2s ease',
+                textDecoration: 'underline',
+              }}
+              onMouseEnter={e => { if (status !== 'paid') e.currentTarget.style.color = T.txt; }}
+              onMouseLeave={e => { e.currentTarget.style.color = status === 'paid' ? T.dim : T.muted; }}
             >
-               Alternatively, Log Payment Manually
-            </Btn>
-            
-            <p style={{ textAlign: 'center', fontSize: 12, color: T.dim, margin: 0 }}>
-              Pushing will send an M-Pesa prompt to the phone above. Real-time status will update automatically.
+              Log Manually
+            </button>
+
+            <p style={{ textAlign: 'center', fontSize: 11, color: T.dim, margin: 0 }}>
+              Real-time status updates upon PIN confirmation.
             </p>
           </div>
         )}

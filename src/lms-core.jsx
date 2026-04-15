@@ -1,5 +1,5 @@
 // ADEQUATE CAPITAL LMS — App Shell (Modularized)
-import { Lock, ShieldAlert, Mail, Smartphone, Check, Search as SearchIcon, ChevronRight, Menu, ChevronLeft, LogOut } from 'lucide-react';
+import { Lock, ShieldAlert, Mail, Smartphone, Check, Search as SearchIcon, ChevronRight, Menu, ChevronLeft, LogOut, Home } from 'lucide-react';
 import LoansTab from "@/modules/loans/LoansTab";
 import PaymentsTab from "@/modules/payments/PaymentsTab";
 import CollectionsTab from "@/modules/collections/CollectionsTab";
@@ -52,6 +52,7 @@ import {
   CH,
   Btn,
   BackBtn,
+  ForwardBtn,
   RefreshBtn,
   FI,
   PhoneInput,
@@ -133,6 +134,7 @@ export {
   CH,
   Btn,
   BackBtn,
+  ForwardBtn,
   RefreshBtn,
   FI,
   PhoneInput,
@@ -178,11 +180,12 @@ export {
 import { useSearchParams } from "react-router-dom"; // MODIFIED: Support parameterized redirects
 import { useTheme } from "@/context/ThemeContext";
 
-const AdminPanel = ({onLogout,loans,setLoans,customers,setCustomers,workers,setWorkers,payments,setPayments,leads,setLeads,interactions,setInteractions,auditLog,setAuditLog,unallocatedC2BCount,onOpenCustomerProfile,onRefresh}) => {
+const AdminPanel = ({onLogout,loans,setLoans,customers,setCustomers,workers,setWorkers,payments,setPayments,leads,setLeads,interactions,setInteractions,auditLog,setAuditLog,unallocatedC2BCount,setUnallocatedC2BCount,onOpenCustomerProfile,onRefresh}) => {
   const { theme, toggleTheme } = useTheme();
   const [screen,setScreen]=useState('dashboard');
   const [searchParams, setSearchParams] = useSearchParams(); // MODIFIED
   const [screenHistory,setScreenHistory]=useState([]);
+  const [forwardHistory, setForwardHistory] = useState([]);
   const [sideCollapsed, setSideCollapsed] = useState(false);
   const [isMobile, setIsMobile] = useState(window.innerWidth <= 1024);
   const [sb, setSb] = useState(false);
@@ -212,13 +215,22 @@ const AdminPanel = ({onLogout,loans,setLoans,customers,setCustomers,workers,setW
   };
   const navTo=(s, params)=>{ 
     setScreenHistory(h=>[...h.slice(-9),screen]); 
+    setForwardHistory([]);
     setScreen(s); 
     if (params) setSearchParams(params); // MODIFIED: Apply params to URL
     setSb(false); 
     scrollTop(); 
     setTimeout(scrollTop,50); 
   };
-  const goBack=()=>{ if(screenHistory.length===0) return; const prev=screenHistory[screenHistory.length-1]; setScreenHistory(h=>h.slice(0,-1)); setScreen(prev); setTimeout(scrollTop,30); };
+  const goBack=()=>{ if(screenHistory.length===0) return; const prev=screenHistory[screenHistory.length-1]; setForwardHistory(h=>[...h.slice(-9), screen]); setScreenHistory(h=>h.slice(0,-1)); setScreen(prev); setTimeout(scrollTop,30); };
+  const goForward=()=>{ if(forwardHistory.length===0) return; const next=forwardHistory[forwardHistory.length-1]; setScreenHistory(h=>[...h.slice(-9), screen]); setForwardHistory(h=>h.slice(0,-1)); setScreen(next); setTimeout(scrollTop,30); };
+
+  // Sequential nav — scrolls through ADMIN_NAV in order, regardless of visit history
+  const _navIdx = ADMIN_NAV.findIndex(item => item.id === screen);
+  const navPrev = () => { if (_navIdx <= 0) return; navTo(ADMIN_NAV[_navIdx - 1].id); };
+  const navNext = () => { if (_navIdx < 0 || _navIdx >= ADMIN_NAV.length - 1) return; navTo(ADMIN_NAV[_navIdx + 1].id); };
+  const canNavPrev = _navIdx > 0;
+  const canNavNext = _navIdx >= 0 && _navIdx < ADMIN_NAV.length - 1;
 
   // MODIFIED: Sync screen from URL on mount (Fixes refresh desync)
   useEffect(() => {
@@ -232,7 +244,7 @@ const AdminPanel = ({onLogout,loans,setLoans,customers,setCustomers,workers,setW
   const {reminders,add:addReminder,done:doneReminder,remove:removeReminder,update:updateReminder,firing:firingReminder,dismissFiring}=useReminders();
   const addAudit = useCallback((action, target, detail = '') => {
     const entry = { ts: ts(), user: adminUser.name || 'Admin', action, target, detail };
-    setAuditLog(l => [entry, ...l].slice(0, 500));
+    setAuditLog(l => [entry, ...l].slice(0, 10));
     sbAuditInsert({
       ts: new Date().toISOString(),
       user_name: entry.user,
@@ -336,7 +348,7 @@ const AdminPanel = ({onLogout,loans,setLoans,customers,setCustomers,workers,setW
             color: T.dim,
             textTransform: 'uppercase',
             letterSpacing: 1.2,
-            padding: '18px 12px 6px',
+            padding: isMobile ? '12px 12px 4px' : '18px 12px 6px',
             opacity: 0.6
           }}>
             {item.cat}
@@ -398,7 +410,7 @@ const AdminPanel = ({onLogout,loans,setLoans,customers,setCustomers,workers,setW
     database:   ()=><DatabaseTab allState={allState} setLoans={setLoans} setCustomers={setCustomers} setPayments={setPayments} setWorkers={setWorkers} setLeads={setLeads} setInteractions={setInteractions} setAuditLog={setAuditLog} addAudit={addAudit} showToast={showToast}/>,
     reports:    ()=><ReportsTab loans={loans} customers={customers} payments={payments} workers={workers} auditLog={auditLog} showToast={showToast} addAudit={addAudit}/>,
     audit:      ()=><AuditTrailTab allState={allState} setAuditLog={setAuditLog} />,
-    paymentshub: ()=><PaymentsHub customers={customers} setCustomers={setCustomers} loans={loans} payments={payments} setLoans={setLoans} setPayments={setPayments} addAudit={addAudit} showToast={showToast} />, // MODIFIED: Added Payments Hub
+    paymentshub: ()=><PaymentsHub customers={customers} setCustomers={setCustomers} loans={loans} payments={payments} setLoans={setLoans} setPayments={setPayments} addAudit={addAudit} showToast={showToast} unallocatedC2BCount={unallocatedC2BCount} setUnallocatedC2BCount={setUnallocatedC2BCount} />, // MODIFIED: Added Payments Hub
   };
 
   // FIX — Bug 1 (Form focus / remounting): S contains plain arrow functions, NOT React
@@ -427,14 +439,13 @@ const AdminPanel = ({onLogout,loans,setLoans,customers,setCustomers,workers,setW
         top: 0, bottom: 0, left: 0,
         width: sideCollapsed && !isMobile ? 80 : 260,
         zIndex: 5100,
-        minHeight: '100%',
+        height: isMobile ? '100dvh' : '100vh',
         transform: isMobile ? `translateX(${sb ? '0%' : '-100%'})` : 'none',
         transition: 'transform 0.4s cubic-bezier(0.16, 1, 0.3, 1), width 0.3s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.4s ease',
         boxShadow: (isMobile && sb) ? '20px 0 60px rgba(0,0,0,0.6)' : (!isMobile && !sideCollapsed) ? '4px 0 20px rgba(0,0,0,0.05)' : 'none',
         display: 'flex',
         flexDirection: 'column',
         flexShrink: 0,
-        height: '100vh',
         overflow: 'hidden'
       }}>
         <div style={{ padding: sideCollapsed && !isMobile ? '15px 0' : '15px 14px 12px', borderBottom: `1px solid ${T.border}`, display: 'flex', alignItems: 'center', justifyContent: sideCollapsed && !isMobile ? 'center' : 'space-between', minHeight: 64, flexShrink: 0 }}>
@@ -447,10 +458,134 @@ const AdminPanel = ({onLogout,loans,setLoans,customers,setCustomers,workers,setW
             <button onClick={() => setSb(false)} aria-label="Close navigation menu" style={{ background: T.card2, border: `1px solid ${T.border}`, color: T.dim, borderRadius: 8, width: 30, height: 30, cursor: 'pointer', fontSize: 10, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>✕</button>
           )}
         </div>
-        <nav id="sidebar-nav" aria-label="Main navigation" style={{ flex: 1, padding: '8px 12px' }}>
+        <nav id="sidebar-nav" aria-label="Main navigation" style={{ flex: 1, padding: '8px 12px', overflowY: 'auto', WebkitOverflowScrolling: 'touch' }}>
           {ADMIN_NAV.map((item, idx) => navItem(item, idx, ADMIN_NAV))}
+          <div style={{ height: 16 }} />
         </nav>
-        <div style={{ padding: sideCollapsed && !isMobile ? '16px 8px' : '16px', borderTop: `1px solid ${T.border}`, flexShrink: 0, background: 'rgba(255,255,255,0.02)' }}>
+        {/* Sidebar Nav Controls: Home + Back/Forward scroll buttons */}
+        <div style={{
+          padding: sideCollapsed && !isMobile ? '10px 8px' : '10px 16px',
+          borderTop: `1px solid ${T.border}`,
+          borderBottom: `1px solid ${T.border}`,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: sideCollapsed && !isMobile ? 'center' : 'space-between',
+          gap: 6,
+          flexShrink: 0,
+          background: 'rgba(255,255,255,0.015)',
+        }}>
+          {/* Home button */}
+          <button
+            id="sidebar-home-btn"
+            onClick={() => navTo('dashboard')}
+            title="Dashboard (Home)"
+            aria-label="Go to Dashboard"
+            style={{
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              gap: sideCollapsed && !isMobile ? 0 : 7,
+              flex: sideCollapsed && !isMobile ? '0 0 auto' : 1,
+              height: 34,
+              padding: sideCollapsed && !isMobile ? '0 9px' : '0 14px',
+              borderRadius: 10,
+              border: `1px solid ${screen === 'dashboard' ? T.accent + '50' : T.border}`,
+              background: screen === 'dashboard' ? `${T.accent}15` : T.card2,
+              color: screen === 'dashboard' ? T.accent : T.dim,
+              cursor: 'pointer',
+              fontSize: 12,
+              fontWeight: 700,
+              transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
+              whiteSpace: 'nowrap',
+              overflow: 'hidden',
+            }}
+          >
+            <Home size={14} strokeWidth={screen === 'dashboard' ? 2.5 : 2} />
+            {(!sideCollapsed || isMobile) && <span>Home</span>}
+          </button>
+          {/* Back / Forward — sequential scroll through all pages */}
+          {(!sideCollapsed || isMobile) && (
+            <div style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
+              <button
+                id="sidebar-back-btn"
+                onClick={navPrev}
+                disabled={!canNavPrev}
+                title={canNavPrev ? `Back to ${ADMIN_NAV[_navIdx - 1]?.l}` : 'First page'}
+                aria-label="Previous page"
+                style={{
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  width: 32, height: 34, borderRadius: 9,
+                  border: `1px solid ${T.border}`,
+                  background: T.card2,
+                  color: canNavPrev ? T.txt : T.dim,
+                  cursor: canNavPrev ? 'pointer' : 'not-allowed',
+                  opacity: canNavPrev ? 1 : 0.35,
+                  transition: 'all 0.2s',
+                  flexShrink: 0,
+                }}
+              >
+                <ChevronLeft size={16} strokeWidth={2.5} />
+              </button>
+              <button
+                id="sidebar-forward-btn"
+                onClick={navNext}
+                disabled={!canNavNext}
+                title={canNavNext ? `Next: ${ADMIN_NAV[_navIdx + 1]?.l}` : 'Last page'}
+                aria-label="Next page"
+                style={{
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  width: 32, height: 34, borderRadius: 9,
+                  border: `1px solid ${T.border}`,
+                  background: T.card2,
+                  color: canNavNext ? T.txt : T.dim,
+                  cursor: canNavNext ? 'pointer' : 'not-allowed',
+                  opacity: canNavNext ? 1 : 0.35,
+                  transition: 'all 0.2s',
+                  flexShrink: 0,
+                }}
+              >
+                <ChevronRight size={16} strokeWidth={2.5} />
+              </button>
+            </div>
+          )}
+          {/* Collapsed sidebar — Back/Forward stacked */}
+          {sideCollapsed && !isMobile && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+              <button
+                onClick={navPrev}
+                disabled={!canNavPrev}
+                title={canNavPrev ? `Back to ${ADMIN_NAV[_navIdx - 1]?.l}` : 'First page'}
+                style={{
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  width: 32, height: 28, borderRadius: 8,
+                  border: `1px solid ${T.border}`, background: T.card2,
+                  color: T.dim, cursor: canNavPrev ? 'pointer' : 'not-allowed',
+                  opacity: canNavPrev ? 0.8 : 0.3, transition: 'all 0.2s',
+                }}
+              >
+                <ChevronLeft size={14} strokeWidth={2.5} />
+              </button>
+              <button
+                onClick={navNext}
+                disabled={!canNavNext}
+                title={canNavNext ? `Next: ${ADMIN_NAV[_navIdx + 1]?.l}` : 'Last page'}
+                style={{
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  width: 32, height: 28, borderRadius: 8,
+                  border: `1px solid ${T.border}`, background: T.card2,
+                  color: T.dim, cursor: canNavNext ? 'pointer' : 'not-allowed',
+                  opacity: canNavNext ? 0.8 : 0.3, transition: 'all 0.2s',
+                }}
+              >
+                <ChevronRight size={14} strokeWidth={2.5} />
+              </button>
+            </div>
+          )}
+        </div>
+        <div style={{ 
+          padding: sideCollapsed && !isMobile ? '16px 8px' : '16px 16px calc(16px + env(safe-area-inset-bottom))', 
+          borderTop: `1px solid ${T.border}`, 
+          flexShrink: 0, 
+          background: 'rgba(255,255,255,0.02)' 
+        }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: sideCollapsed && !isMobile ? 'center' : 'flex-start', gap: 12, marginBottom: 16, padding: sideCollapsed && !isMobile ? 0 : '0 8px' }}>
              <Av ini={adminUser.ini || 'AD'} size={sideCollapsed && !isMobile ? 40 : 36} color={T.accent} />
              {(!sideCollapsed || isMobile) && (
@@ -475,19 +610,10 @@ const AdminPanel = ({onLogout,loans,setLoans,customers,setCustomers,workers,setW
             <button onClick={toggleSb} aria-label={isMobile ? "Open navigation menu" : sideCollapsed ? "Expand sidebar" : "Collapse sidebar"} style={{ background: 'none', border: `1px solid ${T.border}`, color: T.dim, cursor: 'pointer', fontSize: 16, padding: '5px 9px', borderRadius: 8, lineHeight: 1, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', width: 36, height: 34 }}>
               {isMobile ? <Menu size={18} /> : sideCollapsed ? <ChevronRight size={18} /> : <ChevronLeft size={18} />}
             </button>
-            {screenHistory.length>0&&(
-              <button onClick={goBack} className='back-btn' style={{flexShrink:0}}>
-                <span style={{fontSize:15,lineHeight:1}}>‹</span>
-                <span style={{fontSize:12}}>{screenHistory[screenHistory.length-1].charAt(0).toUpperCase()+screenHistory[screenHistory.length-1].slice(1)}</span>
-              </button>
-            )}
+
             <RefreshBtn onRefresh={()=>{ scrollTop(); navTo(screen); }}/>
           </div>
           <div className="topbar-actions" style={{display:'flex',gap:7,alignItems:'center'}}>
-            {pendingApprovals>0&&<button onClick={()=>navTo('loans')} style={{background:T.gLo,border:`1px solid ${T.gold}38`,borderRadius:12,padding:'4px 10px',color:T.gold,fontSize:11,fontWeight:700,cursor:'pointer'}}>{pendingApprovals}</button>}
-            {overdue>0&&<button onClick={()=>navTo('collections')} style={{background:T.dLo,border:`1px solid ${T.danger}38`,borderRadius:12,padding:'4px 10px',color:T.danger,fontSize:11,fontWeight:700,cursor:'pointer'}}>{overdue} Overdue</button>}
-            {unalloc>0&&<button onClick={()=>navTo('payments')} style={{background:T.wLo,border:`1px solid ${T.warn}38`,borderRadius:12,padding:'4px 10px',color:T.warn,fontSize:11,fontWeight:700,cursor:'pointer'}}>{unalloc} Unalloc</button>}
-            
             <button onClick={() => setShowSearch(true)} aria-label="Global Search" style={{background:T.card2,border:`1px solid ${T.border}`,color:T.dim,borderRadius:9,padding:'5px 10px',fontSize:14,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',width:36,height:34}}>
               <SearchIcon size={16}/>
             </button>
@@ -496,18 +622,65 @@ const AdminPanel = ({onLogout,loans,setLoans,customers,setCustomers,workers,setW
               {theme === 'dark' ? '🌙' : theme === 'dim' ? '🌓' : '☀️'}
             </button>
 
-            <button onClick={()=>{setShowReminders(s=>!s);SFX.notify();}} aria-label={'Reminders'+(activeReminderCount>0?' — '+activeReminderCount+' active':'')} aria-expanded={showReminders} aria-haspopup="dialog" style={{background:showReminders?T.aLo:T.card2,border:`1px solid ${showReminders?T.accent:T.border}`,color:showReminders?T.accent:T.muted,borderRadius:9,padding:'5px 10px',fontSize:14,cursor:'pointer',position:'relative',display:'flex',alignItems:'center',gap:5}}>
-              <span aria-hidden="true">🔔</span>
-              {firingReminderCount>0&&(
-                <span style={{position:'absolute',top:-4,right:-4,background:T.danger,borderRadius:99,width:14,height:14,display:'flex',alignItems:'center',justifyContent:'center',fontSize:8,fontWeight:900,color:'#fff'}}>
-                  {activeReminderCount}
-                </span>
-              )}
-            </button>
+            <div style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', alignItems: 'center', gap: isMobile ? 4 : 7 }}>
+              <button 
+                onClick={()=>{setShowReminders(s=>!s);SFX.notify();}} 
+                aria-label={'Notifications'} 
+                aria-expanded={showReminders} 
+                aria-haspopup="dialog" 
+                style={{
+                  background:showReminders?T.aLo:T.card2,
+                  border:`1px solid ${showReminders?T.accent:T.border}`,
+                  color:showReminders?T.accent:T.muted,
+                  borderRadius:9,padding:'5px 10px',fontSize:14,height: 34, width: 36, 
+                  cursor:'pointer',position:'relative',display:'flex',alignItems:'center',justifyContent: 'center',gap:5
+                }}
+              >
+                <span aria-hidden="true">🔔</span>
+                {(activeReminderCount + unalloc) > 0 && (
+                  <span style={{
+                    position:'absolute',top:-4,right:-4,
+                    background: unalloc > 0 ? T.warn : T.danger,
+                    borderRadius:99,minWidth:14,height:14,padding:'0 4px',
+                    display:'flex',alignItems:'center',justifyContent:'center',
+                    fontSize:8,fontWeight:900,color:'#fff',boxShadow: '0 0 0 2px #060A10'
+                  }}>
+                    {activeReminderCount + unalloc}
+                  </span>
+                )}
+              </button>
+
+              <div style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', gap: isMobile ? 2 : 7, alignItems: 'center' }}>
+                {pendingApprovals > 0 && (
+                  <button 
+                    onClick={() => navTo('loans')} 
+                    style={{ 
+                      background: T.gLo, border: `1px solid ${T.gold}38`, borderRadius: 9, 
+                      padding: '0 12px', color: T.gold, fontSize: isMobile ? 9 : 11, height: 34, minWidth: 34,
+                      fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center'
+                    }}
+                  >
+                    {pendingApprovals}
+                  </button>
+                )}
+                {overdue > 0 && (
+                  <button 
+                    onClick={() => navTo('collections')} 
+                    style={{ 
+                      background: T.dLo, border: `1px solid ${T.danger}38`, borderRadius: 9, 
+                      padding: '0 12px', color: T.danger, fontSize: isMobile ? 9 : 11, height: 34, minWidth: 34,
+                      fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' 
+                    }}
+                  >
+                    {overdue}{!isMobile && ' Overdue'}
+                  </button>
+                )}
+              </div>
+            </div>
           </div>
         </div>
         {firingReminder&&<ReminderAlertModal reminder={firingReminder} onDismiss={dismissFiring} onDone={doneReminder}/>}
-        {showReminders&&<RemindersPanel reminders={reminders} onAdd={addReminder} onDone={doneReminder} onRemove={removeReminder} onUpdate={updateReminder} onClose={()=>setShowReminders(false)}/>}
+        {showReminders&&<RemindersPanel reminders={reminders} unallocatedCount={unalloc} loans={loans} customers={customers} payments={payments} onAction={navTo} onAdd={addReminder} onDone={doneReminder} onRemove={removeReminder} onUpdate={updateReminder} onClose={()=>setShowReminders(false)}/>}
         {showSearch && <CommandCenter customers={customers} onClose={() => setShowSearch(false)} onSelect={onOpenCustomerProfile} />}
         <div id="main-content" className='admin-content' style={{ padding: '20px 22px', flex: 1, minWidth: 0 }}>
           <div key={screen} className='fu screen-fade-in' ref={el => { if (el) { scrollTop(); } }}>{renderScreen}</div>
@@ -537,7 +710,7 @@ const AdminPanel = ({onLogout,loans,setLoans,customers,setCustomers,workers,setW
 // ═══════════════════════════════════════════
 //  WORKER PORTAL
 // ═══════════════════════════════════════════
-const WorkerPortal = ({workers,setWorkers,loans,setLoans,customers,setCustomers,payments,leads,setLeads,interactions,setInteractions,auditLog,setAuditLog,onBack,dataLoaded,onOpenCustomerProfile}) => {
+const WorkerPortal = ({workers,setWorkers,loans,setLoans,customers,setCustomers,payments,setPayments,leads,setLeads,interactions,setInteractions,auditLog,setAuditLog,onBack,dataLoaded,onOpenCustomerProfile,unallocatedC2BCount,setUnallocatedC2BCount}) => {
   const { theme, toggleTheme } = useTheme();
   const [loggedIn,setLoggedIn]=useState(false);
   const [curr,setCurr]=useState(null);
@@ -861,8 +1034,8 @@ const AdminLogin = ({onLogin,onWorkerPortal}) => {
            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
         }
         .login-input:focus {
-           border-color: ${T.accent} !important;
-           box-shadow: 0 0 0 4px ${T.accent}15 !important;
+           border-color: var(--accent) !important;
+           box-shadow: 0 0 0 4px rgba(0, 212, 170, 0.15) !important;
         }
       `}</style>
 
@@ -1001,9 +1174,11 @@ const AdminLogin = ({onLogin,onWorkerPortal}) => {
             {err && <Alert type='danger' style={{ marginBottom: 20, borderRadius: 14 }}>⚠ {err}</Alert>}
             {step === 1 && (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-                <FI label='Credential Email' type='email' value={loginEmail} onChange={setLoginEmail} placeholder='admin@adequatecapital.co.ke' />
+                <FI label='Credential Email' type='email' value={loginEmail} onChange={setLoginEmail} placeholder='admin@adequatecapital.co.ke'
+                   onKeyDown={(e) => { if (e.key === 'Enter' && !loading) stepPw(); }} />
                 <FI label='System Password' type='password' value={pw} onChange={setPw} placeholder='••••••••'
-                   hint='Secure encrypted connection' />
+                   hint='Secure encrypted connection'
+                   onKeyDown={(e) => { if (e.key === 'Enter' && !loading) stepPw(); }} />
                 <Btn onClick={stepPw} loading={loading} full style={{ height: 52, borderRadius: 16, fontSize: 16, fontWeight: 850 }}>
                    Sign In <ChevronRight size={18} style={{ marginLeft: 4 }} />
                 </Btn>
@@ -1030,6 +1205,7 @@ const AdminLogin = ({onLogin,onWorkerPortal}) => {
                   </div>
                 )}
                 <input value={otpInput} onChange={e=>setOtpInput(e.target.value.replace(/\D/g,'').slice(0,6))} placeholder='••••••' maxLength={6}
+                  onKeyDown={e => { if(e.key === 'Enter' && !loading) stepTotp(); }}
                   style={{width:'100%',background:T.surface,border:`1px solid ${T.hi}`,borderRadius:10,padding:'13px',color:T.accent,fontSize:26,fontWeight:800,letterSpacing:12,textAlign:'center',outline:'none',marginBottom:7,boxSizing:'border-box'}}/>
                 <div style={{display:'flex',gap:8,marginBottom:8}}><Btn v='secondary' onClick={sendOtp} full>Resend Code</Btn></div>
                 <Btn onClick={stepTotp} loading={loading} full>Verify & Enter →</Btn>
@@ -1064,6 +1240,8 @@ const StylesMemo = memo(Styles);
 // ═══════════════════════════════════════════
 // Infrastructure symbols are imported and re-exported at the top of this file from ./lms-common
 
+let _hasLoadedDataGlobal = false;
+
 export default function App() {
 
   const [mode,setMode]=useState('admin-login');
@@ -1082,7 +1260,7 @@ export default function App() {
   const [globalCustomerId, setGlobalCustomerId] = useState(null);
 
   // ── Local cache (speed up first paint after login) ──────────────────────────
-  const CACHE_KEY = 'acl_cache_v1';
+  const CACHE_KEY = 'acl_cache_v2'; // bumped — forces fresh fetch, discards stale loan snapshots
   const readCache = () => {
     try { return JSON.parse(localStorage.getItem(CACHE_KEY) || 'null'); } catch(e){ return null; }
   };
@@ -1101,13 +1279,15 @@ export default function App() {
       const CUSTOMERS_FAST = 200;
       const PAYMENTS_FAST = 500;
       const LOANS_MAX = 2000;
-      const CUSTOMERS_PAGE = 200; // always page customers in 200s to avoid timeouts
+      const CUSTOMERS_PAGE = 200; 
       const CUSTOMERS_MAX = 2000;
       const PAYMENTS_MAX = 5000;
+      const CACHE_TTL = 180000; // 3 minutes in ms
 
       const [lFast, cFast, pFast, wR, unallocR] = await Promise.all([
         supabase.from('loans').select('id,customer_id,customer_name,amount,balance,status,repayment_type,officer,risk,disbursed,mpesa,phone,days_overdue,created_at').order('created_at', { ascending: false }).range(0, LOANS_FAST - 1),
-        supabase.from('customers').select('id,name,phone,alt_phone,id_no,business,location,residence,officer,loans,risk,gender,dob,blacklisted,bl_reason,n1_name,n1_phone,n1_relation,n2_name,n2_phone,n2_relation,n3_name,n3_phone,n3_relation,joined,created_at,status,assigned_officer,mpesa_registered,business_name,business_type,business_location').order('name', { ascending: true }).range(0, CUSTOMERS_FAST - 1),
+        // OPTIMIZED: Fetch only essential searchable/navigable fields for global state. Full profiles load lazily in CustomerProfile.
+        supabase.from('customers').select('id,name,phone,id_no,officer,loans,risk,blacklisted,joined,status,assigned_officer').order('name', { ascending: true }).range(0, CUSTOMERS_FAST - 1),
         supabase.from('payments').select('id,loan_id,customer_id,customer_name,amount,mpesa,date,status,allocated_by,is_reg_fee').order('date', { ascending: false }).range(0, PAYMENTS_FAST - 1),
         supabase.from('workers').select('id,name,email,phone,role,status').order('name'),
         supabase.from('unallocated_payments').select('*', { count: 'exact', head: true }).eq('status', 'Unallocated'),
@@ -1273,23 +1453,27 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    // React 18 StrictMode runs effects twice in dev; guard so we don't double-load.
-    // (Production runs once.)
-    const onceRef = (globalThis.__acl_load_once_ref ||= { ran: false });
-    if (onceRef.ran) return;
-    onceRef.ran = true;
+    if (_hasLoadedDataGlobal) return;
+    _hasLoadedDataGlobal = true;
 
-    // Hydrate from cache immediately, then refresh from Supabase.
+    // Hydrate from cache immediately.
     const cache = readCache();
+    let isStale = true;
     if (cache) {
-      if (Array.isArray(cache.loans) && cache.loans.length) setLoans(cache.loans);
-      if (Array.isArray(cache.customers) && cache.customers.length) setCustomers(cache.customers);
-      if (Array.isArray(cache.payments) && cache.payments.length) setPayments(cache.payments);
+      if (Array.isArray(cache.loans)) setLoans(cache.loans);
+      if (Array.isArray(cache.customers)) setCustomers(cache.customers);
+      if (Array.isArray(cache.payments)) setPayments(cache.payments);
       if ((cache.loans?.length || cache.customers?.length || cache.payments?.length)) setDataLoaded(true);
+      
+      // If cache is fresh (less than 3 mins old), skip the background eager load.
+      const CACHE_TTL = 180000;
+      if (cache.ts && (Date.now() - cache.ts < CACHE_TTL)) {
+        isStale = false;
+        console.log('[load] Cache is warm. Skipping background eager sync.');
+      }
     }
 
-    // Attempt load (will refresh cache/state)
-    loadAllData();
+    if (isStale) loadAllData();
   }, [loadAllData]);
 
   const ADMIN_ROLES = ['admin', 'Admin'];
@@ -1311,7 +1495,7 @@ export default function App() {
           target_id: 'System',
           detail: 'Login successful via Admin Portal'
         }).catch(console.error);
-        setAuditLog(l => [{ ts: ts(), user: email.trim(), action: 'Admin Login', target: 'System', detail: 'Login successful via Admin Portal' }, ...l].slice(0, 500));
+        setAuditLog(l => [{ ts: ts(), user: email.trim(), action: 'Admin Login', target: 'System', detail: 'Login successful via Admin Portal' }, ...l].slice(0, 10));
         supabase.from('workers').select('role').eq('email', email.trim()).single()
           .then(({data,error})=>{
             const role = (!error&&data)?data.role:null;
@@ -1353,7 +1537,7 @@ export default function App() {
           workers={workers} setWorkers={setWorkers}
           addAudit={(action, target, detail) => {
             const entry = { ts: ts(), user: 'admin', action, target, detail };
-            setAuditLog(l => [entry, ...l].slice(0, 500));
+            setAuditLog(l => [entry, ...l].slice(0, 10));
             sbAuditInsert({
               ts: new Date().toISOString(),
               user_name: entry.user,

@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useCallback, useEffect } from 'react';
+import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import { Smartphone, Tablet, Monitor, Lock, Hourglass, RefreshCw, Globe, ShieldCheck, UserCheck, AlertTriangle, Database, Edit3, Trash2, Key, Info, User } from 'lucide-react';
 import { T, Card, CH, DT, Badge, Search, Pills, RefreshBtn, useToast, ModuleHeader, KPI, Av, fmtM, now } from '@/lms-common';
 
@@ -29,13 +29,14 @@ const AuditTrailTab = ({ allState, setAuditLog }) => {
   const [actionFilter, setActionFilter] = useState('All');
   const [deviceFilter, setDeviceFilter] = useState('All');
   const [loading, setLoading] = useState(false);
+  const hasFetched = useRef(false);
 
   const refreshAudit = useCallback(async () => {
     setLoading(true);
     try {
       const { supabase, DEMO_MODE } = await import('@/config/supabaseClient');
       if (DEMO_MODE || !supabase) { setLoading(false); return; }
-      const { data, error } = await supabase.from('audit_log').select('*').order('ts', { ascending: false }).limit(500);
+      const { data, error } = await supabase.from('audit_log').select('*').order('ts', { ascending: false }).limit(10);
       if (error) throw error;
       if (data) {
         setAuditLog(data.map(r => ({
@@ -51,6 +52,7 @@ const AuditTrailTab = ({ allState, setAuditLog }) => {
           country: r.country,
           city: r.city
         })));
+        hasFetched.current = true;
       }
     } catch (e) {
       showToast('Sync Failed: ' + e.message, 'danger');
@@ -58,7 +60,61 @@ const AuditTrailTab = ({ allState, setAuditLog }) => {
     setLoading(false);
   }, [setAuditLog, showToast]);
 
-  useEffect(() => { refreshAudit(); }, [refreshAudit]);
+  const handleExport = useCallback(async (format) => {
+    setLoading(true);
+    try {
+      const { supabase, DEMO_MODE } = await import('@/config/supabaseClient');
+      if (DEMO_MODE || !supabase) {
+        showToast('Demo mode: Export unavailable.', 'warn');
+        setLoading(false);
+        return;
+      }
+      const { data, error } = await supabase.from('audit_log').select('*').order('ts', { ascending: false });
+      if (error) throw error;
+      
+      const { dlReportCSV, dlReportPDF, dlReportWord } = await import('@/lms-common');
+      
+      const cols = [
+          { k: 'Timestamp', l: 'Timestamp' },
+          { k: 'Operator', l: 'Operator' },
+          { k: 'Action', l: 'Action Event' },
+          { k: 'Target', l: 'Target' },
+          { k: 'Detail', l: 'Detail' },
+          { k: 'Device', l: 'Telemetry' },
+          { k: 'Location', l: 'Location' }
+      ];
+
+      const rData = {
+          name: 'audit_trail',
+          title: 'Full Security Audit Trail',
+          hdr: cols.map(c => c.l),
+          rows: data.map(r => [
+              new Date(r.ts).toLocaleString(),
+              r.user_name || 'system',
+              r.action,
+              r.target_id,
+              r.detail,
+              `${r.device_type} • ${r.browser} • ${r.os}`,
+              `${r.city || 'Unknown'}, ${r.country || 'Unknown'}`
+          ])
+      };
+
+      if (format === 'CSV') dlReportCSV(rData);
+      else if (format === 'PDF') dlReportPDF(rData);
+      else if (format === 'WORD') dlReportWord(rData);
+
+      showToast(`Audit log exported successfully in ${format} format.`, 'ok');
+    } catch (e) {
+      showToast('Export Failed: ' + e.message, 'danger');
+    }
+    setLoading(false);
+  }, [showToast]);
+
+  useEffect(() => { 
+    if (!hasFetched.current) {
+      refreshAudit(); 
+    }
+  }, [refreshAudit]);
 
   const filtered = useMemo(() => {
     return auditLog.filter(a => {
@@ -87,7 +143,8 @@ const AuditTrailTab = ({ allState, setAuditLog }) => {
     <div className='fu'>
         <ModuleHeader 
             title={<><ShieldCheck size={22} style={{verticalAlign:'middle', marginRight:10, marginTop:-4}}/> Security Audit Trail</>}
-            sub="Immutable ledger of all system modifications and administrative access."
+            sub="Immutable ledger of all system modifications. Showing last 10 logs initially. Download for full ledger."
+            exportProps={{ onExport: handleExport }}
         />
 
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 16, marginBottom: 24 }}>
@@ -118,7 +175,7 @@ const AuditTrailTab = ({ allState, setAuditLog }) => {
                         )},
                         { k: 'user', l: 'Operator', r: v => (
                             <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                                <Av name={v} size={28} />
+                                <Av ini={v?.substring(0, 2).toUpperCase()} size={28} />
                                 <span style={{ fontWeight: 800, color: T.txt, fontSize: 13 }}>{v}</span>
                             </div>
                         )},

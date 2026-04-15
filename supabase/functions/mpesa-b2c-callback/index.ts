@@ -61,6 +61,8 @@ serve(async (req) => {
         .eq("status", "Approved"); // Only update if it hasn't mutated
 
       await supabaseClient.from("audit_log").insert({
+        ts: new Date().toISOString(),
+        user_name: "System",
         action: "Daraja Disbursed",
         target_table: "loans",
         target_id: record.loan_id,

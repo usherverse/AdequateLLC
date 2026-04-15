@@ -8,7 +8,7 @@ import { T, SC, RC, SFX, Card, CH, KPI, DT, Btn, Badge, Av, Bar, BackBtn, Refres
   sbWrite, sbInsert,
   toSupabaseLoan, toSupabaseCustomer, toSupabasePayment, toSupabaseInteraction,
   generateLoanAgreementHTML, generateAssetListHTML, downloadLoanDoc,
-  useContactPopup, useToast, useReminders, useModalLock } from '@/lms-common';
+  useContactPopup, useToast, useReminders, useModalLock, compressImage } from '@/lms-common';
 import WorkerPanel from './WorkerPanel';
 import { Users, UserPlus, Target, TrendingUp, ShieldCheck, Briefcase, Phone, Mail, Calendar, Info, X, ExternalLink, Image as ImageIcon, FileText } from 'lucide-react';
 
@@ -168,10 +168,11 @@ const WorkersTab = ({workers,setWorkers,loans,setLoans,payments,customers,setCus
     setSel(prev=>prev&&prev.id===w.id?{...prev,role}:prev);
   };
 
-  const uploadDoc = (wid, slot, file) => {
+  const uploadDoc = async (wid, slot, originalFile) => {
+    const file = await compressImage(originalFile);
     const reader = new FileReader();
     reader.onload = ev => {
-      const doc = {id:uid('DOC'),key:slot.key,name:slot.label,originalName:file.name,type:file.type,size:file.size,dataUrl:ev.target.result,uploaded:now()};
+      const doc = {id:uid('DOC'),key:slot.key,name:slot.label,originalName:originalFile.name,type:'image/jpeg',size:file.size,dataUrl:ev.target.result,uploaded:now()};
       setWorkers(ws=>ws.map(x=>{
         if(x.id!==wid) return x;
         const docs = [...(x.docs||[]).filter(d=>d.key!==slot.key), doc];
@@ -182,7 +183,8 @@ const WorkersTab = ({workers,setWorkers,loans,setLoans,payments,customers,setCus
         const docs = [...(prev.docs||[]).filter(d=>d.key!==slot.key), doc];
         return {...prev,docs};
       });
-      showToast(slot.label+' uploaded','ok');
+      const savedKB = Math.round((originalFile.size - file.size) / 1024);
+      showToast(slot.label + ' uploaded' + (savedKB > 10 ? ` · saved ${savedKB}KB` : ''), 'ok');
     };
     reader.readAsDataURL(file);
   };

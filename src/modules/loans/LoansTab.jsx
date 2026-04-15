@@ -47,8 +47,8 @@ const LoansTab = ({ loans, setLoans, customers, setCustomers, payments, setPayme
     initialStartDate: '2024-01-01',
     customFilter: (l, t) => {
       if (t === 'All') return true;
-      const paid = payments.filter(p => p.loanId === l.id).reduce((s, p) => s + p.amount, 0);
-      const e = calculateLoanStatus(l, null, paid);
+      const actualPaid = l.disbursed ? payments.filter(p => p.loanId === l.id && p.status === "Allocated").reduce((s, p) => s + p.amount, 0) : 0;
+      const e = calculateLoanStatus(l, null, actualPaid);
       // If the selected tab is a financial state, use the engine's derived status
       if (['Active', 'Overdue', 'Settled', 'Written off'].includes(t)) {
         return e.badgeStatus === t;
@@ -67,7 +67,12 @@ const LoansTab = ({ loans, setLoans, customers, setCustomers, payments, setPayme
       .filter((p) => p.loanId === payLoan.id && p.status === "Allocated")
       .reduce((s, p) => s + p.amount, 0);
     const e = calculateLoanStatus(payLoan, null, paid);
+    const amt = parseFloat(payF.amount || 0);
     const currentBalance = e.totalAmountDue;
+    if (isNaN(amt) || amt <= 0) {
+      showToast('Please enter a valid payment amount', 'warn');
+      return;
+    }
 
     if (amt > currentBalance) {
       showToast(
@@ -100,7 +105,7 @@ const LoansTab = ({ loans, setLoans, customers, setCustomers, payments, setPayme
     }
 
     addAudit('Payment Recorded', payLoan.id, `${fmt(amt)} via M-Pesa ${payF.mpesa || 'manual'}${payF.isRegFee ? ' [Reg Fee]' : ''}`);
-    showToast(`✅ Payment of ${fmt(amt)} recorded` + (newBal <= 0 ? ' — Loan settled!' : '') + (payF.isRegFee ? ' · Registration fee marked' : ''), 'ok');
+    showToast(`✅ Payment of ${fmt(amt)} recorded and allocated` + (newBal <= 0 ? ' — Loan settled!' : '') + (payF.isRegFee ? ' · Registration fee marked' : ''), 'ok');
     setPayLoan(null); setSel(null); setPayF({ amount: '', mpesa: '', date: now(), isRegFee: false });
   };
 
@@ -274,9 +279,10 @@ const LoansTab = ({ loans, setLoans, customers, setCustomers, payments, setPayme
             }, 
             { 
               k: 'amount', l: 'Financial Snapshot', r: (v, r) => {
-                const paid = payments.filter(p => p.loanId === r.id && p.status === "Allocated").reduce((s, p) => s + p.amount, 0);
-                const e = calculateLoanStatus(r, null, paid);
-                const progress = Math.min((paid / (e.totalPayable || 1)) * 100, 100);
+                // If loan is not disbursed, it cannot have valid repayment progress
+                const actualPaid = r.disbursed ? payments.filter(p => p.loanId === r.id && p.status === "Allocated").reduce((s, p) => s + p.amount, 0) : 0;
+                const e = calculateLoanStatus(r, null, actualPaid);
+                const progress = Math.min((actualPaid / (e.totalPayable || 1)) * 100, 100);
                 return (
                   <div style={{ minWidth: 140 }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4, fontSize: 11, fontWeight: 600 }}>
