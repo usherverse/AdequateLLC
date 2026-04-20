@@ -22,7 +22,7 @@ export async function getLoans({ status = '', search = '', limit = 50, offset = 
     return { data: rows.slice(offset, offset + limit), count: rows.length, error: null };
   }
 
-  let query = supabase.from('loans').select('id, customer_id, customer_name, amount, balance, status, disbursed, repayment_type, officer, mpesa, days_overdue, created_at', { count: 'exact' });
+  let query = supabase.from('loans').select('id, customer_id, customer_name, amount, balance, status, disbursed, repayment_type, officer, collections_officer, mpesa, days_overdue, created_at', { count: 'exact' });
   if (status && status !== 'All') query = query.eq('status', status);
   if (search) {
     query = query.or(

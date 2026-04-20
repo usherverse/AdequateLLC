@@ -9,7 +9,7 @@ import PaybillReceiptsTab from './PaybillReceiptsTab';
 import AuditTab from './AuditTab';
 import SalariesTab from './SalariesTab';
 
-const PaymentsHub = ({ customers, setCustomers, loans, payments, setLoans, setPayments, workers, addAudit, showToast, unallocatedC2BCount, setUnallocatedC2BCount }) => {
+const PaymentsHub = ({ customers, setCustomers, loans, payments, setLoans, setPayments, workers, addAudit, showToast, unallocatedC2BCount, setUnallocatedC2BCount, salaryPayments, setSalaryPayments, workerDeductions, setWorkerDeductions, onNav }) => {
   const [searchParams, setSearchParams] = useSearchParams();
   const currentTab = searchParams.get('tab') || 'disbursements';
   const [manualLogData, setManualLogData] = useState(null);
@@ -207,7 +207,7 @@ const PaymentsHub = ({ customers, setCustomers, loans, payments, setLoans, setPa
           {currentTab === 'disbursements' && <DisbursementsTab loans={loans} customers={customers} payments={payments} setLoans={setLoans} addAudit={addAudit} showToast={showToast} onManualLog={(c) => setManualLogData({ customer: c, type: 'loan_repayment' })} />}
           {currentTab === 'registration-fee' && <RegistrationFeeTab customers={customers} loans={loans} payments={payments} setPayments={setPayments} addAudit={addAudit} showToast={showToast} onManualLog={(c) => setManualLogData({ customer: c, type: 'registration_fee' })} />}
           { currentTab === 'paybill' && <PaybillReceiptsTab loans={loans} payments={payments} customers={customers} addAudit={addAudit} showToast={showToast} setPayments={setPayments} setUnallocatedC2BCount={setUnallocatedC2BCount} /> }
-          { currentTab === 'salaries' && <SalariesTab workers={workers || []} /> }
+          { currentTab === 'salaries' && <SalariesTab workers={workers || []} salaryPayments={salaryPayments} setSalaryPayments={setSalaryPayments} customers={customers} loans={loans} addAudit={addAudit} showToast={showToast} onNav={onNav} workerDeductions={workerDeductions} setWorkerDeductions={setWorkerDeductions} payments={payments} /> }
           { currentTab === 'audit' && <AuditTab /> }
         </div>
       </Card>

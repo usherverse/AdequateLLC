@@ -435,7 +435,7 @@ const AdminPanel = ({onLogout,loans,setLoans,customers,setCustomers,workers,setW
     database: { allState, setLoans, setCustomers, setPayments, setWorkers, setLeads, setInteractions, setAuditLog, addAudit, showToast },
     reports: { loans, customers, payments, workers, auditLog, salaryPayments, showToast, addAudit },
     audit: { allState, setAuditLog },
-    paymentshub: { customers, setCustomers, loans, payments, setLoans, setPayments, workers, addAudit, showToast, unallocatedC2BCount, setUnallocatedC2BCount },
+    paymentshub: { customers, setCustomers, loans, payments, setLoans, setPayments, workers, addAudit, showToast, unallocatedC2BCount, setUnallocatedC2BCount, salaryPayments, setSalaryPayments, workerDeductions, setWorkerDeductions, onNav: navTo },
     salary_ledger: { workers, salaryPayments, setSalaryPayments, customers, loans, leads, addAudit, showToast, onNav: navTo, workerDeductions, setWorkerDeductions },
   };
 
@@ -1350,10 +1350,10 @@ export default function App() {
       // Load all data with constants in scope
 
       const [lFast, cFast, pFast, wR, unallocR, assetsR] = await Promise.all([
-        supabase.from('loans').select('id,customer_id,customer_name,amount,balance,status,repayment_type,officer,risk,disbursed,mpesa,phone,days_overdue,created_at').order('created_at', { ascending: false }).range(0, LOANS_FAST - 1),
+        supabase.from('loans').select('id,customer_id,customer_name,amount,balance,status,repayment_type,officer,collections_officer,risk,disbursed,mpesa,phone,days_overdue,created_at').order('created_at', { ascending: false }).range(0, LOANS_FAST - 1),
         supabase.from('customers').select('id,name,phone,id_no,officer,loans,risk,blacklisted,joined,status,assigned_officer,mpesa_registered').order('name', { ascending: true }).range(0, CUSTOMERS_FAST - 1),
         supabase.from('payments').select('id,loan_id,customer_id,customer_name,amount,mpesa,date,status,allocated_by,is_reg_fee').order('date', { ascending: false }).range(0, PAYMENTS_FAST - 1),
-        supabase.from('workers').select('id,name,email,phone,role,status,docs,id_no,avatar').order('name'),
+        supabase.from('workers').select('id,name,email,phone,role,status,docs,id_no,avatar,base_salary,onboarding_target,collection_target').order('name'),
         supabase.from('unallocated_payments').select('*', { count: 'exact', head: true }).eq('status', 'Unallocated'),
         supabase.from('repossessed_assets').select('*').order('possession_date', { ascending: false }),
       ]);
@@ -1443,7 +1443,7 @@ export default function App() {
         // Loans + payments (single query)
         if (!supabase) return;
         Promise.all([
-          supabase.from('loans').select('id,customer_id,customer_name,amount,balance,status,repayment_type,officer,risk,disbursed,mpesa,phone,days_overdue,created_at').order('created_at', { ascending: false }).range(0, LOANS_MAX - 1),
+          supabase.from('loans').select('id,customer_id,customer_name,amount,balance,status,repayment_type,officer,collections_officer,risk,disbursed,mpesa,phone,days_overdue,created_at').order('created_at', { ascending: false }).range(0, LOANS_MAX - 1),
           supabase.from('payments').select('id,loan_id,customer_id,customer_name,amount,mpesa,date,status,allocated_by,is_reg_fee').order('date', { ascending: false }).range(0, PAYMENTS_MAX - 1),
           supabase.from('unallocated_payments').select('*', { count: 'exact', head: true }).eq('status', 'Unallocated'),
           supabase.from('monthly_targets').select('*'),

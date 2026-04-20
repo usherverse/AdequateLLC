@@ -23,7 +23,7 @@ const LoansTab = ({ loans, setLoans, customers, setCustomers, payments, setPayme
   const [payF, setPayF] = useState({ amount: '', mpesa: '', date: now(), isRegFee: false });
   const [loading, setLoading] = useState(false);
   
-  const statuses = ['All', 'Active', 'Overdue', 'Settled', 'Written off'];
+  const statuses = ['All', 'Active', 'Overdue', 'Settled'];
 
   const {
     q, setQ, tab: flt, setTab: setFlt,
@@ -46,14 +46,24 @@ const LoansTab = ({ loans, setLoans, customers, setCustomers, payments, setPayme
     addAudit,
     initialStartDate: '2024-01-01',
     customFilter: (l, t) => {
-      if (t === 'All') return true;
       const actualPaid = l.disbursed ? payments.filter(p => p.loanId === l.id && p.status === "Allocated").reduce((s, p) => s + p.amount, 0) : 0;
       const e = calculateLoanStatus(l, null, actualPaid);
+
+      if (t === 'All') {
+        // Exclude Approved and Written off from the main "All" view to reduce noise
+        if (['Approved', 'Written off'].includes(l.status)) return false;
+        if (e.isWrittenOff) return false;
+        return true;
+      }
+      
       // If the selected tab is a financial state, use the engine's derived status
-      if (['Active', 'Overdue', 'Settled', 'Written off'].includes(t)) {
+      if (['Active', 'Overdue', 'Settled'].includes(t)) {
+        // Double check: if it's Written off by engine, don't show it in Active/Overdue
+        if (e.isWrittenOff) return false;
         return e.badgeStatus === t;
       }
-      // Otherwise, fallback to the workflow status stored in the DB (for 'Approved', etc.)
+      
+      // Fallback for any other workflow statuses if we ever add them back as tabs
       return l.status === t;
     },
   });
@@ -332,6 +342,7 @@ const LoansTab = ({ loans, setLoans, customers, setCustomers, payments, setPayme
       {sel && (
         <LoanModal
           loan={sel} customers={customers} payments={payments} interactions={interactions || []}
+          workers={workers} setLoans={setLoans} addAudit={addAudit}
           onClose={() => setSel(null)}
           onViewCustomer={cust => { setSel(null); onOpenCustomerProfile?.(cust.id); }}
           actions={(

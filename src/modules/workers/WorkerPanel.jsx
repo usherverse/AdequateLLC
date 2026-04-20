@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { 
   IdCard, FileImage, FileText, CheckCircle, AlertTriangle, User, Target, 
   Activity, Lock, Paperclip, ClipboardList, Check, Square, Hourglass,
@@ -34,7 +34,7 @@ const WorkerPanel = ({
   setInteractions,
   addAudit,
   showToast = () => {},
-  onOpenCustomerProfile,
+  onOpenCustomerProfile: adminOpenProfile,
   repossessedAssets = [],
   setRepossessedAssets,
   targets = [],
@@ -47,8 +47,13 @@ const WorkerPanel = ({
   const [viewDoc, setViewDoc] = useState(null);
   const [deductions, setDeductions] = useState([]);
   const [payslips, setPayslips] = useState([]);
+  
+  // Restriction: Workers can see phone numbers but cannot access full profiles
+  const onOpenCustomerProfile = (id) => {
+    showToast("Access Denied: Full customer profiles are restricted to Admin level only. You may use the provided phone numbers for direct communication.", "warn");
+  };
 
-  useMemo(() => {
+  useEffect(() => {
     import('@/config/supabaseClient').then(({ supabase }) => {
       if(supabase) {
         supabase.from('worker_deductions').select('*').eq('worker_id', worker.id)
@@ -82,6 +87,7 @@ const WorkerPanel = ({
         { k: 'overview', l: 'Performance', icon: LayoutDashboard },
         { k: 'collections', l: 'Collection Hub', icon: ShieldAlert },
         { k: 'customers', l: 'Arrears CRM', icon: AlertTriangle },
+        { k: 'compensation', l: 'Salary & Earnings', icon: CreditCard },
         { k: 'documents', l: 'Compliance', icon: IdCard },
       ]
     },
@@ -121,13 +127,25 @@ const WorkerPanel = ({
   // Local copy of this worker's docs
   const [myDocs, setMyDocs] = useState(() => (workers || []).find(w => w.id === worker.id)?.docs || worker.docs || []);
   
-  const myL = loans.filter(l => 
-    l.officer?.trim().toLowerCase() === worker.name?.trim().toLowerCase() &&
-    l.status?.toUpperCase() !== 'APPROVED' && 
-    l.status?.toUpperCase() !== 'WRITTEN OFF'
-  );
-  const myC = customers.filter(c => c.officer?.trim().toLowerCase() === worker.name?.trim().toLowerCase());
-  const myLeads = (leads || []).filter(l => l.officer?.trim().toLowerCase() === worker.name?.trim().toLowerCase());
+  useEffect(() => {
+    const fresh = (workers || []).find(w => w.id === worker.id)?.docs || worker.docs || [];
+    setMyDocs(fresh);
+  }, [worker.id, workers]);
+  
+  const myL = loans.filter(l => {
+    if (worker.role === 'Collections Officer') return l.collectionsOfficer === worker.name;
+    return l.officer?.trim().toLowerCase() === worker.name?.trim().toLowerCase() &&
+           l.status?.toUpperCase() !== 'APPROVED' && 
+           l.status?.toUpperCase() !== 'WRITTEN OFF';
+  });
+  const myC = customers.filter(c => {
+    if (worker.role === 'Collections Officer') return loans.some(l => l.customerId === c.id && l.collectionsOfficer === worker.name);
+    return c.officer?.trim().toLowerCase() === worker.name?.trim().toLowerCase();
+  });
+  const myLeads = (leads || []).filter(l => {
+    if (worker.role === 'Collections Officer') return false; // Leads are for Loan Officers
+    return l.officer?.trim().toLowerCase() === worker.name?.trim().toLowerCase();
+  });
   const ov = myL.filter(l => l.status === 'Overdue');
   const act = myL.filter(l => l.status === 'Active');
   const book = myL.filter(l => l.status !== 'Settled').reduce((s, l) => s + l.balance, 0);
@@ -142,35 +160,85 @@ const WorkerPanel = ({
   const myTgtPct = myTarget > 0 ? Math.min(Math.round((myDisbursed / myTarget) * 100), 100) : 0;
 
   const currentMonth = now().slice(0, 7);
+  const myMonthlyPayments = payments.filter(p => {
+    if (!p.date?.startsWith(currentMonth)) return false;
+    // Loan Officers see payments from loans they onboarded
+    if (worker.role === 'Loan Officer') return p.officer === worker.name || myL.some(l => l.id === p.loanId);
+    // Collections Officers ONLY see payments from loans allocated to them by Admin
+    if (worker.role === 'Collections Officer') {
+      const loan = loans.find(l => l.id === p.loanId);
+      return loan?.collectionsOfficer === worker.name;
+    }
+    return false;
+  });
+  const myMonthlyCollected = myMonthlyPayments.reduce((s, p) => s + Number(p.amount), 0);
+  
   const myDeductions = deductions.filter(d => d.month === currentMonth);
   const totalDeductions = myDeductions.reduce((s, d) => s + d.amount, 0);
-  const onboardingRate = (curMonthOnboarded / (worker.onboardingTarget || 60));
-  const cumulativeEarnings = (onboardingRate * (worker.baseSalary || 20000)) - totalDeductions;
+
+  // Commission Logic
+  let commission = 0;
+  let performanceRate = 0;
+  let performanceLabel = "";
+
+  if (worker.role === 'Loan Officer') {
+    performanceRate = (curMonthOnboarded / (worker.onboardingTarget || 60));
+    performanceLabel = "Onboarding Achievement";
+    // For Loan Officers, commission is the full target cap based on achievement
+    commission = Math.round(performanceRate * (worker.baseSalary || 20000)); 
+  } else if (worker.role === 'Collections Officer') {
+    // Dynamic Target: What is actually collectible this month (Collected + Current Overdue in portfolio)
+    const myLoans = loans.filter(l => (l.collectionsOfficer || '').toLowerCase() === worker.name.toLowerCase());
+    const remaining = myLoans.reduce((total, l) => {
+      const paid = payments.filter(p => p.loanId === l.id && p.status === 'Allocated').reduce((s, p) => s + p.amount, 0);
+      const e = calculateLoanStatus(l, null, paid);
+      return total + (e.totalAmountDue > 0 ? e.totalAmountDue : 0);
+    }, 0);
+    
+    const totalCollectible = myMonthlyCollected + remaining;
+    performanceRate = totalCollectible > 0 ? (myMonthlyCollected / totalCollectible) : 0;
+    performanceLabel = "Collection Efficiency";
+    
+    // Tiered Logic: 90% -> 10k, 94% -> 15k, 100% -> 20k
+    const pct = performanceRate * 100;
+    if (pct >= 100)      commission = 20000;
+    else if (pct >= 94) commission = 15000;
+    else if (pct >= 90) commission = 10000;
+    else {
+      // Linear scaling below 90%? User said 10k for 90%, we'll provide fractional.
+      commission = Math.round((pct / 90) * 10000);
+    }
+  }
+
+  const cumulativeEarnings = commission - totalDeductions;
 
   const printPayslip = () => {
-    const earnings = Math.round((curMonthOnboarded / (worker.onboardingTarget || 60)) * (worker.baseSalary || 20000));
     const today = now();
     const fmtKey = (v) => "KES " + Number(v || 0).toLocaleString("en-KE");
     
+    const performanceDetail = worker.role === 'Collections Officer' 
+      ? `Collection Efficiency (${(performanceRate * 100).toFixed(0)}%)`
+      : `Onboarding Commission (${curMonthOnboarded} onboardings)`;
+
     const html = `
       <!DOCTYPE html><html><head><meta charset=UTF-8><style>
         body { font-family: 'Inter', 'Segoe UI', sans-serif; padding: 25mm; color: #1e293b; background: #fff; line-height: 1.5; }
-        .header { display: flex; justify-content: space-between; border-bottom: 2px solid #00D4AA; padding-bottom: 25px; margin-bottom: 35px; }
-        .logo { font-size: 26px; font-weight: 900; color: #00D4AA; }
+        .header { display: flex; justify-content: space-between; border-bottom: 2px solid ${theme.color}; padding-bottom: 25px; margin-bottom: 35px; }
+        .logo { font-size: 26px; font-weight: 900; color: ${theme.color}; }
         .table { width: 100%; border-collapse: collapse; margin: 30px 0; }
         .table th { text-align: left; background: #f8fafc; padding: 14px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; border-bottom: 1px solid #e2e8f0; }
         .table td { padding: 14px; font-size: 13px; border-bottom: 1px solid #f1f5f9; }
         .total-row { background: #f8fafc; font-weight: 900; }
       </style></head><body>
         <div class="header"><div><div class="logo">Adequate Capital Ltd</div><div style="font-size: 11px; font-weight: 700; color: #64748b;">PAYROLL EARNINGS STATEMENT</div></div><div style="text-align: right;"><b>OFFICIAL PAYSLIP</b><br>${currentMonth}</div></div>
-        <div style="margin-bottom: 40px; display: grid; grid-template-columns: 1fr 1fr; gap: 20px;"><div><div style="font-size: 10px; color: #94a3b8; font-weight: 800;">EMPLOYEE</div><div style="font-size: 15px; font-weight: 800;">${worker.name}</div><div style="font-size: 12px; color: #64748b;">Phone: ${worker.phone}</div></div><div><div style="font-size: 10px; color: #94a3b8; font-weight: 800;">STATEMENT REFERENCE</div><div style="font-size: 14px; font-weight: 700; color: #64748b;">ESTIMATED_DRAFT_${today.split('T')[0]}</div></div></div>
+        <div style="margin-bottom: 40px; display: grid; grid-template-columns: 1fr 1fr; gap: 20px;"><div><div style="font-size: 10px; color: #94a3b8; font-weight: 800;">EMPLOYEE</div><div style="font-size: 15px; font-weight: 800;">${worker.name}</div><div style="font-size: 12px; color: #64748b;">Role: ${worker.role}</div></div><div><div style="font-size: 10px; color: #94a3b8; font-weight: 800;">STATEMENT REFERENCE</div><div style="font-size: 14px; font-weight: 700; color: #64748b;">ESTIMATED_DRAFT_${today.split('T')[0]}</div></div></div>
         <table class="table">
           <thead><tr><th>Description</th><th style="text-align: right;">Amount</th></tr></thead>
           <tbody>
-            <tr><td style="font-weight: 700;">Gross Commission Earnings (${curMonthOnboarded} onboardings)</td><td style="text-align: right; font-weight: 700;">${fmtKey(earnings)}</td></tr>
+            <tr><td style="font-weight: 700;">${performanceDetail}</td><td style="text-align: right; font-weight: 700;">+ ${fmtKey(commission)}</td></tr>
             ${myDeductions.map(d => `<tr><td style="color: #ef4444;">Deduction: ${d.reason}</td><td style="text-align: right; color: #ef4444;">- ${fmtKey(d.amount)}</td></tr>`).join('')}
           </tbody>
-          <tfoot><tr class="total-row"><td>NET ESTIMATED PAYABLE</td><td style="text-align: right; font-size: 18px; color: #00D4AA;">${fmtKey(cumulativeEarnings)}</td></tr></tfoot>
+          <tfoot><tr class="total-row"><td>NET ESTIMATED PAYABLE</td><td style="text-align: right; font-size: 18px; color: ${theme.color};">${fmtKey(cumulativeEarnings)}</td></tr></tfoot>
         </table>
         <div style="margin-top: 50px; padding: 20px; background: #f1f5f9; border-radius: 12px; font-size: 12px; text-align: center;">This is an estimated payslip based on current month performance. Final B2C disbursements are executed on month-end.</div>
       </body></html>
@@ -391,9 +459,9 @@ const WorkerPanel = ({
                       <div style={{ color: T.muted, fontSize: 12, fontWeight: 800 }}>MEMBER SINCE</div>
                       <div style={{ fontSize: 16, fontWeight: 700, color: T.txt, marginTop:4 }}>{ts(worker.joined || worker.createdAt).slice(0, 11)}</div>
                       <div style={{ marginTop: 16 }}>
-                         <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: onboardingRate >= 1 ? '#10B981' : T.accent, fontWeight: 900 }}>
+                         <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: performanceRate >= 1 ? '#10B981' : T.accent, fontWeight: 900 }}>
                             <Target size={18} />
-                            <span>{onboardingRate >= 1 ? 'PREMIUM TIER' : 'GROWTH TIER'}</span>
+                            <span>{performanceRate >= 1 ? 'PREMIUM TIER' : 'GROWTH TIER'}</span>
                          </div>
                       </div>
                    </div>
@@ -423,24 +491,24 @@ const WorkerPanel = ({
                 {/* ── PERFORMANCE BREAKDOWN ── */}
                 <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 24 }}>
                    <Card style={{ padding: 24, background: T.card }}>
-                      <CH title="Monthly Onboarding Efficiency" icon={Target} sub="Progress towards contractual incentive bonus" />
+                      <CH title={`${performanceLabel} Breakdown`} icon={Target} sub="Progress towards contractual incentive bonus" />
                       <div style={{ marginTop: 24 }}>
                          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 12, alignItems: 'flex-end' }}>
                             <div>
-                               <div style={{ fontSize: 32, fontWeight: 900 }}>{curMonthOnboarded}</div>
-                               <div style={{ fontSize: 13, color: T.muted }}>Verified Onboardings</div>
+                               <div style={{ fontSize: 32, fontWeight: 900 }}>{worker.role === 'Collections Officer' ? fmt(myMonthlyCollected) : curMonthOnboarded}</div>
+                               <div style={{ fontSize: 13, color: T.muted }}>{worker.role === 'Collections Officer' ? 'Collected this Month' : 'Verified Onboardings'}</div>
                             </div>
                             <div style={{ textAlign: 'right' }}>
-                               <div style={{ fontSize: 16, fontWeight: 800, color: theme.color }}>{Math.round(onboardingRate * 100)}%</div>
-                               <div style={{ fontSize: 13, color: T.muted }}>Target: {worker.onboardingTarget || 60}</div>
+                               <div style={{ fontSize: 16, fontWeight: 800, color: theme.color }}>{Math.round(performanceRate * 100)}%</div>
+                               <div style={{ fontSize: 13, color: T.muted }}>Target: {worker.role === 'Collections Officer' ? fmt(worker.collectionTarget || 500000) : (worker.onboardingTarget || 60)}</div>
                             </div>
                          </div>
                          <div style={{ height: 12, background: T.border, borderRadius: 6, overflow: 'hidden' }}>
-                            <div style={{ height: '100%', background: `linear-gradient(to right, ${theme.color}, #10B981)`, width: `${Math.min(onboardingRate * 100, 100)}%`, transition: 'width 1s ease-out' }} />
+                            <div style={{ height: '100%', background: `linear-gradient(to right, ${theme.color}, #10B981)`, width: `${Math.min(performanceRate * 100, 100)}%`, transition: 'width 1s ease-out' }} />
                          </div>
                          <div style={{ marginTop: 16, display: 'flex', gap: 12 }}>
-                            <Badge color={onboardingRate >= 1 ? '#10B98120' : '#F59E0B20'} style={{ color: onboardingRate >= 1 ? '#10B981' : '#F59E0B' }}>
-                               {onboardingRate >= 1 ? 'Target Achieved' : `${(worker.onboardingTarget || 60) - curMonthOnboarded} More Required`}
+                            <Badge color={performanceRate >= 1 ? '#10B98120' : '#F59E0B20'} style={{ color: performanceRate >= 1 ? '#10B981' : '#F59E0B' }}>
+                               {performanceRate >= 1 ? 'Mission Target Achieved' : `${performanceLabel} Focus Required`}
                             </Badge>
                          </div>
                       </div>
@@ -484,30 +552,27 @@ const WorkerPanel = ({
                    <div style={{padding: 24}}>
                       <div style={{display:'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1.5fr', gap: 30}}>
                          <div>
-                            <div style={{color: T.muted, fontSize: 11, fontWeight: 800, textTransform: 'uppercase', marginBottom: 12}}>Performance Progress</div>
+                            <div style={{color: T.muted, fontSize: 11, fontWeight: 800, textTransform: 'uppercase', marginBottom: 12}}>{performanceLabel} Progress</div>
                             <div style={{display:'flex', gap:10, alignItems:'baseline', marginBottom:20}}>
-                               <div style={{fontSize:42, fontWeight:900, color:T.txt}}>{(onboardingRate * 100).toFixed(0)}%</div>
-                               <div style={{color:T.dim, fontSize:14}}>/ {(worker.onboardingTarget || 60)} Clients</div>
+                               <div style={{fontSize:42, fontWeight:900, color:T.txt}}>{(performanceRate * 100).toFixed(0)}%</div>
+                               <div style={{color:T.dim, fontSize:14}}>/ {worker.role === 'Collections Officer' ? 'Portfolio Target' : `${worker.onboardingTarget || 60} Clients`}</div>
                             </div>
                             <div style={{height:10, background:T.border, borderRadius:5, marginBottom:10, overflow:'hidden'}}>
-                               <div style={{height:'100%', background: onboardingRate >= 1 ? '#10B981' : T.accent, width: `${Math.min(onboardingRate * 100, 100)}%`}} />
+                               <div style={{height:'100%', background: performanceRate >= 1 ? '#10B981' : T.accent, width: `${Math.min(performanceRate * 100, 100)}%`}} />
                             </div>
                             <div style={{display:'flex', justifyContent:'space-between', color:T.dim, fontSize:12, fontWeight:700}}>
-                               <span>{curMonthOnboarded} Onboarded</span>
-                               <span>Target: {worker.onboardingTarget || 60}</span>
+                               <span>{worker.role === 'Collections Officer' ? fmt(myMonthlyCollected) : `${curMonthOnboarded} Onboarded`}</span>
+                               <span>{worker.role === 'Collections Officer' ? 'Portfolio Ratio' : `Target: ${worker.onboardingTarget || 60}`}</span>
                             </div>
                          </div>
 
                          <div>
                             <div style={{color: T.muted, fontSize: 11, fontWeight: 800, textTransform: 'uppercase', marginBottom: 12}}>Monthly Calculator</div>
                             <div style={{display:'flex', flexDirection:'column', gap: 12}}>
+
                                <div style={{display:'flex', justifyContent:'space-between', padding:'10px 0', borderBottom:`1px solid ${T.border}`}}>
-                                  <span style={{color: T.dim}}>Base Contractual Pay:</span>
-                                  <span style={{fontWeight: 700}}>{fmt(worker.baseSalary || 20000)}</span>
-                               </div>
-                               <div style={{display:'flex', justifyContent:'space-between', padding:'10px 0', borderBottom:`1px solid ${T.border}`}}>
-                                  <span style={{color: T.dim}}>Current Commission ({curMonthOnboarded} clients):</span>
-                                  <span style={{fontWeight: 700, color: '#10B981'}}>+{fmt(onboardingRate * (worker.baseSalary || 20000))}</span>
+                                  <span style={{color: T.dim}}>{performanceLabel} ({worker.role === 'Collections Officer' ? fmt(myMonthlyCollected) : `${curMonthOnboarded} clients`}):</span>
+                                  <span style={{fontWeight: 700, color: '#10B981'}}>+{fmt(commission)}</span>
                                </div>
                                <div style={{display:'flex', justifyContent:'space-between', padding:'10px 0', borderBottom:`1px solid ${T.border}`}}>
                                   <span style={{color: T.dim}}>Total Deductions:</span>

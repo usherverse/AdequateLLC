@@ -541,90 +541,137 @@ const WorkersTab = ({workers,setWorkers,loans,setLoans,payments,customers,setCus
         {detailTab==='compensation'&&(
           <div className="fu">
             <Card style={{marginBottom:18, borderLeft:`4px solid ${T.accent}`}}>
-              <CH title="Performance-Based Compensation" icon={CreditCard}/>
+              <CH title={w.role === 'Collections Officer' ? "Collection-Based Performance" : "Performance-Based Compensation"} icon={CreditCard}/>
               <div style={{padding:'10px 14px 14px'}}>
-                 <div style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap:14, marginBottom:20}}>
-                    <FI label="Monthly Onboarding Target" type="number" 
-                      value={w.onboardingTarget || 60} 
-                      onChange={e => {
-                        const next = {...w, onboardingTarget: Number(e.target.value)};
-                        setSel(next);
-                        setWorkers(ws => ws.map(x => x.id === w.id ? next : x));
-                        sbWrite('workers', toSupabaseWorker(next));
-                      }} 
-                      sub="Required clients per month"/>
-                    <FI label="Monthly Base Salary (KES)" type="number" 
-                      value={w.baseSalary || 20000} 
-                      onChange={e => {
-                        const next = {...w, baseSalary: Number(e.target.value)};
-                        setSel(next);
-                        setWorkers(ws => ws.map(x => x.id === w.id ? next : x));
-                        sbWrite('workers', toSupabaseWorker(next));
-                      }}/>
-                 </div>
+                 {w.role === 'Collections Officer' ? (
+                   <div style={{background:T.surface, borderRadius:12, padding:18, marginBottom:16, border:`1px solid ${T.border}`}}>
+                      <div style={{fontSize:12, fontWeight:800, color:T.muted, marginBottom:12}}>INCENTIVE TIERS & RULES</div>
+                      <div style={{display:'grid', gridTemplateColumns:'repeat(3, 1fr)', gap:10}}>
+                         <div style={{background:T.card, padding:10, borderRadius:8, textAlign:'center'}}>
+                            <div style={{fontSize:10, color:T.muted}}>90% Collected</div>
+                            <div style={{fontSize:14, fontWeight:900, color:T.accent}}>KES 10,000</div>
+                         </div>
+                         <div style={{background:T.card, padding:10, borderRadius:8, textAlign:'center'}}>
+                            <div style={{fontSize:10, color:T.muted}}>94% Collected</div>
+                            <div style={{fontSize:14, fontWeight:900, color:T.accent}}>KES 15,000</div>
+                         </div>
+                         <div style={{background:T.card, padding:10, borderRadius:8, textAlign:'center'}}>
+                            <div style={{fontSize:10, color:T.muted}}>100% Collected</div>
+                            <div style={{fontSize:14, fontWeight:900, color:T.accent}}>KES 20,000</div>
+                         </div>
+                      </div>
+                      <div style={{marginTop:12, fontSize:11, color:T.dim, fontStyle:'italic'}}>* No base salary. Compensation is strictly derived from the monthly collection efficiency.</div>
+                   </div>
+                 ) : (
+                   <div style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap:14, marginBottom:20}}>
+                      <FI label="Monthly Onboarding Target" type="number" 
+                        value={w.onboardingTarget || 60} 
+                        onChange={e => {
+                          const next = {...w, onboardingTarget: Number(e.target.value)};
+                          setSel(next);
+                          setWorkers(ws => ws.map(x => x.id === w.id ? next : x));
+                          sbWrite('workers', toSupabaseWorker(next));
+                        }} 
+                        sub="Required clients per month"/>
+                      <FI label="Monthly Base Salary (KES)" type="number" 
+                        value={w.baseSalary || 20000} 
+                        onChange={e => {
+                          const next = {...w, baseSalary: Number(e.target.value)};
+                          setSel(next);
+                          setWorkers(ws => ws.map(x => x.id === w.id ? next : x));
+                          sbWrite('workers', toSupabaseWorker(next));
+                        }}/>
+                   </div>
+                 )}
 
                   <div style={{background:T.surface, borderRadius:12, padding:18, marginBottom:16}}>
                     <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:12}}>
                        <div style={{fontSize:12, fontWeight:800, color:T.muted}}>LIVE ESTIMATED EARNINGS ({now().slice(5,7)}/{now().slice(0,4)})</div>
                        <Badge color={T.ok}>REAL-TIME PRECISION</Badge>
                     </div>
-                    <div style={{display:'flex', gap:20, alignItems:'baseline', justifyContent:'space-between'}}>
-                       <div style={{display:'flex', gap:20, alignItems:'baseline'}}>
-                          <div style={{fontSize:32, fontWeight:900, color:T.txt}}>{fmtM((wCusts.length / (w.onboardingTarget || 60)) * (w.baseSalary || 20000))}</div>
-                          <div style={{color:T.dim, fontSize:13}}>of {fmtM(w.baseSalary || 20000)} max</div>
-                       </div>
-                       <Btn v="primary" icon={Zap} style={{background:T.ok, color:'#000'}} onClick={async () => {
-                          const net = (wCusts.length / (w.onboardingTarget || 60)) * (w.baseSalary || 20000) - deductions.filter(d => d.month === now().slice(0, 7)).reduce((s,d) => s + d.amount, 0);
-                          const existing = payslips.find(p => p.month === now().slice(0, 7) && p.status === 'Paid');
-                          if (existing) { showToast('Salary already paid for this month', 'warn'); return; }
-                          if (!confirm(`Are you sure you want to trigger M-Pesa B2C payout of ${fmt(net)} to ${w.name}?`)) return;
-                          
-                          try {
-                            const { supabase } = await import('@/config/supabaseClient');
-                            const { data: { session } } = await supabase.auth.getSession();
-                            if (!session) return showToast('Session expired. Please login again.', 'danger');
+                    {(function(){
+                      let estimated = 0;
+                      let rate = 0;
+                      let label = "Onboarding Progress";
+                      
+                      const currentMonth = now().slice(0, 7);
 
-                            const response = await fetch(`${import.meta.env.VITE_API_URL || ''}/api/v1/payments/payouts/worker/${w.id}`, {
-                              method: 'POST',
-                              headers: {
-                                'Content-Type': 'application/json',
-                                'Authorization': `Bearer ${session.access_token}`
-                              },
-                              body: JSON.stringify({
-                                amount: Math.round(net),
-                                phone: w.phone
-                              })
-                            });
+                      if (w.role === 'Collections Officer') {
+                        const myLoans = loans.filter(l => (l.collectionsOfficer || '').toLowerCase() === w.name.toLowerCase());
+                        const collected = payments.filter(p => p.status === 'Allocated' && p.date?.startsWith(currentMonth) && myLoans.some(l => l.id === p.loanId)).reduce((s, p) => s + p.amount, 0);
+                        const remaining = myLoans.reduce((total, l) => {
+                          const paid = payments.filter(p => p.loanId === l.id && p.status === 'Allocated').reduce((s, p) => s + p.amount, 0);
+                          const e = calculateLoanStatus(l, null, paid);
+                          return total + (e.totalAmountDue > 0 ? e.totalAmountDue : 0);
+                        }, 0);
+                        rate = (collected + remaining) > 0 ? (collected / (collected + remaining)) * 100 : 0;
+                        label = "Monthly Collection Efficiency";
 
-                            const result = await response.json();
-                            if (!response.ok) throw new Error(result.error || 'Payout failed');
+                        if (rate >= 100) estimated = 20000;
+                        else if (rate >= 94) estimated = 15000;
+                        else if (rate >= 90) estimated = 10000;
+                        else estimated = (rate / 90) * 10000;
+                      } else {
+                        rate = (wCusts.length / (w.onboardingTarget || 60)) * 100;
+                        estimated = (rate / 100) * (w.baseSalary || 20000);
+                      }
+                      
+                      const net = estimated - deductions.filter(d => d.month === currentMonth).reduce((s,d) => s + d.amount, 0);
 
-                            showToast(`🚀 B2C Payout Initiated: ${result.ConversationID}`, 'ok');
-                            
-                            // Aggressively refresh payslip list after a small delay to show the "Pending" record
-                            setTimeout(() => {
-                              supabase.from('salary_payments').select('*').eq('worker_id', w.id).order('created_at', { ascending: false })
-                                .then(({ data }) => { if(data) setPayslips(data); });
-                            }, 1000);
+                      return (
+                        <>
+                        <div style={{display:'flex', gap:20, alignItems:'baseline', justifyContent:'space-between'}}>
+                           <div style={{display:'flex', gap:20, alignItems:'baseline'}}>
+                              <div style={{fontSize:32, fontWeight:900, color:T.txt}}>{fmtM(estimated)}</div>
+                              <div style={{color:T.dim, fontSize:13}}>Est. Gross for {currentMonth}</div>
+                           </div>
+                           <Btn v="primary" icon={Zap} style={{background:T.ok, color:'#000'}} onClick={async () => {
+                               const existing = payslips.find(p => p.month === now().slice(0, 7) && p.status === 'Paid');
+                               if (existing) { showToast('Salary already paid for this month', 'warn'); return; }
+                               if (!confirm(`Are you sure you want to trigger M-Pesa B2C payout of ${fmt(net)} to ${w.name}?`)) return;
+                               
+                               try {
+                                 const { supabase } = await import('@/config/supabaseClient');
+                                 const { data: { session } } = await supabase.auth.getSession();
+                                 if (!session) return showToast('Session expired. Please login again.', 'danger');
 
-                            if (onNav) {
-                               setTimeout(() => {
-                                 onNav('paymentshub');
-                               }, 2000);
-                            }
-                          } catch (err) {
-                            showToast('Payout failed: ' + err.message, 'danger');
-                          }
-                       }}>Initiate B2C Payout</Btn>
-                    </div>
-                    <div style={{height:8, background:T.border, borderRadius:99, marginTop:12, overflow:'hidden'}}>
-                       <div style={{height:'100%', background:T.accent, width: `${Math.min((wCusts.length / (w.onboardingTarget || 60)) * 100, 100)}%`}}/>
-                    </div>
-                    <div style={{display:'flex', justifyContent:'space-between', marginTop:8, fontSize:11, fontWeight:700, color:T.dim}}>
-                       <span>{wCusts.length} Approved Clients</span>
-                       <span>Target: {w.onboardingTarget || 60}</span>
-                    </div>
-                 </div>
+                                 const response = await fetch(`${import.meta.env.VITE_API_URL || ''}/api/v1/payments/payouts/worker/${w.id}`, {
+                                   method: 'POST',
+                                   headers: {
+                                     'Content-Type': 'application/json',
+                                     'Authorization': `Bearer ${session.access_token}`
+                                   },
+                                   body: JSON.stringify({ amount: Math.round(net), phone: w.phone })
+                                 });
+
+                                 const result = await response.json();
+                                 if (!response.ok) throw new Error(result.error || 'Payout failed');
+
+                                 showToast(`🚀 B2C Payout Initiated: ${result.ConversationID}`, 'ok');
+                                 setTimeout(() => {
+                                   supabase.from('salary_payments').select('*').eq('worker_id', w.id).order('created_at', { ascending: false })
+                                     .then(({ data }) => { if(data) setPayslips(data); });
+                                 }, 1000);
+
+                                 if (onNav) {
+                                    setTimeout(() => { onNav('paymentshub'); }, 2000);
+                                 }
+                               } catch (err) {
+                                 showToast('Payout failed: ' + err.message, 'danger');
+                               }
+                            }}>Initiate B2C Payout</Btn>
+                      </div>
+                      <div style={{height:8, background:T.border, borderRadius:99, marginTop:12, overflow:'hidden'}}>
+                         <div style={{height:'100%', background:T.accent, width: `${Math.min(rate, 100)}%`}}/>
+                      </div>
+                      <div style={{display:'flex', justifyContent:'space-between', marginTop:8, fontSize:11, fontWeight:700, color:T.dim}}>
+                         <span>{label}: {Math.round(rate)}%</span>
+                         <span>{w.role === 'Collections Officer' ? 'Step-Incentive Basis' : `Target: ${w.onboardingTarget || 60}`}</span>
+                      </div>
+                    </>
+                      );
+                    })()}
+                  </div>
               </div>
             </Card>
 

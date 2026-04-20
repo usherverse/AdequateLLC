@@ -2,7 +2,7 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { Landmark, Download, RefreshCw, Send, CheckCircle, Clock, TrendingUp, Users, DollarSign, Wallet, FileText, ArrowRight, Printer, AlertCircle, Zap, ShieldCheck, Activity } from 'lucide-react';
 import { T, DT, Btn, Badge, fmt, ts, now, KPI, Card, CH, fmtM, Dialog, FI, generatePayslipHTML, dlBlob } from '@/lms-common';
 
-const SalariesTab = ({ workers = [], salaryPayments = [], setSalaryPayments, customers = [], loans = [], leads = [], addAudit, showToast, onNav, workerDeductions = [], setWorkerDeductions }) => {
+const SalariesTab = ({ workers = [], salaryPayments = [], setSalaryPayments, customers = [], loans = [], leads = [], addAudit, showToast, onNav, workerDeductions = [], setWorkerDeductions, payments = [] }) => {
   const [view, setView] = useState('payroll'); // Default to Analysis for better UX
   const [loading, setLoading] = useState(false);
   const [payoutModal, setPayoutModal] = useState(null); 
@@ -57,39 +57,82 @@ const SalariesTab = ({ workers = [], salaryPayments = [], setSalaryPayments, cus
 
   const payrollData = useMemo(() => {
     return workers.map(w => {
-      // 1. ATTEMPT LOCAL SYNC
       const wIdStr = String(w.id || '').trim().toLowerCase();
       const wNmStr = String(w.name || '').trim().toLowerCase();
-      
-      let localCusts = (customers || []).filter(c => {
-        const cAssigned = String(c.assigned_officer || '').trim().toLowerCase();
-        const cOfficer  = String(c.officer || '').trim().toLowerCase();
-        return (wIdStr && cAssigned === wIdStr) || (wNmStr && cOfficer === wNmStr);
-      });
+      const currentMonth = now().slice(0, 7);
 
-      // 2. USE DIRECT SYNC AS OVERRIDE IF LOCAL FAILS
-      const activeCount = Math.max(localCusts.length, directCounts[w.id] || 0);
-      
-      const target = Number(w.onboardingTarget) || 60;
-      const base = Number(w.baseSalary) || 20000;
-      
-      const onboardingProgress = target > 0 ? (activeCount / target) * 100 : 0;
-      const rawEarned = (activeCount / (target || 60)) * base;
-      const estimatedEarned = Math.round(rawEarned);
+      let estimatedEarned = 0;
+      let progress = 0;
+      let activeCount = 0;
+      let label = "";
+
+      if (w.role === 'Collections Officer') {
+        // ── Collections Officer Logic ──
+        // Based on % of collections in the current month
+        const myLoans = loans.filter(l => (l.collections_officer || '').toLowerCase() === wNmStr);
+        
+        // Total collected by this officer this month
+        const collected = payments.filter(p => 
+          p.status === 'Allocated' && 
+          p.date?.startsWith(currentMonth) &&
+          myLoans.some(l => l.id === p.loanId)
+        ).reduce((s, p) => s + p.amount, 0);
+
+        // Total "Target" (What should have been collected)
+        // We define target as (Collected + Remaining Overdue today)
+        const remainingOverdue = myLoans.reduce((total, l) => {
+          const lPays = payments.filter(p => p.loanId === l.id && p.status === 'Allocated');
+          const paid = lPays.reduce((s, p) => s + p.amount, 0);
+          const e = calculateLoanStatus(l, null, paid);
+          return total + (e.totalAmountDue > 0 ? e.totalAmountDue : 0);
+        }, 0);
+
+        const totalTarget = collected + remainingOverdue;
+        const collRate = totalTarget > 0 ? (collected / totalTarget) * 100 : 0;
+        progress = collRate;
+        label = "COLLECTION RATE";
+
+        // Tiers: 90% -> 10k, 94% -> 15k, 100% -> 20k
+        if (collRate >= 100) estimatedEarned = 20000;
+        else if (collRate >= 94) estimatedEarned = 15000;
+        else if (collRate >= 90) estimatedEarned = 10000;
+        else {
+          // Linear scaling below 90% to avoid 0 pay? 
+          // User said "supposed to be paid 10k for 90%", implying it starts there.
+          // We'll give fractional if requested, but for now strict tiers.
+          estimatedEarned = (collRate / 90) * 10000; 
+        }
+        activeCount = myLoans.length;
+      } else {
+        // ── Loan Officer / Default Logic ──
+        let localCusts = (customers || []).filter(c => {
+          const cAssigned = String(c.assigned_officer || '').trim().toLowerCase();
+          const cOfficer  = String(c.officer || '').trim().toLowerCase();
+          return (wIdStr && cAssigned === wIdStr) || (wNmStr && cOfficer === wNmStr);
+        });
+
+        activeCount = Math.max(localCusts.length, directCounts[w.id] || 0);
+        const target = Number(w.onboardingTarget) || 60;
+        const base = Number(w.baseSalary) || 20000;
+        
+        progress = target > 0 ? (activeCount / target) * 100 : 0;
+        estimatedEarned = Math.round((activeCount / (target || 60)) * base);
+        label = "ONBOARDING TARGET";
+      }
       
       const paidThisMonth = salaryPayments
-        .filter(p => String(p.worker_id) === String(w.id) && p.month === now().slice(0, 7) && p.status === 'Success')
+        .filter(p => String(p.worker_id) === String(w.id) && p.month === currentMonth && p.status === 'Success')
         .reduce((s, p) => s + (Number(p.amount) || 0), 0);
 
       const monthDeductions = (workerDeductions || [])
-        .filter(d => String(d.worker_id) === String(w.id) && d.month === now().slice(0, 7))
+        .filter(d => String(d.worker_id) === String(w.id) && d.month === currentMonth)
         .reduce((s, d) => s + (Number(d.amount) || 0), 0);
 
-      const netDue = Math.max(0, estimatedEarned - (paidThisMonth + monthDeductions));
+      const netDue = Math.max(0, Math.round(estimatedEarned) - (paidThisMonth + monthDeductions));
 
-      return { ...w, activeCount, estimatedEarned, paidThisMonth, monthDeductions, netDue, onboardingProgress };
+      return { ...w, activeCount, estimatedEarned, paidThisMonth, monthDeductions, netDue, progress, label };
     });
-  }, [workers, customers, salaryPayments, directCounts, workerDeductions]);
+  }, [workers, customers, loans, payments, salaryPayments, directCounts, workerDeductions]);
 
   const handleRefresh = async () => {
     setLoading(true);
@@ -303,11 +346,11 @@ const SalariesTab = ({ workers = [], salaryPayments = [], setSalaryPayments, cus
 
                 <div style={{ marginBottom: 28 }}>
                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
-                      <div style={{ fontSize: 12, fontWeight: 800, color: T.muted, display: 'flex', alignItems: 'center', gap: 8 }}>TARGET ONBOARDING <span style={{ color: T.accent }}>{w.activeCount} / {w.onboardingTarget || 60}</span></div>
-                      <div style={{ fontSize: 12, fontWeight: 900, color: T.txt }}>{Math.round(w.onboardingProgress)}%</div>
+                      <div style={{ fontSize: 12, fontWeight: 800, color: T.muted, display: 'flex', alignItems: 'center', gap: 8 }}>{w.label} <span style={{ color: T.accent }}>{w.role === 'Collections Officer' ? `${Math.round(w.progress)}%` : `${w.activeCount} / ${w.onboardingTarget || 60}`}</span></div>
+                      <div style={{ fontSize: 12, fontWeight: 900, color: T.txt }}>{Math.round(w.progress)}%</div>
                    </div>
                    <div style={{ height: 10, background: T.border, borderRadius: 20, overflow: 'hidden' }}>
-                      <div style={{ height: '100%', width: `${w.onboardingProgress}%`, background: `linear-gradient(90deg, ${T.accent} 0%, #00a884 100%)`, borderRadius: 20, transition: 'width 1s cubic-bezier(0.175, 0.885, 0.32, 1.275)' }} />
+                      <div style={{ height: '100%', width: `${Math.min(100, (w.progress || 0))}%`, background: `linear-gradient(90deg, ${T.accent} 0%, #00a884 100%)`, borderRadius: 20, transition: 'width 1s cubic-bezier(0.175, 0.885, 0.32, 1.275)' }} />
                    </div>
                 </div>
 

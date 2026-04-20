@@ -10471,6 +10471,9 @@ export const LoanModal = ({
   onClose,
   onViewCustomer,
   actions,
+  workers = [],
+  setLoans,
+  addAudit,
 }) => {
   useModalLock();
   const [tab, setTab] = useState("details");
@@ -10902,6 +10905,37 @@ export const LoanModal = ({
                   </div>
                 </div>
               ))}
+              
+              {/* Allocation Section */}
+              <div style={{ gridColumn: 'span 2', marginTop: 8, background: `${T.accent}08`, border: `1px dashed ${T.accent}30`, borderRadius: 12, padding: 12 }}>
+                 <div style={{ color: T.accent, fontSize: 10, fontWeight: 900, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 8 }}>Loan Allocation</div>
+                 <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                    <div style={{ flex: 1 }}>
+                       <FI 
+                        label="Collections Officer" 
+                        type="select" 
+                        value={loan.collectionsOfficer || ''} 
+                        onChange={(val) => {
+                          if (!setLoans) return;
+                          const upd = { ...loan, collectionsOfficer: val };
+                          setLoans(ls => ls.map(l => l.id === loan.id ? upd : l));
+                          sbWrite('loans', toSupabaseLoan(upd));
+                          if (addAudit) addAudit('Loan Allocated', loan.id, `Assignee: ${val || 'Unassigned'}`);
+                        }}
+                        opts={[
+                          { l: '— Unassigned —', v: '' },
+                          ...workers.filter(w => w.role === 'Collections Officer').map(w => ({ l: w.name, v: w.name }))
+                        ]}
+                       />
+                    </div>
+                    <div style={{ width: 40, height: 40, borderRadius: 10, background: loan.collectionsOfficer ? T.oLo : T.hi, display: 'flex', alignItems: 'center', justifyContent: 'center', color: loan.collectionsOfficer ? T.ok : T.dim }}>
+                       {loan.collectionsOfficer ? '✅' : '⏳'}
+                    </div>
+                 </div>
+                 <div style={{ color: T.muted, fontSize: 11, marginTop: 6, fontStyle: 'italic' }}>
+                    Officer only earns commission from payments made on loans allocated to them.
+                 </div>
+              </div>
             </div>
           )}
 
@@ -12430,6 +12464,7 @@ export const toSupabaseLoan = (l) => ({
   status: l.status,
   repayment_type: l.repaymentType,
   officer: l.officer,
+  collections_officer: l.collectionsOfficer,
   risk: l.risk,
   disbursed: l.disbursed || null,
   mpesa: l.mpesa || null,
@@ -12445,6 +12480,7 @@ export const fromSupabaseLoan = (r) => ({
   status: r.status,
   repaymentType: r.repayment_type,
   officer: r.officer,
+  collectionsOfficer: r.collections_officer,
   risk: r.risk,
   disbursed: r.disbursed_at || r.disbursed,
   // createdAt is the Supabase auto-column — used as a fallback date when
@@ -12593,8 +12629,28 @@ export const fromSupabaseInteraction = (r) => ({
   promiseStatus: r.promise_status,
   createdAt: r.created_at,
 });
-export const toSupabaseWorker = (w) => ({ ...w });
-export const fromSupabaseWorker = (r) => ({ ...r, docs: r.docs || [] });
+export const toSupabaseWorker = (w) => ({
+  id: w.id,
+  name: w.name,
+  email: w.email,
+  phone: w.phone,
+  role: w.role,
+  status: w.status,
+  avatar: w.avatar,
+  id_no: w.idNo,
+  docs: w.docs || [],
+  base_salary: w.baseSalary,
+  onboarding_target: w.onboardingTarget,
+  collection_target: w.collectionTarget,
+  auth_user_id: w.auth_user_id,
+});
+export const fromSupabaseWorker = (r) => ({ 
+  ...r, 
+  docs: r.docs || r.documents || [],
+  baseSalary: Number(r.base_salary || 20000),
+  onboardingTarget: Number(r.onboarding_target || 60),
+  collectionTarget: Number(r.collection_target || 500000)
+});
 
 export const toSupabaseAsset = (a) => ({
   id: a.id,

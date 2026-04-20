@@ -368,7 +368,31 @@ const CollectionsTab = ({loans,customers,payments,setPayments,interactions,setIn
             const paid = r.disbursed ? payments.filter(p => p.loanId === r.id).reduce((a, p) => a + p.amount, 0) : 0;
             const e=calculateLoanStatus(r, null, paid);
             return <span style={{fontSize:11,fontWeight:700,color:e.isFrozen?T.muted:e.phase==='penalty'?T.danger:T.warn}}>{e.isFrozen?'❄ Frozen':e.phase==='penalty'?'Penalty':'Interest'}</span>;
-          }},{k:'risk',l:'Risk',r:v=><Badge color={RC[v]}>{v}</Badge>},{k:'officer',l:'Officer'}]}
+          }},          {k:'risk',l:'Risk',r:v=><Badge color={RC[v]}>{v}</Badge>},
+          {k:'collectionsOfficer',l:'Handler',r:(v,r)=>(
+            <div onClick={e=>e.stopPropagation()} style={{display:'flex',alignItems:'center',gap:6}}>
+              <select 
+                value={v || ''} 
+                onChange={(e)=>{
+                  const newVal = e.target.value;
+                  const upd = { ...r, collectionsOfficer: newVal };
+                  setLoans(ls => ls.map(l => l.id === r.id ? upd : l));
+                  import('@/lms-common').then(({sbWrite, toSupabaseLoan}) => {
+                    sbWrite('loans', toSupabaseLoan(upd));
+                  });
+                  if (addAudit) addAudit('Manual Allocation', r.id, `Handler: ${newVal || 'NONE'}`);
+                  showToast(`Loan ${r.id} assigned to ${newVal || 'System'}`);
+                }}
+                style={{background:T.surface, border: `1px solid ${v?T.accent+'40':T.border}`, color: v?T.accent:T.dim, borderRadius:6, fontSize:11, padding:'2px 4px', fontWeight:600}}
+              >
+                <option value="">— Assign —</option>
+                {workers.filter(w=>w.role==='Collections Officer').map(w=>(
+                  <option key={w.id} value={w.name}>{w.name}</option>
+                ))}
+              </select>
+            </div>
+          )},
+          {k:'officer',l:'Loan Officer'}]}
           rows={[...ov].sort((a,b)=>b.daysOverdue-a.daysOverdue)} onRow={r=>{setShowInt(r);setIF(f=>({...f,officer:f.officer||currentUser}));}}/>
       </Card>
       {interactions.length>0&&<Card>
