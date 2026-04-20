@@ -13,6 +13,7 @@ const SEED_WORKERS = [
   {id:'W006',name:'Felix Kiprono',email:'felix.k@adequatecapital.co.ke',role:'Loan Officer',status:'Active',phone:'0712345006',joined:'2024-06-01',avatar:'FK',docs:[],pwHash:_hashPw('felix123')},
   {id:'W007',name:'Naomi Achieng',email:'naomi.a@adequatecapital.co.ke',role:'Loan Officer',status:'Active',phone:'0712345007',joined:'2024-07-15',avatar:'NA',docs:[],pwHash:_hashPw('naomi123')},
   {id:'W008',name:'Dennis Mutua',email:'dennis.m@adequatecapital.co.ke',role:'Collections Officer',status:'Active',phone:'0712345008',joined:'2024-09-01',avatar:'DM',docs:[],pwHash:_hashPw('dennis123')},
+  {id:'W009',name:'Jennifer Wanjiku',email:'jennifer.w@adequatecapital.co.ke',role:'Asset Recovery',status:'Active',phone:'0712345009',joined:'2024-10-01',avatar:'JW',docs:[{id:'DOC001',key:'id_front',name:'National ID - Front',status:'Verified'}],pwHash:_hashPw('jennifer123')},
 ];
 
 const SEED_CUSTOMERS = [

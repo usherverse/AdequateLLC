@@ -1,17 +1,28 @@
-import React, { useState } from 'react';
-import { IdCard, FileImage, FileText, CheckCircle, AlertTriangle, User, Target, TrendingUp, Lock, Paperclip, ClipboardList, Check, Square, Hourglass } from 'lucide-react';
+import React, { useState, useMemo } from 'react';
+import { 
+  IdCard, FileImage, FileText, CheckCircle, AlertTriangle, User, Target, 
+  Activity, Lock, Paperclip, ClipboardList, Check, Square, Hourglass,
+  Gavel, Landmark, LayoutDashboard, ChevronLeft, Menu, X, Users, MessageSquare,
+  ShieldAlert, ShieldOff, TrendingUp, Settings, LogOut, Search, PieChart, Plus, Clock, 
+  ChevronRight, ArrowUpRight, ArrowDownRight, CreditCard, Clock as ClockIcon, Calculator, Download
+} from 'lucide-react';
+import MultiCalculator from '@/modules/tools/MultiCalculator';
 import { 
   T, SC, RC, SFX, Card, CH, KPI, DT, Btn, Badge, Av, 
-  Dialog, Alert, LoanForm, DocViewer,
-  fmt, fmtM, now, uid, ts 
+  Dialog, Alert, LoanForm, DocViewer, 
+  fmt, fmtM, now, uid, ts, sbWrite, toSupabaseWorker, compressImage
 } from '@/lms-common';
 import ALeads from '@/modules/leads/LeadsTab';
+import AssetRecoveryDashboard from './AssetRecoveryDashboard';
+import CollectionsDashboard from './CollectionsDashboard';
+import FinanceDashboard from './FinanceDashboard';
 
 const WorkerPanel = ({
   worker,
   workers,
   setWorkers,
   loans,
+  setLoans,
   payments,
   customers,
   leads,
@@ -22,22 +33,153 @@ const WorkerPanel = ({
   interactions,
   setInteractions,
   addAudit,
-  showToast = () => {}
+  showToast = () => {},
+  onOpenCustomerProfile,
+  repossessedAssets = [],
+  setRepossessedAssets,
+  targets = [],
+  onLogout
 }) => {
   const [tab, setTab] = useState('overview');
+  const [sidebarOpen, setSidebarOpen] = useState(true);
   const [showLoanApp, setShowLoanApp] = useState(false);
+  const [showCalc, setShowCalc]   = useState(false);
   const [viewDoc, setViewDoc] = useState(null);
+  const [deductions, setDeductions] = useState([]);
+  const [payslips, setPayslips] = useState([]);
 
-  // Local copy of this worker's docs — synced back to global workers state on change
+  useMemo(() => {
+    import('@/config/supabaseClient').then(({ supabase }) => {
+      if(supabase) {
+        supabase.from('worker_deductions').select('*').eq('worker_id', worker.id)
+          .then(({ data }) => setDeductions(data || []));
+        
+        supabase.from('salary_payments').select('*').eq('worker_id', worker.id).order('created_at', { ascending: false })
+          .then(({ data }) => setPayslips(data || []));
+      }
+    });
+  }, [worker.id]);
+
+
+  // ── ROLE CONFIGURATION & THEMING ───────────────────────────────────────────
+  const ROLE_CONFIG = useMemo(() => ({
+    'Loan Officer': {
+      color: T.accent,
+      icon: Target,
+      tabs: [
+        { k: 'overview', l: 'Dashboard', icon: LayoutDashboard },
+        { k: 'leads', l: 'Lead Pipeline', icon: Target },
+        { k: 'customers', l: 'My Portfolio', icon: Users },
+        { k: 'loans', l: 'Active Loans', icon: Activity },
+        { k: 'compensation', l: 'Salary & Earnings', icon: CreditCard },
+        { k: 'documents', l: 'My Compliance', icon: IdCard },
+      ]
+    },
+    'Collections Officer': {
+      color: '#F59E0B',
+      icon: ShieldAlert,
+      tabs: [
+        { k: 'overview', l: 'Performance', icon: LayoutDashboard },
+        { k: 'collections', l: 'Collection Hub', icon: ShieldAlert },
+        { k: 'customers', l: 'Arrears CRM', icon: AlertTriangle },
+        { k: 'documents', l: 'Compliance', icon: IdCard },
+      ]
+    },
+    'Finance': {
+      color: '#10B981',
+      icon: Landmark,
+      tabs: [
+        { k: 'overview', l: 'Finance Pulse', icon: LayoutDashboard },
+        { k: 'treasury', l: 'Treasury Ops', icon: Landmark },
+        { k: 'loans', l: 'Disbursements', icon: Landmark },
+        { k: 'documents', l: 'Compliance', icon: IdCard },
+      ]
+    },
+    'Asset Recovery': {
+      color: '#EA580C',
+      icon: Gavel,
+      tabs: [
+        { k: 'overview', l: 'Ops Overview', icon: LayoutDashboard },
+        { k: 'recovery', l: 'Recovery Rack', icon: Gavel },
+        { k: 'customers', l: 'Legal List', icon: Landmark },
+        { k: 'documents', l: 'Compliance', icon: IdCard },
+      ]
+    },
+    'default': {
+      color: T.accent,
+      icon: User,
+      tabs: [
+        { k: 'overview', l: 'Overview', icon: LayoutDashboard },
+        { k: 'documents', l: 'Documents', icon: IdCard },
+      ]
+    }
+  }), []);
+
+  const theme = ROLE_CONFIG[worker.role] || ROLE_CONFIG.default;
+  const TABS = theme.tabs;
+
+  // Local copy of this worker's docs
   const [myDocs, setMyDocs] = useState(() => (workers || []).find(w => w.id === worker.id)?.docs || worker.docs || []);
   
-  const myL = loans.filter(l => l.officer === worker.name);
-  const myC = customers.filter(c => c.officer === worker.name);
-  const myLeads = (leads || []).filter(l => l.officer === worker.name);
+  const myL = loans.filter(l => 
+    l.officer?.trim().toLowerCase() === worker.name?.trim().toLowerCase() &&
+    l.status?.toUpperCase() !== 'APPROVED' && 
+    l.status?.toUpperCase() !== 'WRITTEN OFF'
+  );
+  const myC = customers.filter(c => c.officer?.trim().toLowerCase() === worker.name?.trim().toLowerCase());
+  const myLeads = (leads || []).filter(l => l.officer?.trim().toLowerCase() === worker.name?.trim().toLowerCase());
   const ov = myL.filter(l => l.status === 'Overdue');
   const act = myL.filter(l => l.status === 'Active');
   const book = myL.filter(l => l.status !== 'Settled').reduce((s, l) => s + l.balance, 0);
   const pendingMine = myL.filter(l => l.status === 'worker-pending');
+
+  const curMonth = new Date().toISOString().slice(0, 7);
+  const curMonthOnboarded = myC.filter(c => (c.createdAt||c.joined)?.startsWith(curMonth)).length;
+  const activeTarget = (targets || []).find(t => t.month === curMonth);
+  const activeOfficersTotal = (allWorkers || workers || []).filter(w => w.role === 'Loan Officer' && w.status === 'Active').length || 1;
+  const myTarget = activeTarget ? (activeTarget.total_target_amount / activeOfficersTotal) : 0;
+  const myDisbursed = myL.filter(l => l.disbursed?.startsWith(curMonth)).reduce((s,l) => s + Number(l.amount), 0);
+  const myTgtPct = myTarget > 0 ? Math.min(Math.round((myDisbursed / myTarget) * 100), 100) : 0;
+
+  const currentMonth = now().slice(0, 7);
+  const myDeductions = deductions.filter(d => d.month === currentMonth);
+  const totalDeductions = myDeductions.reduce((s, d) => s + d.amount, 0);
+  const onboardingRate = (curMonthOnboarded / (worker.onboardingTarget || 60));
+  const cumulativeEarnings = (onboardingRate * (worker.baseSalary || 20000)) - totalDeductions;
+
+  const printPayslip = () => {
+    const earnings = Math.round((curMonthOnboarded / (worker.onboardingTarget || 60)) * (worker.baseSalary || 20000));
+    const today = now();
+    const fmtKey = (v) => "KES " + Number(v || 0).toLocaleString("en-KE");
+    
+    const html = `
+      <!DOCTYPE html><html><head><meta charset=UTF-8><style>
+        body { font-family: 'Inter', 'Segoe UI', sans-serif; padding: 25mm; color: #1e293b; background: #fff; line-height: 1.5; }
+        .header { display: flex; justify-content: space-between; border-bottom: 2px solid #00D4AA; padding-bottom: 25px; margin-bottom: 35px; }
+        .logo { font-size: 26px; font-weight: 900; color: #00D4AA; }
+        .table { width: 100%; border-collapse: collapse; margin: 30px 0; }
+        .table th { text-align: left; background: #f8fafc; padding: 14px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; border-bottom: 1px solid #e2e8f0; }
+        .table td { padding: 14px; font-size: 13px; border-bottom: 1px solid #f1f5f9; }
+        .total-row { background: #f8fafc; font-weight: 900; }
+      </style></head><body>
+        <div class="header"><div><div class="logo">Adequate Capital Ltd</div><div style="font-size: 11px; font-weight: 700; color: #64748b;">PAYROLL EARNINGS STATEMENT</div></div><div style="text-align: right;"><b>OFFICIAL PAYSLIP</b><br>${currentMonth}</div></div>
+        <div style="margin-bottom: 40px; display: grid; grid-template-columns: 1fr 1fr; gap: 20px;"><div><div style="font-size: 10px; color: #94a3b8; font-weight: 800;">EMPLOYEE</div><div style="font-size: 15px; font-weight: 800;">${worker.name}</div><div style="font-size: 12px; color: #64748b;">Phone: ${worker.phone}</div></div><div><div style="font-size: 10px; color: #94a3b8; font-weight: 800;">STATEMENT REFERENCE</div><div style="font-size: 14px; font-weight: 700; color: #64748b;">ESTIMATED_DRAFT_${today.split('T')[0]}</div></div></div>
+        <table class="table">
+          <thead><tr><th>Description</th><th style="text-align: right;">Amount</th></tr></thead>
+          <tbody>
+            <tr><td style="font-weight: 700;">Gross Commission Earnings (${curMonthOnboarded} onboardings)</td><td style="text-align: right; font-weight: 700;">${fmtKey(earnings)}</td></tr>
+            ${myDeductions.map(d => `<tr><td style="color: #ef4444;">Deduction: ${d.reason}</td><td style="text-align: right; color: #ef4444;">- ${fmtKey(d.amount)}</td></tr>`).join('')}
+          </tbody>
+          <tfoot><tr class="total-row"><td>NET ESTIMATED PAYABLE</td><td style="text-align: right; font-size: 18px; color: #00D4AA;">${fmtKey(cumulativeEarnings)}</td></tr></tfoot>
+        </table>
+        <div style="margin-top: 50px; padding: 20px; background: #f1f5f9; border-radius: 12px; font-size: 12px; text-align: center;">This is an estimated payslip based on current month performance. Final B2C disbursements are executed on month-end.</div>
+      </body></html>
+    `;
+    const win = window.open('', '_blank');
+    win.document.write(html);
+    win.document.close();
+    setTimeout(() => win.print(), 500);
+  };
 
   const WORKER_SELF_DOC_SLOTS = [
     { key: 'id_front', label: 'National ID — Front', icon: <IdCard size={16} />, required: true, accept: 'image/*', capture: 'environment' },
@@ -51,263 +193,540 @@ const WorkerPanel = ({
     const next = [...myDocs.filter(d => d.key !== doc.key), doc];
     setMyDocs(next);
     if (setWorkers) setWorkers(ws => ws.map(w => w.id === worker.id ? { ...w, docs: next } : w));
+    
+    // PERSISTENCE FIX: Save to Supabase
+    const upd = { ...worker, docs: next };
+    sbWrite('workers', toSupabaseWorker(upd)).catch(console.error);
+
     addAudit('Worker Doc Uploaded', worker.id, doc.name);
     showToast(`✅ ${doc.name} uploaded`, 'ok');
-    try { SFX.upload(); } catch (e) { }
   };
 
   const handleDocRemove = (docId) => {
     const next = myDocs.filter(d => d.id !== docId);
     setMyDocs(next);
     if (setWorkers) setWorkers(ws => ws.map(w => w.id === worker.id ? { ...w, docs: next } : w));
+    
+    // PERSISTENCE FIX: Save to Supabase
+    const upd = { ...worker, docs: next };
+    sbWrite('workers', toSupabaseWorker(upd)).catch(console.error);
+
     showToast('Document removed', 'info');
   };
 
-  const uploadedCount = WORKER_SELF_DOC_SLOTS.filter(s => myDocs.some(d => d.key === s.key)).length;
   const requiredCount = WORKER_SELF_DOC_SLOTS.filter(s => s.required).length;
   const requiredDone = WORKER_SELF_DOC_SLOTS.filter(s => s.required && myDocs.some(d => d.key === s.key)).length;
   const docsComplete = requiredDone >= requiredCount;
 
-  const TABS = [
-    { k: 'overview', l: 'Overview' },
-    { k: 'loans', l: `Loans (${myL.length})` },
-    { k: 'customers', l: `Customers (${myC.length})` },
-    { k: 'leads', l: `Leads (${myLeads.length})` },
-    { k: 'documents', l: `My Documents${requiredDone < requiredCount ? ' ⚠' : ''}`, alert: requiredDone < requiredCount },
-  ];
+  const switchTab = (k) => { 
+    setTab(k); 
+    addAudit('Worker View', k, `${worker.name} viewed ${k}`); 
+    if (window.innerWidth < 768) setSidebarOpen(false);
+  };
 
-  const switchTab = (k) => { setTab(k); addAudit('Worker View', k, `${worker.name} viewed ${k}`); };
-
+  const isMobile = window.innerWidth < 1024;
 
   return (
-    <div style={{ padding: '16px 18px', background: T.bg, minHeight: '100vh' }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 20, flexWrap: 'wrap' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          <Av ini={worker.avatar || worker.name[0]} size={42} color={T.accent} />
-          <div>
-            <div style={{ fontFamily: T.head, color: T.txt, fontSize: 18, fontWeight: 800 }}>{worker.name}</div>
-            <div style={{ color: T.muted, fontSize: 13 }}>{worker.role}</div>
+    <div style={{ display: 'flex', minHeight: '100vh', background: T.bg, color: T.txt, overflow: 'hidden' }}>
+      
+      {/* ── SIDEBAR ────────────────────────────────────────────────────────── */}
+      <aside style={{
+        width: sidebarOpen ? 280 : 0,
+        height: '100vh',
+        background: T.card,
+        borderRight: `1px solid ${T.border}`,
+        transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+        position: isMobile ? 'fixed' : 'relative',
+        zIndex: 1000,
+        display: 'flex',
+        flexDirection: 'column',
+        overflow: 'hidden',
+        boxShadow: sidebarOpen && isMobile ? '20px 0 50px rgba(0,0,0,0.5)' : 'none'
+      }}>
+        {/* Sidebar Branding */}
+        <div style={{ padding: '32px 24px', display: 'flex', alignItems: 'center', gap: 12 }}>
+          <div style={{ width: 40, height: 40, borderRadius: 12, background: theme.color, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#000' }}>
+            {React.createElement(theme.icon, { size: 24 })}
+          </div>
+          <div style={{ opacity: sidebarOpen ? 1 : 0, transition: '0.2s' }}>
+            <div style={{ fontWeight: 900, fontSize: 16, letterSpacing: -0.5 }}>ADEQUATE</div>
+            <div style={{ fontSize: 10, fontWeight: 800, color: theme.color, textTransform: 'uppercase', letterSpacing: 1.5 }}>{worker.role}</div>
           </div>
         </div>
-        <Btn onClick={() => {
-          if (!docsComplete) { showToast('⚠ Upload all required documents before applying for a loan.', 'warn'); setTab('documents'); return; }
-          setShowLoanApp(true);
-        }} v={docsComplete ? 'primary' : 'secondary'}>
-          <span style={{display:'flex', alignItems:'center', gap:6}}><FileText size={16} /> Apply Loan for Client{!docsComplete && <Lock size={14} />}</span>
-        </Btn>
-      </div>
 
-      {!docsComplete && (
-        <div style={{ background: T.dLo, border: `1px solid ${T.danger}38`, borderRadius: 11, padding: '12px 16px', marginBottom: 14, display: 'flex', alignItems: 'center', gap: 12 }}>
-          <span style={{ fontSize: 20, display: 'flex' }}><Lock size={20} color={T.danger} /></span>
-          <div style={{ flex: 1 }}>
-            <div style={{ color: T.danger, fontWeight: 800, fontSize: 13 }}>Documents Incomplete</div>
-            <div style={{ color: T.muted, fontSize: 12, marginTop: 2 }}>
-              Upload your required ID documents before adding leads or applying for loans.
-              {' '}<button onClick={() => setTab('documents')} style={{ background: 'none', border: 'none', color: T.accent, cursor: 'pointer', fontWeight: 700, fontSize: 12, padding: 0, textDecoration: 'underline' }}>Go to Documents →</button>
+        {/* Navigation Items */}
+        <nav style={{ flex: 1, padding: '0 16px', display: 'flex', flexDirection: 'column', gap: 4 }}>
+          {TABS.map(t => (
+            <button
+              key={t.k}
+              onClick={() => switchTab(t.k)}
+              style={{
+                display: 'flex', alignItems: 'center', gap: 12, padding: '12px 16px', borderRadius: 12,
+                border: 'none', cursor: 'pointer', textAlign: 'left',
+                background: tab === t.k ? `${theme.color}15` : 'transparent',
+                color: tab === t.k ? theme.color : T.muted,
+                transition: '0.2s',
+                fontWeight: tab === t.k ? 800 : 600,
+                fontSize: 14,
+              }}
+            >
+              {React.createElement(t.icon, { size: 18, color: tab === t.k ? theme.color : 'currentColor' })}
+              <span style={{ opacity: sidebarOpen ? 1 : 0 }}>{t.l}</span>
+              {t.k === 'documents' && !docsComplete && <div style={{ width: 8, height: 8, borderRadius: '50%', background: T.danger }} />}
+            </button>
+          ))}
+        </nav>
+
+        {/* Sidebar Footer / User Profile */}
+        <div style={{ padding: 20, borderTop: `1px solid ${T.border}`, background: `${T.card}80` }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <Av ini={worker.avatar || worker.name[0]} size={40} color={theme.color} />
+            <div style={{ minWidth: 0, opacity: sidebarOpen ? 1 : 0 }}>
+              <div style={{ fontWeight: 800, fontSize: 14, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{worker.name}</div>
+              <div style={{ fontSize: 11, color: T.muted }}>System Active</div>
             </div>
           </div>
-          <Badge color={T.danger}>{requiredCount - requiredDone} missing</Badge>
+          <button 
+            onClick={onLogout}
+            style={{ 
+              marginTop: 20, width: '100%', padding: '10px', borderRadius: 10, 
+              background: 'transparent', border: `1px solid ${T.border}`, color: T.muted,
+              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+              fontSize: 12, fontWeight: 700, cursor: 'pointer'
+            }}
+          >
+            <LogOut size={14} /> Log Out
+          </button>
         </div>
-      )}
-      {pendingMine.length > 0 && (
-        <div style={{ background: T.gLo, border: `1px solid ${T.gold}38`, borderRadius: 11, padding: '11px 14px', marginBottom: 16 }}>
-          <div style={{ color: T.gold, fontWeight: 700, fontSize: 13, display:'flex', alignItems:'center', gap:6 }}><Hourglass size={14} /> {pendingMine.length} application{pendingMine.length > 1 ? 's' : ''} pending admin approval</div>
-        </div>
-      )}
+      </aside>
 
-      <div style={{ display: 'flex', gap: 5, marginBottom: 18, flexWrap: 'wrap' }}>
-        {TABS.map(t => (
-          <button key={t.k} onClick={() => switchTab(t.k)} style={{ background: tab === t.k ? T.accent : T.card, color: tab === t.k ? '#060A10' : t.alert ? T.warn : T.muted, border: `1px solid ${tab === t.k ? T.accent : t.alert ? T.warn + '50' : T.border}`, borderRadius: 99, padding: '6px 14px', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>{t.l}</button>
-        ))}
-      </div>
-
-      {tab === 'overview' && (
-        <div>
-          <div className='kpi-row' style={{ display: 'flex', gap: 10, marginBottom: 12, flexWrap: 'wrap' }}>
-            <KPI label='My Loan Book' icon={TrendingUp} value={fmtM(book)} color={T.accent} delay={1} />
-            <KPI label='Active Loans' icon={CheckCircle} value={act.length} color={T.ok} delay={2} />
-            <KPI label='Overdue' icon={AlertTriangle} value={ov.length} color={T.danger} delay={3} />
-            <KPI label='My Customers' icon={User} value={myC.length} delay={4} />
+      {/* ── MAIN CONTENT ── */}
+      <main style={{ flex: 1, height: '100vh', overflowY: 'auto', position: 'relative', display: 'flex', flexDirection: 'column' }}>
+        
+        {/* Top Floating Bar */}
+        <header style={{ 
+          height: 70, display: 'flex', alignItems: 'center', justifyContent: 'space-between', 
+          padding: '0 24px', position: 'sticky', top: 0, zIndex: 900, 
+          background: `${T.bg}D0`, backdropFilter: 'blur(10px)', borderBottom: `1px solid ${T.border}`
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+             <button onClick={() => setSidebarOpen(!sidebarOpen)} style={{ background: T.card, border: `1px solid ${T.border}`, color: T.txt, padding: 8, borderRadius: 10, cursor: 'pointer' }}>
+                {sidebarOpen ? <ChevronLeft size={20}/> : <Menu size={20}/>}
+             </button>
+             <h2 style={{ fontSize: 18, fontWeight: 900, margin: 0 }}>{TABS.find(t => t.k === tab)?.l}</h2>
           </div>
 
-          {(() => {
-            const todayStr = now();
-            const convertedToday = myLeads.filter(l => l.status === 'Onboarded' && l.date === todayStr).length;
-            const newCustsToday = myC.filter(c => c.joined === todayStr).length;
-            const totalToday = Math.max(convertedToday, newCustsToday);
-            const TARGET = 3;
-            const pct = Math.min((totalToday / TARGET) * 100, 100);
-            const met = totalToday >= TARGET;
-            return (
-              <Card style={{ marginBottom: 12, border: `1px solid ${met ? T.ok : T.gold}38` }}>
-                <div style={{ padding: '14px 16px' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
-                    <div>
-                      <div style={{ color: met ? T.ok : T.gold, fontWeight: 800, fontSize: 13, fontFamily: T.head, display:'flex', alignItems:'center', gap:6 }}><Target size={16}/> Daily Conversion Target</div>
-                      <div style={{ color: T.muted, fontSize: 11, marginTop: 2 }}>Goal: convert at least 3 customers today</div>
-                    </div>
-                    <div style={{ textAlign: 'right' }}>
-                      <div style={{ color: met ? T.ok : T.gold, fontFamily: T.mono, fontSize: 22, fontWeight: 900, lineHeight: 1 }}>{totalToday}<span style={{ color: T.muted, fontSize: 13 }}>/{TARGET}</span></div>
-                      <div style={{ color: met ? T.ok : T.muted, fontSize: 11, marginTop: 1, display:'flex', alignItems:'center', gap:4, justifyContent:'flex-end' }}>{met ? <><Check size={12}/> Target met!</> : 'Keep going!'}</div>
-                    </div>
-                  </div>
-                  <div style={{ height: 8, background: T.border, borderRadius: 99, overflow: 'hidden' }}>
-                    <div style={{ height: '100%', width: `${pct}%`, background: met ? T.ok : T.gold, borderRadius: 99, transition: 'width .6s ease' }} />
-                  </div>
-                  <div style={{ display: 'flex', gap: 6, marginTop: 10, flexWrap: 'wrap' }}>
-                    {[1, 2, 3].map(i => (
-                      <div key={i} style={{ flex: 1, minWidth: 60, background: totalToday >= i ? met ? T.oLo : T.gLo : T.surface, border: `1px solid ${totalToday >= i ? met ? T.ok : T.gold : T.border}`, borderRadius: 8, padding: '6px 10px', textAlign: 'center' }}>
-                        <div style={{ fontSize: 16, display:'flex', justifyContent:'center' }}>{totalToday >= i ? <CheckCircle size={16} color={met ? T.ok : T.gold}/> : <Square size={16} color={T.muted}/>}</div>
-                        <div style={{ color: T.muted, fontSize: 10, marginTop: 2 }}>Customer {i}</div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              </Card>
-            );
-          })()}
+          <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
+            <button 
+              onClick={() => setShowCalc(true)} 
+              aria-label="Calculator" 
+              style={{
+                background: T.card, border: `1px solid ${T.border}`, color: T.txt, 
+                padding: 10, borderRadius: 12, cursor: 'pointer',
+                display: 'flex', alignItems: 'center', justifyContent: 'center'
+              }}
+            >
+              <Calculator size={18}/>
+            </button>
+            {worker.role === 'Loan Officer' && (
+              <Btn onClick={() => {
+                if (!docsComplete) { showToast('⚠ Upload ID documents first', 'warn'); setTab('documents'); return; }
+                setShowLoanApp(true);
+              }} v="primary" style={{ height: 40, padding: '0 16px', borderRadius: 12, background: theme.color, color: '#000' }}>
+                <Plus size={18} /> New Application
+              </Btn>
+            )}
+          </div>
+        </header>
 
-          {ov.length > 0 && <Card>
-            <CH title='My Overdue Loans' />
-            <DT cols={[{ k: 'id', l: 'Loan ID', r: v => <span style={{ color: T.accent, fontFamily: T.mono, fontSize: 12 }}>{v}</span> }, { k: 'customer', l: 'Customer' }, { k: 'balance', l: 'Balance', r: v => fmt(v) }, { k: 'daysOverdue', l: 'Days', r: v => <span style={{ color: T.danger, fontWeight: 800 }}>{v}d</span> }]} rows={ov} />
-          </Card>}
-        </div>
-      )}
-      {tab === 'loans' && <Card><CH title='My Loans' /><DT cols={[{ k: 'id', l: 'ID', r: v => <span style={{ color: T.accent, fontFamily: T.mono, fontSize: 12 }}>{v}</span> }, { k: 'customer', l: 'Customer' }, { k: 'amount', l: 'Principal', r: v => fmt(v) }, { k: 'balance', l: 'Balance', r: v => fmt(v) }, { k: 'status', l: 'Status', r: v => <Badge color={SC[v] || T.muted}>{v}</Badge> }, { k: 'repaymentType', l: 'Type' }]} rows={myL} maxHeightVh={0.35} /></Card>}
-      {tab === 'customers' && <Card><CH title='My Customers' /><DT cols={[{ k: 'id', l: 'ID', r: v => <span style={{ color: T.accent, fontFamily: T.mono, fontSize: 12 }}>{v}</span> }, { k: 'name', l: 'Name' }, { k: 'phone', l: 'Phone' }, { k: 'business', l: 'Business' }, { k: 'risk', l: 'Risk', r: v => <Badge color={RC[v]}>{v}</Badge> }]} rows={myC} maxHeightVh={0.35} /></Card>}
-      {tab === 'leads' && (
-        <div>
+        {/* Scrollable Area */}
+        <div style={{ padding: '24px clamp(12px, 4vw, 40px)', flex: 1 }}>
+          
+          {/* Critical Warnings */}
           {!docsComplete && (
-            <div style={{ background: T.dLo, border: `1px solid ${T.danger}38`, borderRadius: 10, padding: '11px 14px', marginBottom: 12, display: 'flex', alignItems: 'center', gap: 10 }}>
-              <span style={{ fontSize: 16, display: 'flex' }}><Lock size={16} color={T.danger} /></span>
-              <div style={{ color: T.danger, fontSize: 13, fontWeight: 600 }}>Upload required documents to add leads.{' '}
-                <button onClick={() => setTab('documents')} style={{ background: 'none', border: 'none', color: T.accent, cursor: 'pointer', fontSize: 13, fontWeight: 700, padding: 0, textDecoration: 'underline' }}>Go to Documents →</button>
+            <div className="pop-in" style={{ 
+              background: `linear-gradient(to right, ${T.danger}15, transparent)`, 
+              borderLeft: `4px solid ${T.danger}`, borderRadius: '4px 16px 16px 4px', 
+              padding: '16px 20px', marginBottom: 24, display: 'flex', 
+              alignItems: 'center', gap: 16
+            }}>
+              <AlertTriangle color={T.danger} size={24} />
+              <div style={{ flex: 1 }}>
+                <div style={{ fontWeight: 900, fontSize: 15 }}>Identity Check Required</div>
+                <div style={{ color: T.muted, fontSize: 13 }}>Standard operational limits applied. Upload IDs to resolve.</div>
               </div>
+              <Btn sm v="danger" onClick={() => setTab('documents')}>Fix Now</Btn>
             </div>
           )}
-          <ALeads 
-            leads={myLeads} 
-            setLeads={setLeads} 
-            workers={allWorkers} 
-            customers={customers} 
-            setCustomers={setCustomers} 
-            loans={loans} 
-            addAudit={addAudit} 
-            isWorker={true} 
-            currentWorker={worker} 
-            showToast={showToast}/>
-        </div>
-      )}
 
-      {tab === 'documents' && (
-        <div className='fu'>
-          {viewDoc && <DocViewer doc={viewDoc} onClose={() => setViewDoc(null)} />}
-          <Card style={{ marginBottom: 14 }}>
-            <CH title={<div style={{display:'flex', alignItems:'center', gap:8}}><FileText size={18} /> My Documents</div>} sub='Upload your National ID (front & back), passport photo, and any additional documents' />
-            <div style={{ padding: '14px 16px' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10, background: requiredDone < requiredCount ? T.dLo : T.oLo, border: `1px solid ${requiredDone < requiredCount ? T.danger : T.ok}38`, borderRadius: 10, padding: '10px 14px', marginBottom: 16 }}>
-                <span style={{ fontSize: 20, display: 'flex' }}>{requiredDone < requiredCount ? <AlertTriangle size={20} color={T.danger} /> : <CheckCircle size={20} color={T.ok}/>}</span>
-                <div>
-                  <div style={{ color: requiredDone < requiredCount ? T.danger : T.ok, fontWeight: 700, fontSize: 13 }}>
-                    {requiredDone < requiredCount
-                      ? `${requiredCount - requiredDone} required document${requiredCount - requiredDone > 1 ? 's' : ''} missing`
-                      : 'All required documents uploaded'}
-                  </div>
-                  <div style={{ color: T.muted, fontSize: 11, marginTop: 2 }}>{uploadedCount} of {WORKER_SELF_DOC_SLOTS.length} documents uploaded</div>
+          {/* Tab Content Rendering */}
+          <div style={{ animation: 'fadeIn 0.4s ease-out' }}>
+            
+            {tab === 'overview' && (
+              <div className="fu flex-col gap-8">
+                {/* ── WORKER HERO SECTION ── */}
+                <div style={{
+                  background: `linear-gradient(135deg, ${theme.color}20 0%, ${T.card} 100%)`, 
+                  borderRadius: 24, padding: 32, border: `1px solid ${T.border}`,
+                  position: 'relative', overflow: 'hidden', marginBottom: 24,
+                  display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                  flexWrap: 'wrap', gap: 24
+                }}>
+                   {/* Background Decorative Element */}
+                   <div style={{ position: 'absolute', top:-40, right:-40, width:200, height:200, borderRadius:'50%', background: `${theme.color}10`, filter:'blur(40px)' }}/>
+                   
+                   <div style={{ display:'flex', alignItems:'center', gap: 24, zIndex:1 }}>
+                      <Av name={worker.name} size={72} bg={theme.color} color="#000" />
+                      <div>
+                         <div style={{ color: T.muted, fontSize: 13, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 1 }}>Field Intelligence Profile</div>
+                         <div style={{ fontSize: 32, fontWeight: 900, color: T.txt, marginTop: 4 }}>{worker.name}</div>
+                         <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+                            <Badge color={theme.color} style={{fontWeight: 800, color:'#000'}}>{worker.role.toUpperCase()}</Badge>
+                            <Badge color={T.accent} style={{fontWeight: 800}}>ACTIVE MISSION</Badge>
+                         </div>
+                      </div>
+                   </div>
+
+                   <div style={{ textAlign: isMobile ? 'left' : 'right', zIndex: 1 }}>
+                      <div style={{ color: T.muted, fontSize: 12, fontWeight: 800 }}>MEMBER SINCE</div>
+                      <div style={{ fontSize: 16, fontWeight: 700, color: T.txt, marginTop:4 }}>{ts(worker.joined || worker.createdAt).slice(0, 11)}</div>
+                      <div style={{ marginTop: 16 }}>
+                         <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: onboardingRate >= 1 ? '#10B981' : T.accent, fontWeight: 900 }}>
+                            <Target size={18} />
+                            <span>{onboardingRate >= 1 ? 'PREMIUM TIER' : 'GROWTH TIER'}</span>
+                         </div>
+                      </div>
+                   </div>
                 </div>
-                <div style={{ marginLeft: 'auto', background: T.border, borderRadius: 99, width: 44, height: 44, flexShrink: 0, position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                  <svg width='44' height='44' style={{ position: 'absolute', top: 0, left: 0, transform: 'rotate(-90deg)' }}>
-                    <circle cx='22' cy='22' r='18' fill='none' stroke={T.border} strokeWidth='4' />
-                    <circle cx='22' cy='22' r='18' fill='none' stroke={requiredDone < requiredCount ? T.danger : T.ok} strokeWidth='4'
-                      strokeDasharray={`${2 * Math.PI * 18}`}
-                      strokeDashoffset={`${2 * Math.PI * 18 * (1 - uploadedCount / WORKER_SELF_DOC_SLOTS.length)}`}
-                      strokeLinecap='round'
-                      style={{ transition: 'stroke-dashoffset .6s ease' }} />
-                  </svg>
-                  <span style={{ color: T.txt, fontSize: 10, fontWeight: 900, fontFamily: T.mono, zIndex: 1 }}>{uploadedCount}/{WORKER_SELF_DOC_SLOTS.length}</span>
+
+                {/* ── EARNINGS & PRIMARY KPIS ── */}
+                <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1.5fr 1fr 1fr', gap: 24, marginBottom: 24 }}>
+                   <div style={{
+                     background: '#111827', borderRadius: 24, padding: 32, 
+                     border: '1px solid #374151', color: '#fff',
+                     display: 'flex', justifyContent: 'space-between', alignItems: 'center'
+                   }}>
+                      <div>
+                         <div style={{ color: '#9CA3AF', fontSize: 13, fontWeight: 800, textTransform: 'uppercase' }}>Available Commissions</div>
+                         <div style={{ fontSize: 42, fontWeight: 900, color: '#10B981', marginTop: 10 }}>{fmt(cumulativeEarnings)}</div>
+                         <div style={{ fontSize: 14, color: '#6B7280', marginTop: 8 }}>Estimated payout for {currentMonth}</div>
+                      </div>
+                      <div style={{ background: '#05966920', padding: 16, borderRadius: '50%', color: '#10B981' }}>
+                         <CreditCard size={32} />
+                      </div>
+                   </div>
+
+                   <KPI label="Portfolio Book" value={fmtM(book)} icon={TrendingUp} color={theme.color} />
+                   <KPI label="Risk Exposure" value={ov.length} icon={AlertTriangle} color={T.danger} sub={`${ov.length} Active Arrears`} />
+                </div>
+
+                {/* ── PERFORMANCE BREAKDOWN ── */}
+                <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 24 }}>
+                   <Card style={{ padding: 24, background: T.card }}>
+                      <CH title="Monthly Onboarding Efficiency" icon={Target} sub="Progress towards contractual incentive bonus" />
+                      <div style={{ marginTop: 24 }}>
+                         <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 12, alignItems: 'flex-end' }}>
+                            <div>
+                               <div style={{ fontSize: 32, fontWeight: 900 }}>{curMonthOnboarded}</div>
+                               <div style={{ fontSize: 13, color: T.muted }}>Verified Onboardings</div>
+                            </div>
+                            <div style={{ textAlign: 'right' }}>
+                               <div style={{ fontSize: 16, fontWeight: 800, color: theme.color }}>{Math.round(onboardingRate * 100)}%</div>
+                               <div style={{ fontSize: 13, color: T.muted }}>Target: {worker.onboardingTarget || 60}</div>
+                            </div>
+                         </div>
+                         <div style={{ height: 12, background: T.border, borderRadius: 6, overflow: 'hidden' }}>
+                            <div style={{ height: '100%', background: `linear-gradient(to right, ${theme.color}, #10B981)`, width: `${Math.min(onboardingRate * 100, 100)}%`, transition: 'width 1s ease-out' }} />
+                         </div>
+                         <div style={{ marginTop: 16, display: 'flex', gap: 12 }}>
+                            <Badge color={onboardingRate >= 1 ? '#10B98120' : '#F59E0B20'} style={{ color: onboardingRate >= 1 ? '#10B981' : '#F59E0B' }}>
+                               {onboardingRate >= 1 ? 'Target Achieved' : `${(worker.onboardingTarget || 60) - curMonthOnboarded} More Required`}
+                            </Badge>
+                         </div>
+                      </div>
+                   </Card>
+
+                   <Card style={{ padding: 24 }}>
+                      <CH title="Assignment Insights" icon={Activity} sub="Summary of active portfolio vitals" />
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20, marginTop: 20 }}>
+                         <div style={{ borderLeft: `3px solid ${theme.color}`, paddingLeft: 16 }}>
+                            <div style={{ color: T.muted, fontSize: 12, fontWeight: 800 }}>ACTIVE LOANS</div>
+                            <div style={{ fontSize: 24, fontWeight: 900, marginTop: 4 }}>{act.length}</div>
+                         </div>
+                         <div style={{ borderLeft: `3px solid #10B981`, paddingLeft: 16 }}>
+                            <div style={{ color: T.muted, fontSize: 12, fontWeight: 800 }}>TOTAL CAPACITY</div>
+                            <div style={{ fontSize: 24, fontWeight: 900, marginTop: 4 }}>{myC.length}</div>
+                         </div>
+                         <div style={{ borderLeft: `3px solid ${T.accent}`, paddingLeft: 16 }}>
+                            <div style={{ color: T.muted, fontSize: 12, fontWeight: 800 }}>PENDING TASKS</div>
+                            <div style={{ fontSize: 24, fontWeight: 900, marginTop: 4 }}>{pendingMine.length}</div>
+                         </div>
+                         <div style={{ borderLeft: `3px solid ${T.danger}`, paddingLeft: 16 }}>
+                            <div style={{ color: T.muted, fontSize: 12, fontWeight: 800 }}>RISK RATIO</div>
+                            <div style={{ fontSize: 24, fontWeight: 900, marginTop: 4 }}>{Math.round((ov.length / (myL.length || 1)) * 100)}%</div>
+                         </div>
+                      </div>
+                   </Card>
                 </div>
               </div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                {WORKER_SELF_DOC_SLOTS.map((slot, idx) => {
-                  const doc = myDocs.find(d => d.key === slot.key);
-                  return (
-                    <div key={slot.key} style={{ background: T.surface, border: `1.5px solid ${doc ? T.ok : slot.required ? T.danger + '40' : T.border}`, borderRadius: 12, padding: '12px 14px', display: 'flex', alignItems: 'center', gap: 12, transition: 'border-color .2s' }}>
-                      <div style={{ width: 28, height: 28, borderRadius: 99, background: doc ? T.ok : slot.required ? T.dLo : T.border, color: doc ? '#fff' : slot.required ? T.danger : T.muted, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 900, flexShrink: 0 }}>
-                        {doc ? <Check size={12} strokeWidth={4} /> : idx + 1}
+            )}
+
+            {tab === 'recovery' && <AssetRecoveryDashboard worker={worker} loans={loans} customers={customers} payments={payments} interactions={interactions} setInteractions={setInteractions} setLoans={setLoans} setCustomers={setCustomers} repossessedAssets={repossessedAssets} setRepossessedAssets={setRepossessedAssets} addAudit={addAudit} showToast={showToast} onOpenCustomerProfile={onOpenCustomerProfile} />}
+
+            {tab === 'collections' && <CollectionsDashboard worker={worker} loans={loans} customers={customers} payments={payments} interactions={interactions} setInteractions={setInteractions} addAudit={addAudit} showToast={showToast} onOpenCustomerProfile={onOpenCustomerProfile} />}
+
+            {tab === 'treasury' && <FinanceDashboard worker={worker} loans={loans} customers={customers} payments={payments} addAudit={addAudit} showToast={showToast} onOpenCustomerProfile={onOpenCustomerProfile} />}
+
+            {tab === 'compensation' && (
+              <div className="fu">
+                <Card style={{marginBottom: 20, borderLeft: `5px solid #10B981`}}>
+                   <CH title="Current Earning Analysis" icon={CreditCard} right={<Btn sm v="secondary" onClick={printPayslip} icon={FileText}>Print Payslip</Btn>}/>
+                   <div style={{padding: 24}}>
+                      <div style={{display:'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1.5fr', gap: 30}}>
+                         <div>
+                            <div style={{color: T.muted, fontSize: 11, fontWeight: 800, textTransform: 'uppercase', marginBottom: 12}}>Performance Progress</div>
+                            <div style={{display:'flex', gap:10, alignItems:'baseline', marginBottom:20}}>
+                               <div style={{fontSize:42, fontWeight:900, color:T.txt}}>{(onboardingRate * 100).toFixed(0)}%</div>
+                               <div style={{color:T.dim, fontSize:14}}>/ {(worker.onboardingTarget || 60)} Clients</div>
+                            </div>
+                            <div style={{height:10, background:T.border, borderRadius:5, marginBottom:10, overflow:'hidden'}}>
+                               <div style={{height:'100%', background: onboardingRate >= 1 ? '#10B981' : T.accent, width: `${Math.min(onboardingRate * 100, 100)}%`}} />
+                            </div>
+                            <div style={{display:'flex', justifyContent:'space-between', color:T.dim, fontSize:12, fontWeight:700}}>
+                               <span>{curMonthOnboarded} Onboarded</span>
+                               <span>Target: {worker.onboardingTarget || 60}</span>
+                            </div>
+                         </div>
+
+                         <div>
+                            <div style={{color: T.muted, fontSize: 11, fontWeight: 800, textTransform: 'uppercase', marginBottom: 12}}>Monthly Calculator</div>
+                            <div style={{display:'flex', flexDirection:'column', gap: 12}}>
+                               <div style={{display:'flex', justifyContent:'space-between', padding:'10px 0', borderBottom:`1px solid ${T.border}`}}>
+                                  <span style={{color: T.dim}}>Base Contractual Pay:</span>
+                                  <span style={{fontWeight: 700}}>{fmt(worker.baseSalary || 20000)}</span>
+                               </div>
+                               <div style={{display:'flex', justifyContent:'space-between', padding:'10px 0', borderBottom:`1px solid ${T.border}`}}>
+                                  <span style={{color: T.dim}}>Current Commission ({curMonthOnboarded} clients):</span>
+                                  <span style={{fontWeight: 700, color: '#10B981'}}>+{fmt(onboardingRate * (worker.baseSalary || 20000))}</span>
+                               </div>
+                               <div style={{display:'flex', justifyContent:'space-between', padding:'10px 0', borderBottom:`1px solid ${T.border}`}}>
+                                  <span style={{color: T.dim}}>Total Deductions:</span>
+                                  <span style={{fontWeight: 700, color: T.danger}}>-{fmt(totalDeductions)}</span>
+                               </div>
+                               <div style={{display:'flex', justifyContent:'space-between', padding:'14px 0', marginTop:6, borderTop:`2px solid ${T.border}`, fontSize:18, fontWeight:900}}>
+                                  <span>NET PAYABLE:</span>
+                                  <span style={{color: '#10B981'}}>{fmt(cumulativeEarnings)}</span>
+                               </div>
+                            </div>
+                         </div>
                       </div>
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-                          <span style={{ fontSize: 16 }}>{slot.icon}</span>
-                          <span style={{ color: T.txt, fontSize: 13, fontWeight: 700 }}>{slot.label}</span>
-                          {slot.required
-                            ? <span style={{ color: T.danger, fontSize: 11, fontWeight: 700 }}>★ Required</span>
-                            : <span style={{ color: T.muted, fontSize: 11 }}>Optional</span>}
-                        </div>
-                        <div style={{ color: doc ? T.ok : T.muted, fontSize: 11, marginTop: 3, display:'flex', alignItems:'center', gap:4 }}>
-                          {doc ? <><Check size={11} strokeWidth={3}/> Uploaded {doc.uploaded}</> : (slot.required ? 'Please upload this document' : 'Upload if available')}
-                        </div>
-                      </div>
-                      {doc && (
-                        <div onClick={() => setViewDoc(doc)} style={{ cursor: 'pointer', flexShrink: 0 }}>
-                          {doc.type?.startsWith('image/')
-                            ? <img src={doc.dataUrl} alt={slot.label} style={{ width: 52, height: 52, objectFit: 'cover', borderRadius: 7, border: `2px solid ${T.ok}`, boxShadow: '0 2px 8px #00000040' }} />
-                            : <div style={{ width: 52, height: 52, background: T.card, borderRadius: 7, border: `2px solid ${T.ok}`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 24 }}><FileText size={24} color={T.ok}/></div>
-                          }
-                        </div>
-                      )}
-                      <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
-                        {doc && (
-                          <>
-                            <button onClick={() => setViewDoc(doc)} style={{ background: T.aLo, border: `1px solid ${T.accent}38`, color: T.accent, borderRadius: 8, padding: '6px 10px', cursor: 'pointer', fontSize: 11, fontWeight: 700 }}>View</button>
-                            <button onClick={() => handleDocRemove(doc.id)} style={{ background: T.dLo, border: `1px solid ${T.danger}30`, color: T.danger, borderRadius: 8, padding: '6px 10px', cursor: 'pointer', fontSize: 11, fontWeight: 700 }}>Remove</button>
-                          </>
-                        )}
-                        {!doc && (
-                          <label style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5, background: T.bLo, border: `1px solid ${T.blue}38`, borderRadius: 8, padding: '7px 12px', flexShrink: 0 }}>
-                            <span style={{ fontSize: 14, display:'flex' }}><Paperclip size={14} color={T.blue}/></span>
-                            <span style={{ color: T.blue, fontSize: 11, fontWeight: 700 }}>Upload</span>
-                            <input type='file' accept={slot.accept} capture={slot.capture} style={{ display: 'none' }} onChange={e => {
-                              const file = e.target.files?.[0]; if (!file) return; e.target.value = '';
-                              const reader = new FileReader();
-                              reader.onload = ev => handleDocAdd({ id: uid('DOC'), key: slot.key, name: slot.label, originalName: file.name, type: file.type, size: file.size, dataUrl: ev.target.result, uploaded: now() });
-                              reader.readAsDataURL(file);
-                            }} />
-                          </label>
-                        )}
-                      </div>
+                   </div>
+                </Card>
+
+                <Card>
+                   <CH title="Deduction Particulars" icon={ShieldOff} sub="List of all adjustments applied by administrative team"/>
+                   <div style={{padding: '0 4px 10px'}}>
+                      <DT 
+                        cols={[
+                          {k:'month', l:'Month'},
+                          {k:'reason', l:'Particulars'},
+                          {k:'amount', l:'Deduction', r:v => <span style={{color:T.danger}}>-{fmt(v)}</span>},
+                          {k:'created_at', l:'Admin Entry', r:v => ts(v)}
+                        ]}
+                        rows={myDeductions}
+                        emptyMsg="No adjustments recorded for this period."
+                      />
+                   </div>
+                </Card>
+
+                <Card style={{marginTop: 20}}>
+                   <CH title="M-Pesa B2C Payment History" icon={Landmark}/>
+                   <div style={{padding: '0 4px 10px'}}>
+                      <DT 
+                        cols={[
+                          {k:'month', l:'Period'},
+                          {k:'amount', l:'Amount Paid', r: v => <strong>{fmt(v)}</strong>},
+                          {k:'mpesa_receipt', l:'Receipt ID', r: v => <code style={{color:T.accent}}>{v}</code>},
+                          {k:'status', l:'Status', r: v => <Badge color={T.ok}>{v}</Badge>},
+                          {k:'id', l:'Receipt', r: (v, row) => <Btn sm v="secondary" icon={Download} onClick={() => {
+                            const wDeds = deductions.filter(d => d.month === row.month);
+                            const totalDeds = wDeds.reduce((s, d) => s + Number(d.amount), 0);
+                            const fmtKey = (v) => "KES " + Number(v || 0).toLocaleString("en-KE");
+                            const html = `
+                              <!DOCTYPE html><html><head><meta charset=UTF-8><style>
+                                body { font-family: 'Inter', sans-serif; padding: 25mm; color: #1e293b; background: #fff; line-height: 1.5; }
+                                .header { display: flex; justify-content: space-between; border-bottom: 2px solid #00D4AA; padding-bottom: 25px; margin-bottom: 30px; }
+                                .logo { font-size: 26px; font-weight: 900; color: #00D4AA; }
+                                .table { width: 100%; border-collapse: collapse; margin: 30px 0; }
+                                .table th { text-align: left; background: #f8fafc; padding: 14px; font-size: 11px; text-transform: uppercase; border-bottom: 1px solid #e2e8f0; }
+                                .table td { padding: 14px; font-size: 13px; border-bottom: 1px solid #f1f5f9; }
+                                .total-row { background: #f8fafc; font-weight: 900; }
+                              </style></head><body>
+                                <div class="header"><div><div class="logo">Adequate Capital Ltd</div><div style="font-size: 11px; font-weight: 700; color: #64748b;">PAYMENT RECEIPT</div></div><div style="text-align: right;"><b>Receipt #: ${row.mpesa_receipt || row.id}</b><br>${row.month}</div></div>
+                                <table class="table">
+                                  <thead><tr><th>Description</th><th style="text-align: right;">Amount</th></tr></thead>
+                                  <tbody>
+                                    <tr><td style="font-weight: 700;">Base Salary + Commissions</td><td style="text-align: right; font-weight: 700;">${fmtKey(row.amount + totalDeds)}</td></tr>
+                                    ${wDeds.map(d => `<tr><td style="color: #ef4444;">Reduction: ${d.reason}</td><td style="text-align: right; color: #ef4444;">- ${fmtKey(d.amount)}</td></tr>`).join('')}
+                                  </tbody>
+                                  <tfoot><tr class="total-row"><td>TOTAL DISBURSED (M-PESA)</td><td style="text-align: right; font-size: 18px; color: #00D4AA;">${fmtKey(row.amount)}</td></tr></tfoot>
+                                </table>
+                                <div style="margin-top: 40px; font-size: 11px; color: #94a3b8; text-align: center;">This is an official record of funds disbursed via M-Pesa with receipt ID ${row.mpesa_receipt}.</div>
+                              </body></html>
+                            `;
+                            const blob = new Blob([html], { type: 'text/html' });
+                            const url = URL.createObjectURL(blob);
+                            const a = document.createElement('a');
+                            a.href = url;
+                            a.download = `Receipt_${row.month}_${row.mpesa_receipt || row.id}.html`;
+                            a.click();
+                          }}>Download</Btn>}
+                        ]}
+                        rows={payslips}
+                        emptyMsg="No historical payments found."
+                      />
+                   </div>
+                </Card>
+              </div>
+            )}
+
+            {tab === 'loans' && (
+              <Card style={{ padding: 0, overflow: 'hidden' }}>
+                <CH title='Active Portfolio' sub="Detailed view of all loans under your assignment" />
+                <DT 
+                  cols={[
+                    { k: 'id', l: 'ID', r: v => <span style={{ color: theme.color, fontFamily: T.mono, fontSize: 12, fontWeight: 700 }}>{v}</span> }, 
+                    { k: 'customer', l: 'Customer' }, 
+                    { k: 'amount', l: 'Principal', r: v => fmt(v) }, 
+                    { k: 'balance', l: 'Balance', r: v => <span style={{ fontWeight: 800 }}>{fmt(v)}</span> }, 
+                    { k: 'status', l: 'Status', r: v => <Badge color={SC[v] || T.muted}>{v}</Badge> }
+                  ]} 
+                  rows={myL} 
+                />
+              </Card>
+            )}
+
+            {tab === 'customers' && (
+              <Card style={{ padding: 0, overflow: 'hidden' }}>
+                <CH title='Customer Registry' icon={Users} />
+                <DT 
+                  cols={[
+                    { k: 'id', l: 'ID', r: v => <span style={{ color: theme.color, fontFamily: T.mono, fontSize: 12, fontWeight: 700 }}>{v}</span> }, 
+                    { k: 'name', l: 'Name', r: v => <span style={{ fontWeight: 700 }}>{v}</span> }, 
+                    { k: 'phone', l: 'Phone' }, 
+                    { k: 'business', l: 'Business' }, 
+                    { k: 'risk', l: 'Risk', r: v => <Badge color={RC[v]}>{v}</Badge> }
+                  ]} 
+                  rows={worker.role === 'Collections Officer' ? myC.filter(c => c.risk === 'High' || c.risk === 'Medium') : myC} 
+                />
+              </Card>
+            )}
+
+            {tab === 'leads' && (
+              <ALeads 
+                leads={myLeads} 
+                setLeads={setLeads} 
+                workers={allWorkers} 
+                customers={customers} 
+                setCustomers={setCustomers} 
+                loans={loans} 
+                addAudit={addAudit} 
+                isWorker={true} 
+                currentWorker={worker} 
+                showToast={showToast}/>
+            )}
+
+            {tab === 'documents' && (
+              <div className='fu'>
+                {viewDoc && <DocViewer doc={viewDoc} onClose={() => setViewDoc(null)} />}
+                <Card style={{ padding: 0, overflow: 'hidden' }}>
+                  <CH title="Compliance & Verification" sub="Identity artifacts and operational permits" icon={CheckCircle} />
+                  
+                  <div style={{ padding: '32px' }}>
+                    {/* Identity Progress Bar */}
+                    <div style={{ marginBottom: 32 }}>
+                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', marginBottom: 12 }}>
+                          <div>
+                             <div style={{ fontSize: 12, color: T.muted, fontWeight: 800, textTransform: 'uppercase' }}>Verification Status</div>
+                             <div style={{ fontSize: 24, fontWeight: 900, color: docsComplete ? T.ok : T.warn, marginTop: 4 }}>{docsComplete ? 'FULLY VERIFIED' : 'PENDING ACTION'}</div>
+                          </div>
+                          <div style={{ textAlign: 'right', fontSize: 14, fontWeight: 900 }}>{requiredDone}/{requiredCount} <span style={{ color: T.muted, fontSize: 12 }}>RECORDS</span></div>
+                       </div>
+                       <div style={{ height: 10, background: T.border, borderRadius: 5, overflow: 'hidden' }}>
+                          <div style={{ height: '100%', width: `${(requiredDone / requiredCount) * 100}%`, background: docsComplete ? T.ok : theme.color, transition: '1s cubic-bezier(0.4, 0, 0.2, 1)' }} />
+                       </div>
                     </div>
-                  );
-                })}
-              </div>
-              <div style={{ color: T.muted, fontSize: 11, marginTop: 14, lineHeight: 1.6, display:'flex', gap:6, alignItems:'flex-start' }}>
-                <ClipboardList size={14} style={{marginTop:2, flexShrink:0}}/> 
-                <div>Your documents will be reviewed by the admin. Ensure photos are clear and legible. Accepted formats: JPG, PNG, PDF.</div>
-              </div>
-            </div>
-          </Card>
-        </div>
-      )}
 
+                    <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 16 }}>
+                      {WORKER_SELF_DOC_SLOTS.map((slot) => {
+                        const doc = myDocs.find(d => d.key === slot.key);
+                        return (
+                          <div key={slot.key} style={{ 
+                            background: T.card, border: `1px solid ${doc ? T.ok + '20' : T.border}`, 
+                            borderRadius: 18, padding: '20px', display: 'flex', 
+                            flexDirection: 'column', gap: 16, position: 'relative',
+                            transition: 'all 0.3s'
+                          }}>
+                            {doc && <div style={{ position: 'absolute', top: 12, right: 12, color: T.ok }}><CheckCircle size={20}/></div>}
+                            <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
+                               <div style={{ width: 44, height: 44, borderRadius: 12, background: doc ? `${T.ok}15` : T.surface, color: doc ? T.ok : T.muted, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                  {React.cloneElement(slot.icon, { size: 22 })}
+                               </div>
+                               <div>
+                                  <div style={{ fontWeight: 800, fontSize: 14 }}>{slot.label}</div>
+                                  <div style={{ fontSize: 11, color: T.muted }}>{doc ? `Uploaded ${doc.uploaded}` : slot.required ? 'Required' : 'Optional'}</div>
+                               </div>
+                            </div>
+
+                            {doc ? (
+                               <div style={{ display: 'flex', gap: 8 }}>
+                                  <Btn full sm v="secondary" onClick={() => setViewDoc(doc)}>View Document</Btn>
+                                  <button onClick={() => handleDocRemove(doc.id)} style={{ background: 'transparent', border: 'none', color: T.danger, padding: '0 8px', cursor: 'pointer' }}><X size={16}/></button>
+                               </div>
+                            ) : (
+                               <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, height: 40, border: `1px solid ${theme.color}`, borderRadius: 10, color: theme.color, fontSize: 12, fontWeight: 800, cursor: 'pointer', transition: '0.2s' }}>
+                                  <Paperclip size={14} /> Attach File
+                                  <input type='file' accept='image/*' style={{display:'none'}} id={`upload-${slot.key}`} onChange={async e => {
+                                    const file = e.target.files?.[0]; if (!file) return;
+                                    const compressed = await compressImage(file);
+                                    const reader = new FileReader();
+                                    reader.onload = ev => handleDocAdd({ id: uid('DOC'), key: slot.key, name: slot.label, type: compressed.type, size: compressed.size, dataUrl: ev.target.result, uploaded: now() });
+                                    reader.readAsDataURL(compressed);
+                                  }} />
+                               </label>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </Card>
+              </div>
+            )}
+          </div>
+        </div>
+      </main>
+
+      {/* ── MODALS & OVERLAYS ── */}
       {showLoanApp && (
-        <Dialog title={`Apply Loan — ${worker.name}`} onClose={() => setShowLoanApp(false)} width={580}>
-          <Alert type='info'>You are submitting a loan application on behalf of a registered client. It will be sent to admin for approval.</Alert>
+        <Dialog title="New Loan Application" onClose={() => setShowLoanApp(false)} width={580}>
           <LoanForm
             customers={customers.filter(c => c.officer === worker.name)}
-            payments={payments}
-            loans={loans}
-            workerMode={true}
-            workerName={worker.name}
-            onSave={l => {
-              onSubmitLoan(l);
-              setCustomers(cs => cs.map(c => c.id === l.customerId ? { ...c, loans: c.loans + 1 } : c));
-              addAudit('Worker Loan Application', l.id, `${fmt(l.amount)} for ${l.customer} — pending admin approval`);
-              addAudit('Loan Application Submitted', l.id, `Worker: ${worker.name} · Amount: ${fmt(l.amount)}`);
-              setShowLoanApp(false);
-            }}
+            payments={payments} loans={loans} workerMode={true} workerName={worker.name}
+            onSave={l => { onSubmitLoan(l); setShowLoanApp(false); }}
             onClose={() => setShowLoanApp(false)}
           />
         </Dialog>
+      )}
+
+      {showCalc && <MultiCalculator onClose={() => setShowCalc(false)} />}
+
+      {/* Mobile Drawer Backdrop */}
+      {isMobile && sidebarOpen && (
+        <div 
+          onClick={() => setSidebarOpen(false)}
+          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', backdropFilter: 'blur(4px)', zIndex: 999 }} 
+        />
       )}
     </div>
   );

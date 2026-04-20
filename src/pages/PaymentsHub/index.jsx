@@ -7,8 +7,9 @@ import DisbursementsTab from './DisbursementsTab';
 import RegistrationFeeTab from './RegistrationFeeTab';
 import PaybillReceiptsTab from './PaybillReceiptsTab';
 import AuditTab from './AuditTab';
+import SalariesTab from './SalariesTab';
 
-const PaymentsHub = ({ customers, setCustomers, loans, payments, setLoans, setPayments, addAudit, showToast, unallocatedC2BCount, setUnallocatedC2BCount }) => {
+const PaymentsHub = ({ customers, setCustomers, loans, payments, setLoans, setPayments, workers, addAudit, showToast, unallocatedC2BCount, setUnallocatedC2BCount }) => {
   const [searchParams, setSearchParams] = useSearchParams();
   const currentTab = searchParams.get('tab') || 'disbursements';
   const [manualLogData, setManualLogData] = useState(null);
@@ -27,6 +28,7 @@ const PaymentsHub = ({ customers, setCustomers, loans, payments, setLoans, setPa
     { id: 'disbursements', label: 'Disbursements', icon: <Banknote size={16} /> },
     { id: 'registration-fee', label: 'Registration Fees', icon: <FileText size={16} /> },
     { id: 'paybill', label: 'Paybill Receipts', icon: <Inbox size={16} />, badge: hubStats.unallocated + (unallocatedC2BCount || 0) },
+    { id: 'salaries', label: 'Salaries B2C', icon: <Landmark size={16} /> },
     { id: 'audit', label: 'Audit Ledger', icon: <SearchIcon size={16} /> },
   ];
 
@@ -204,8 +206,9 @@ const PaymentsHub = ({ customers, setCustomers, loans, payments, setLoans, setPa
         <div style={{ padding: 'clamp(12px, 2.5vw, 24px)' }}>
           {currentTab === 'disbursements' && <DisbursementsTab loans={loans} customers={customers} payments={payments} setLoans={setLoans} addAudit={addAudit} showToast={showToast} onManualLog={(c) => setManualLogData({ customer: c, type: 'loan_repayment' })} />}
           {currentTab === 'registration-fee' && <RegistrationFeeTab customers={customers} loans={loans} payments={payments} setPayments={setPayments} addAudit={addAudit} showToast={showToast} onManualLog={(c) => setManualLogData({ customer: c, type: 'registration_fee' })} />}
-          {currentTab === 'paybill' && <PaybillReceiptsTab loans={loans} payments={payments} customers={customers} addAudit={addAudit} showToast={showToast} setPayments={setPayments} setUnallocatedC2BCount={setUnallocatedC2BCount} />}
-          {currentTab === 'audit' && <AuditTab />}
+          { currentTab === 'paybill' && <PaybillReceiptsTab loans={loans} payments={payments} customers={customers} addAudit={addAudit} showToast={showToast} setPayments={setPayments} setUnallocatedC2BCount={setUnallocatedC2BCount} /> }
+          { currentTab === 'salaries' && <SalariesTab workers={workers || []} /> }
+          { currentTab === 'audit' && <AuditTab /> }
         </div>
       </Card>
 

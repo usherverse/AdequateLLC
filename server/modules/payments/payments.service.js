@@ -133,6 +133,56 @@ export const disburseLoan = async (loanId, adminId, customPhone = null) => {
   return result;
 };
 
+/**
+ * Worker Salary Disbursement (B2C)
+ */
+export const disburseSalary = async (workerId, adminId, amount, phone) => {
+  // 1. Fetch worker profile
+  const { data: worker, error: wErr } = await supabase
+    .from('workers')
+    .select('*')
+    .eq('id', workerId)
+    .single();
+
+  if (wErr || !worker) throw new Error('Worker record not found');
+  if (worker.status !== 'Active') throw new Error('Worker is not in Active status');
+
+  // 2. Validate amount limits (B2C daily limit is usually 150k per transaction)
+  if (amount <= 0) throw new Error('Invalid salary amount');
+  if (amount > 150000) throw new Error('Amount exceeds B2C single transaction limit');
+
+  // 3. Initiate Daraja B2C
+  const remarks = `Salary for ${new Date().toISOString().slice(0, 7)}`;
+  const result = await MpesaClient.b2cDisbursement(phone, amount, remarks, 'Salary Payout');
+
+  if (result.ResponseCode === '0') {
+    // 4. Log the pending payment to salary_payments
+    const { error: insertErr } = await supabase.from('salary_payments').insert([{
+      worker_id: workerId,
+      amount: amount,
+      month: new Date().toISOString().slice(0, 7),
+      status: 'Pending',
+      recipient_phone: phone,
+      remarks: remarks,
+      mpesa_receipt: result.ConversationID, // Temporary placeholder until ResultCallback
+    }]);
+
+    if (insertErr) {
+      console.error('[Salary Payout] Database Logging Error:', insertErr);
+    }
+
+    // 5. Audit Log
+    await supabase.from('audit_log').insert([{
+      user_name: 'Admin', // In a real app, use admin name from JWT
+      action: 'Salary Payout Initiated',
+      target_id: workerId,
+      detail: `Amount: KES ${amount} to ${phone} (Pending Callback)`
+    }]);
+  }
+
+  return result;
+};
+
 // --- Payment Allocation Engine ---
 export const allocatePaymentEngine = async (mpesaCallbackData) => {
   const { TransID, TransAmount, TransTime, MSISDN, FirstName, MiddleName, LastName, BillRefNumber } = mpesaCallbackData;

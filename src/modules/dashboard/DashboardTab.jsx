@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect } from 'react';
-import { Home, TrendingUp, AlertTriangle, CheckCircle, BarChart, HardHat, User, UserPlus, Clock } from 'lucide-react';
+import { Home, TrendingUp, AlertTriangle, CheckCircle, BarChart, HardHat, User, UserPlus, Clock, Target } from 'lucide-react';
 import { T, SC, RC, SFX, Card, CH, KPI, DT, Btn, Badge, Av, Bar, BackBtn, RefreshBtn,
   FI, PhoneInput, NumericInput, Search, Pills, Alert, Dialog, ConfirmDialog, ToastContainer,
   LoanModal, LoanForm, RepayTracker, LivePortfolioChart, WeeklyCollectionsChart,
@@ -45,7 +45,7 @@ const LiveClock = () => {
   );
 };
 
-const DashboardTab = ({adminUser,loans,setLoans,customers,setCustomers,payments,setPayments,workers,interactions,setInteractions,onNav,scrollTop,addAudit,onOpenCustomerProfile,onRefresh}) => {
+const DashboardTab = ({adminUser,loans,setLoans,customers,setCustomers,payments,setPayments,workers,interactions,setInteractions,onNav,scrollTop,addAudit,onOpenCustomerProfile,onRefresh,targets=[]}) => {
   const {open:openContact, Popup:ContactPopup} = useContactPopup();
   const [drill,setDrillRaw]=useState(null);
   const setDrill = (d) => { setDrillRaw(d); if(d) setTimeout(()=>{ try{scrollTop?.();}catch(e){} },20); };
@@ -133,7 +133,10 @@ const DashboardTab = ({adminUser,loans,setLoans,customers,setCustomers,payments,
     todayStr,
     paidMap,
     activeBorrowersCount,
-    pendingApprovals
+    pendingApprovals,
+    totalTgt,
+    curDisb,
+    tgtPct
   } = dashDerived;
   // todayP is UI-specific — computed locally rather than cluttering the shared engine
   const todayP = payments.filter((p) => p.date === now() && p.status === 'Allocated').reduce((s, p) => s + p.amount, 0);
@@ -327,7 +330,15 @@ const DashboardTab = ({adminUser,loans,setLoans,customers,setCustomers,payments,
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 16 }}>
           <LiveClock />
-          <div className="hide-sm">
+          <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+            {dashDerived.totalTgt > 0 && (
+              <div style={{ textAlign: 'right', display: 'flex', flexDirection: 'column', alignItems: 'flex-end' }}>
+                <div style={{ color: T.dim, fontSize: 10, fontWeight: 800, textTransform: 'uppercase' }}>Month Target: {dashDerived.tgtPct}%</div>
+                <div style={{ height: 4, width: 120, background: T.border, borderRadius: 2, overflow: 'hidden', marginTop: 4 }}>
+                   <div style={{ height: '100%', width: `${dashDerived.tgtPct}%`, background: T.accent }} />
+                </div>
+              </div>
+            )}
             <RefreshBtn onRefresh={() => { onRefresh?.(); setDrill(null); }} style={{ padding: '12px 20px', borderRadius: 16, background: T.accent, color: '#000', border: 'none' }} />
           </div>
         </div>
@@ -704,6 +715,27 @@ const DashboardTab = ({adminUser,loans,setLoans,customers,setCustomers,payments,
                   return !['Settled', 'Written off', 'Approved', 'Application submitted', 'worker-pending'].includes(e.badgeStatus);
                 });
               }),
+            })
+          }
+        />
+        <KPI
+          label="Monthly Target"
+          icon={Target}
+          value={`${tgtPct}%`}
+          color={T.accent}
+          delay={2.8}
+          onClick={() =>
+            setDrill({
+              title: "Monthly Target Progress",
+              cols: [
+                { k: "label", l: "Metric" },
+                { k: "value", l: "Value", r: (v) => fmt(v) },
+              ],
+              rows: [
+                { label: "Target Amount", value: totalTgt },
+                { label: "Disbursed", value: curDisb },
+                { label: "Remaining", value: Math.max(0, totalTgt - curDisb) },
+              ],
             })
           }
         />

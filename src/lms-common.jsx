@@ -16,7 +16,7 @@ import {
   Phone, Mail, MapPin, Briefcase, FileText, Check, X,
   Database, Activity, RefreshCw, UserCheck, AlertTriangle, Globe,
   ShieldAlert, History, MessageSquare, Gavel, Ban, Bell, Flame, Zap,
-  ChevronDown, Trash2, Home
+  ChevronDown, Trash2, Home, Landmark
 } from "lucide-react";
 import {
   _hashPw,
@@ -12594,7 +12594,35 @@ export const fromSupabaseInteraction = (r) => ({
   createdAt: r.created_at,
 });
 export const toSupabaseWorker = (w) => ({ ...w });
-export const fromSupabaseWorker = (r) => ({ ...r });
+export const fromSupabaseWorker = (r) => ({ ...r, docs: r.docs || [] });
+
+export const toSupabaseAsset = (a) => ({
+  id: a.id,
+  loan_id: a.loanId,
+  customer_name: a.customer,
+  asset_name: a.assetName,
+  possession_date: a.possessionDate,
+  status: a.status || "Possessed",
+  valuation: a.valuation || 0,
+  disposal_amount: a.disposalAmount || null,
+  disposal_date: a.disposalDate || null,
+  officer_name: a.officer || null,
+  notes: a.notes || null,
+});
+
+export const fromSupabaseAsset = (r) => ({
+  id: r.id,
+  loanId: r.loan_id,
+  customer: r.customer_name,
+  assetName: r.asset_name,
+  possessionDate: r.possession_date,
+  status: r.status,
+  valuation: Number(r.valuation || 0),
+  disposalAmount: r.disposal_amount ? Number(r.disposal_amount) : null,
+  disposalDate: r.disposal_date,
+  officer: r.officer_name,
+  notes: r.notes,
+});
 
 if (typeof window !== "undefined") window._sbErrors = window._sbErrors || [];
 const _sbErr = (op, table, msg) => {
@@ -12720,6 +12748,7 @@ export const ADMIN_NAV = [
   { cat: "Financials", id: "collections", l: "Collections", i: Phone, c: '#F79009' },
   { cat: "Financials", id: "payments", l: "Payments", i: CheckCircle, c: '#12B76A' },
   { cat: "Financials", id: "paymentshub", l: "Payments Hub", i: ShieldCheck, c: '#6699FF' },
+  { cat: "Financials", id: "salary_ledger", l: "Salary Ledger", i: Landmark, c: '#00D4AA' },
   
   { cat: "Organization", id: "workers", l: "Team", i: Users, c: '#FB6514' },
   { cat: "Organization", id: "reports", l: "Reports", i: BarChart3, c: '#EE46BC' },
@@ -13138,6 +13167,77 @@ export const generateCollectionLetterHTML = (type, loan, customer, officer, true
   return parts.join("\n");
 };
 
+/**
+ * Generates an official Employee Payslip
+ */
+export const generatePayslipHTML = (worker, payment, month) => {
+  const today = new Date().toLocaleDateString("en-KE", { day: "2-digit", month: "long", year: "numeric" });
+  const fmtKey = (v) => "KES " + Number(v || 0).toLocaleString("en-KE");
+  
+  return `
+    <!DOCTYPE html><html><head><meta charset=UTF-8>
+    <style>
+      body { font-family: 'Inter', sans-serif; padding: 20mm; color: #1e293b; line-height: 1.5; background: #fff; }
+      .header { display: flex; justify-content: space-between; border-bottom: 2px solid #00D4AA; padding-bottom: 20px; margin-bottom: 30px; }
+      .logo { font-size: 24px; font-weight: 900; color: #00D4AA; }
+      .title { font-size: 18px; font-weight: 800; text-align: right; }
+      .info-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 40px; margin-bottom: 40px; }
+      .label { font-size: 10px; color: #64748b; text-transform: uppercase; font-weight: 800; margin-bottom: 4px; }
+      .val { font-size: 14px; font-weight: 700; color: #1e293b; }
+      .table { width: 100%; border-collapse: collapse; margin-bottom: 30px; }
+      .table th { text-align: left; background: #f8fafc; padding: 12px; font-size: 12px; color: #475569; border-bottom: 1px solid #e2e8f0; }
+      .table td { padding: 12px; font-size: 13px; border-bottom: 1px solid #f1f5f9; }
+      .total-box { background: #f8fafc; border-radius: 12px; padding: 20px; margin-top: 20px; display: flex; justify-content: space-between; align-items: center; }
+      .net-pay { font-size: 24px; font-weight: 900; color: #00D4AA; }
+      .footer { margin-top: 60px; font-size: 10px; color: #94a3b8; text-align: center; border-top: 1px solid #f1f5f9; padding-top: 20px; }
+    </style>
+    </head><body>
+      <div class="header">
+        <div>
+          <div class="logo">Adequate Capital Ltd</div>
+          <div style="font-size: 11px; color: #64748b; font-weight: 600;">Employee Earnings Statement</div>
+        </div>
+        <div class="title">OFFICIAL PAYSLIP<br><span style="font-size: 14px; color: #64748b;">Period: ${month}</span></div>
+      </div>
+      
+      <div class="info-grid">
+        <div>
+          <div class="label">Employee Name</div><div class="val">${worker.name}</div>
+          <div class="label" style="margin-top: 15px;">Employee ID</div><div class="val">${worker.idNo || worker.id}</div>
+          <div class="label" style="margin-top: 15px;">Phone Number</div><div class="val">${worker.phone}</div>
+        </div>
+        <div>
+          <div class="label">Designation</div><div class="val">${worker.role}</div>
+          <div class="label" style="margin-top: 15px;">Pay Date</div><div class="val">${today}</div>
+          <div class="label" style="margin-top: 15px;">Reference ID</div><div class="val">${payment.mpesa_receipt || payment.id}</div>
+        </div>
+      </div>
+
+      <table class="table">
+        <thead><tr><th>Description</th><th style="text-align: right;">Amount</th></tr></thead>
+        <tbody>
+          <tr><td>Basic Salary Distribution</td><td style="text-align: right;">${fmtKey(payment.amount)}</td></tr>
+          <tr><td>Performance Commission</td><td style="text-align: right;">${fmtKey(0)}</td></tr>
+          <tr><td style="color: #64748b;">Statutory Deductions (PAYE/NHIF/NSSF)</td><td style="text-align: right; color: #64748b;">${fmtKey(0)}</td></tr>
+        </tbody>
+      </table>
+
+      <div class="total-box">
+        <div style="font-weight: 800; font-size: 14px;">NET Payout Amount</div>
+        <div class="net-pay">${fmtKey(payment.amount)}</div>
+      </div>
+
+      <div style="margin-top: 40px; font-size: 12px; line-height: 1.6;">
+        <p>This is a computer-generated document and does not require a physical signature. The funds have been disbursed to the registered phone number <b>${worker.phone}</b> via M-Pesa B2C.</p>
+      </div>
+
+      <div class="footer">
+        Adequate Capital Ltd • Nairobi, Kenya • For inquiries: info@adequatecapital.co.ke
+      </div>
+    </body></html>
+  `;
+};
+
 export const dlBlob = (content, filename, mime) => {
   try {
     const blob = new Blob([content], {type: mime});
@@ -13150,7 +13250,8 @@ export const dlBlob = (content, filename, mime) => {
   } catch(e) { console.error('Download failed', e); }
 };
 
-export const buildReportData = (type, {loans, customers, payments, workers, auditLog}, filters = {}) => {
+export const buildReportData = (type, data, filters = {}) => {
+  const {loans, customers, payments, workers, auditLog, salaryPayments} = data;
   let lList = loans || [];
   let pList = payments || [];
   const { startDate, endDate } = filters;
@@ -13230,6 +13331,15 @@ export const buildReportData = (type, {loans, customers, payments, workers, audi
           return e.overdueDays > 0 && !e.isSettled;
         }).length;
         return [w.id,w.name,w.role,w.status,wl.length,bk,wl.length?((od/wl.length)*100).toFixed(1):0];
+      })};
+  }
+  if(type==='salary-payouts') {
+    const sList = salaryPayments || [];
+    return {name:'salary-payouts', title:'Salary Disbursement Report',
+      hdr:['Date','Id','Worker','Amount','Month','Phone','Receipt','Status'],
+      rows: sList.map(s => {
+        const w = (workers || []).find(x => x.id === s.worker_id);
+        return [ts(s.created_at), s.id.slice(0,8), w?.name || 'Unknown', s.amount, s.month, s.recipient_phone, s.mpesa_receipt, s.status];
       })};
   }
   return {name:'report', title:'Report', hdr:[], rows:[]};

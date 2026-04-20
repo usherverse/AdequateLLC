@@ -35,6 +35,16 @@ router.post(
 );
 
 /**
+ * Worker Payouts
+ */
+router.post(
+  '/payouts/worker/:workerId',
+  Middleware.authenticate,
+  Middleware.authorize(['SUPER_ADMIN', 'FINANCE_ADMIN']),
+  Controller.payoutWorkerSalary
+);
+
+/**
  * Transactions (Unified Ledger)
  */
 router.get(

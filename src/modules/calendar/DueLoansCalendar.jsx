@@ -1,7 +1,8 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { calculateLoanStatus, T, Card, Badge, Btn, fmtM } from '@/lms-common';
-import { ChevronLeft, ChevronRight, Search, Calendar as CalendarIcon, Phone, MessageSquare, User, CheckCircle2, AlertCircle } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Search, Calendar as CalendarIcon, Phone, MessageSquare, User, CheckCircle2, AlertCircle, Info } from 'lucide-react';
 import { useTheme } from "@/context/ThemeContext";
+import { getKenyanHolidays, isWorkingDay, getWorkingDaysInMonth } from "@/utils/calendarUtils";
 
 // ─── Modern Styles ────────────────────────────────────────────────────────────
 const Styles = `
@@ -34,6 +35,14 @@ const Styles = `
   .day-cell.active {
     background: var(--a-lo) !important;
     border: 1.5px solid var(--accent) !important;
+  }
+  .day-cell.holiday {
+    background: var(--d-lo) !important;
+    opacity: 0.5;
+  }
+  .day-cell.sunday {
+    background: var(--surface) !important;
+    opacity: 0.4;
   }
   .indicator-dot {
     width: 6px;
@@ -134,6 +143,9 @@ export default function DueLoansCalendar({
   const yr = currentDate.getFullYear();
   const mo = currentDate.getMonth();
 
+  const holidays = useMemo(() => getKenyanHolidays(yr), [yr]);
+  const workingDays = useMemo(() => getWorkingDaysInMonth(yr, mo), [yr, mo]);
+
   // ── Logic ───────────────────────────────────────────────────────────────────
   const maturityRecords = useMemo(() => {
     let list = loans.filter(l => ['Active', 'Overdue', 'Settled'].includes(l.status) && l.disbursed);
@@ -170,6 +182,11 @@ export default function DueLoansCalendar({
     const isToday = dStr === todayStr;
     const isSel = selectedDay?.date === dStr;
     const outMonth = dateObj.getMonth() !== mo;
+    
+    // Holiday / Working Day Check
+    const holiday = holidays.find(h => h.dateStr === dStr);
+    const isSun = dateObj.getDay() === 0;
+    const isWorkDay = isWorkingDay(dateObj, holidays);
 
     // Severity mapping for dots
     const dots = [];
@@ -182,23 +199,28 @@ export default function DueLoansCalendar({
     return (
       <div
         key={dStr}
-        className={`day-cell ${isSel ? 'active' : ''}`}
-        onClick={() => setSelectedDay({ date: dStr, records: dayRecords })}
+        className={`day-cell ${isSel ? 'active' : ''} ${holiday ? 'holiday' : ''} ${isSun ? 'sunday' : ''}`}
+        onClick={() => setSelectedDay({ date: dStr, records: dayRecords, holiday })}
         style={{
-          background: isToday ? T.aLo : 'transparent',
+          background: isToday ? T.aLo : holiday ? T.dLo : isSun ? T.surface : 'transparent',
           border: `1px solid ${isToday ? T.aMid : T.border}`,
-          opacity: outMonth ? 0.3 : 1,
+          opacity: outMonth ? 0.2 : 1,
           cursor: 'pointer'
         }}
       >
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-          <span style={{ 
-            color: isToday ? T.accent : T.txt, 
-            fontWeight: isToday || dayRecords.length > 0 ? 800 : 400, 
-            fontSize: 14 
-          }}>
-            {dateObj.getDate()}
-          </span>
+          <div style={{ display: 'flex', flexDirection: 'column' }}>
+            <span style={{ 
+              color: isToday ? T.accent : holiday ? T.danger : T.txt, 
+              fontWeight: isToday || dayRecords.length > 0 || holiday ? 800 : 400, 
+              fontSize: 14 
+            }}>
+              {dateObj.getDate()}
+            </span>
+            {holiday && !outMonth && (
+              <span style={{ fontSize: 8, color: T.danger, fontWeight: 900, textTransform: 'uppercase', marginTop: 2 }}>{holiday.name}</span>
+            )}
+          </div>
           {dayRecords.length > 0 && (
             <span style={{ fontSize: 10, color: T.dim, fontWeight: 700 }}>{dayRecords.length}</span>
           )}
@@ -304,8 +326,8 @@ export default function DueLoansCalendar({
              <div style={{ color: T.accent, fontSize: 24, fontWeight: 900, marginTop: 4 }}>{maturityRecords.filter(r => r.diff > 0 && r.diff <= 7 && !r.settled).length}</div>
           </div>
           <div className="glass-card" style={{ padding: 16, borderRadius: 16 }}>
-             <div style={{ color: T.dim, fontSize: 11, fontWeight: 700, textTransform: 'uppercase' }}>Monthly Target</div>
-             <div style={{ color: T.success, fontSize: 24, fontWeight: 900, marginTop: 4 }}>{fmtM(maturityRecords.reduce((s, r) => s + (r.maturity.startsWith(todayStr.slice(0, 7)) ? r.remainingBalance : 0), 0))}</div>
+             <div style={{ color: T.dim, fontSize: 11, fontWeight: 700, textTransform: 'uppercase' }}>Working Days</div>
+             <div style={{ color: T.success, fontSize: 24, fontWeight: 900, marginTop: 4 }}>{workingDays.length}</div>
           </div>
       </div>
 
@@ -365,11 +387,20 @@ export default function DueLoansCalendar({
                 <div style={{ padding: '0 24px 24px', display: 'flex', flexDirection: 'column', height: '100%' }}>
                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: `1px solid ${T.border}`, paddingBottom: 16, marginBottom: 20, flexShrink: 0 }}>
                       <div>
-                        <div style={{ fontSize: 11, fontWeight: 800, color: T.accent, textTransform: 'uppercase', letterSpacing: 1 }}>Loans Due</div>
+                        <div style={{ fontSize: 11, fontWeight: 800, color: T.accent, textTransform: 'uppercase', letterSpacing: 1 }}>
+                          {selectedDay.holiday ? <span>HOLIDAY: {selectedDay.holiday.name}</span> : <span>Loans Due</span>}
+                        </div>
                         <div style={{ fontSize: 22, fontWeight: 900, color: T.txt }}>{new Date(selectedDay.date).toLocaleDateString('en-KE', { day: 'numeric', month: 'long' })}</div>
                       </div>
                       <button onClick={() => setSelectedDay(null)} style={{ background: T.surface, border: 'none', color: T.txt, borderRadius: 99, width: 32, height: 32, cursor: 'pointer', fontWeight: 900 }}>✕</button>
                    </div>
+                   
+                   {selectedDay.holiday && (
+                     <div style={{ background: T.dLo, border: `1px solid ${T.danger}20`, padding: '12px 16px', borderRadius: 16, marginBottom: 20, display: 'flex', gap: 12, alignItems: 'center' }}>
+                       <Info size={16} color={T.danger} />
+                       <div style={{ fontSize: 13, color: T.danger, fontWeight: 700 }}>This is a public holiday in Kenya. Field collections are paused.</div>
+                     </div>
+                   )}
 
                    <div style={{ overflowY: 'auto', flex: 1, padding: '2px' }}>
                       {selectedDay.records.length > 0 ? (

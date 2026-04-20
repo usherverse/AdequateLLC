@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { supabase } from '@/config/supabaseClient';
 import { Image as ImageIcon, FileText, File, Download, Maximize2, Eye, X, Loader2, FolderIcon, HardDrive, PhoneCall, MessageSquare, MapPin, Monitor, CheckCircle2 } from 'lucide-react';
-import { T, SC, Card, DT, Btn, Pills, Badge, FI, Alert, Dialog, CustomerEditForm, fmt, now, calculateLoanStatus, uid, useToast, fromSupabaseLoan, fromSupabaseCustomer, fromSupabasePayment, fromSupabaseInteraction, toSupabaseCustomer, toSupabaseInteraction } from '@/lms-common';
+import { T, SC, Card, DT, Btn, Pills, Badge, FI, Alert, Dialog, ConfirmDialog, CustomerEditForm, fmt, now, calculateLoanStatus, uid, useToast, fromSupabaseLoan, fromSupabaseCustomer, fromSupabasePayment, fromSupabaseInteraction, toSupabaseCustomer, toSupabaseInteraction } from '@/lms-common';
 
 export default function CustomerProfile({ 
   customerId, workerContext, onClose, onSelectLoan, 
@@ -16,6 +16,10 @@ export default function CustomerProfile({
   const [loading, setLoading]     = useState(false);
   const [errorMsg, setErrorMsg]   = useState(null);
   const [showEdit, setShowEdit]   = useState(false);
+  const [showBlacklistDialog, setShowBlacklistDialog] = useState(false);
+  const [blacklistReason, setBlacklistReason] = useState('');
+  const [unblacklistConfirm, setUnblacklistConfirm] = useState(false);
+  const [savingBl, setSavingBl] = useState(false);
 
   // Initial populate from provided props
   const [customer, setCustomer]   = useState(() => customers?.find(x => x.id === customerId) || null);
@@ -140,6 +144,57 @@ export default function CustomerProfile({
     }
   };
 
+  const handleBlacklist = async () => {
+    if (!blacklistReason.trim()) {
+      showToast('Please provide a reason for blacklisting', 'warn');
+      return;
+    }
+    try {
+      setSavingBl(true);
+      const { error } = await supabase
+        .from('customers')
+        .update({ blacklisted: true, bl_reason: blacklistReason })
+        .eq('id', customerId);
+      if (error) throw error;
+
+      const updated = { ...customer, blacklisted: true, blReason: blacklistReason };
+      setCustomer(updated);
+      if (setCustomers) setCustomers(prev => prev.map(c => c.id === customerId ? updated : c));
+      
+      addAudit('Customer Blacklisted', customerId, `Reason: ${blacklistReason}`);
+      showToast('Customer blacklisted successfully', 'warn');
+      setShowBlacklistDialog(false);
+      setBlacklistReason('');
+    } catch (err) {
+      showToast('Failed to blacklist: ' + err.message, 'danger');
+    } finally {
+      setSavingBl(false);
+    }
+  };
+
+  const handleUnblacklist = async () => {
+    try {
+      setSavingBl(true);
+      const { error } = await supabase
+        .from('customers')
+        .update({ blacklisted: false, bl_reason: null })
+        .eq('id', customerId);
+      if (error) throw error;
+
+      const updated = { ...customer, blacklisted: false, blReason: null };
+      setCustomer(updated);
+      if (setCustomers) setCustomers(prev => prev.map(c => c.id === customerId ? updated : c));
+      
+      addAudit('Customer Unblacklisted', customerId);
+      showToast('Customer reinstated successfully', 'ok');
+      setUnblacklistConfirm(false);
+    } catch (err) {
+      showToast('Failed to unblacklist: ' + err.message, 'danger');
+    } finally {
+      setSavingBl(false);
+    }
+  };
+
   const tabs = ['Overview', 'Loan History', 'Payment History', 'Interactions', 'Documents', 'Next of Kin'];
   // Map label to internal ID for switching
   const tabId = v => v.toLowerCase().replace(/ /g, '');
@@ -173,8 +228,10 @@ export default function CustomerProfile({
   }
 
   // Derived Info
-  const isBlacklisted = customer.blacklisted === true || customer.blacklisted === 'true';
+  const isBlacklisted = customer?.blacklisted === true || customer?.blacklisted === 'true';
   const totalBorrowed = loans.reduce((acc, l) => acc + Number(l.amount || 0), 0);
+  
+  if (!customer) return null; // Defensive check for initial render before useEffect hydration
   
   // Calculate Live Loan Statuses using identical logic to lms-core
   // IMPORTANT: must pass totalPaid as 3rd arg — otherwise the function derives it
@@ -270,6 +327,13 @@ export default function CustomerProfile({
                 </div>
               </div>
               <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
+                {workerContext?.role === 'admin' && (
+                  isBlacklisted ? (
+                    <Btn v='secondary' sm onClick={() => setUnblacklistConfirm(true)}>Unblacklist</Btn>
+                  ) : (
+                    <Btn v='danger' sm onClick={() => setShowBlacklistDialog(true)}>Blacklist</Btn>
+                  )
+                )}
                 <Btn v='gold' sm onClick={() => setShowEdit(true)}>Edit Profile</Btn>
                 <div onClick={onClose} style={{ background: T.surface, color: T.txt, borderRadius: 99, width: 32, height: 32, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', fontWeight: 900, border: `1px solid ${T.border}` }}>✕</div>
               </div>
@@ -301,6 +365,12 @@ export default function CustomerProfile({
                   <span style={{ color: T.dim, fontSize: 13 }}>Risk Scoring</span>
                   <Badge color={customer.risk === 'High' ? T.danger : customer.risk === 'Medium' ? T.warn : T.ok}>{customer.risk || 'Low'}</Badge>
                 </div>
+                {isBlacklisted && (
+                  <div className="row-grouped" style={{ border: 'none', background: `${T.danger}10`, padding: '12px 16px', borderRadius: 12, marginTop: 12 }}>
+                    <span style={{ color: T.danger, fontSize: 12, fontWeight: 800 }}>BLACKLIST REASON</span>
+                    <span style={{ color: T.danger, fontWeight: 700, fontSize: 13 }}>{customer.blReason || 'Admin Action'}</span>
+                  </div>
+                )}
               </div>
             </Card>
 
@@ -444,6 +514,38 @@ export default function CustomerProfile({
 
       {showEdit && (
         <CustomerEditForm customer={customer} workers={workers} allCustomers={customers} onSave={handleUpdate} onClose={() => setShowEdit(false)} />
+      )}
+
+      {showBlacklistDialog && (
+        <Dialog title="Blacklist Customer" onClose={() => setShowBlacklistDialog(false)} width={450}>
+           <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+              <Alert type='danger'>
+                 <b>Warning:</b> Blacklisting {customer.name} will freeze their credit accessibility and flag them across all dashboards.
+              </Alert>
+              <FI 
+                label="Reason for Blacklisting" 
+                type="textarea" 
+                placeholder="e.g. Chronic default, fraud suspicion, etc." 
+                value={blacklistReason} 
+                onChange={setBlacklistReason} 
+              />
+              <div style={{ display: 'flex', gap: 12 }}>
+                 <Btn v='secondary' onClick={() => setShowBlacklistDialog(false)} full>Cancel</Btn>
+                 <Btn v='danger' onClick={handleBlacklist} disabled={savingBl} full>Confirm Blacklist</Btn>
+              </div>
+           </div>
+        </Dialog>
+      )}
+
+      {unblacklistConfirm && (
+        <ConfirmDialog 
+          title="Unblacklist Customer" 
+          message={`Are you sure you want to remove ${customer.name} from the blacklist? This will restore their eligibility for new loans.`} 
+          confirmLabel="Yes, Reinstate" 
+          confirmVariant="ok" 
+          onConfirm={handleUnblacklist} 
+          onCancel={() => setUnblacklistConfirm(false)} 
+        />
       )}
     </div>
   );

@@ -50,6 +50,22 @@ export const disburseLoan = async (req, res) => {
 };
 
 /**
+ * POST /payouts/worker/:workerId
+ */
+export const payoutWorkerSalary = async (req, res) => {
+  const { workerId } = req.params;
+  const { amount, phone } = req.body;
+  const adminId = req.user.id;
+
+  try {
+    const result = await PaymentsService.disburseSalary(workerId, adminId, amount, phone);
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+};
+
+/**
  * GET /transactions
  */
 export const getTransactions = async (req, res) => {

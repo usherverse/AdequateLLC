@@ -1,5 +1,5 @@
 // ADEQUATE CAPITAL LMS — App Shell (Modularized)
-import { Lock, ShieldAlert, Mail, Smartphone, Check, Search as SearchIcon, ChevronRight, Menu, ChevronLeft, LogOut, Home } from 'lucide-react';
+import { Lock, ShieldAlert, Mail, Smartphone, Check, Search as SearchIcon, ChevronRight, Menu, ChevronLeft, LogOut, Home, Calculator } from 'lucide-react';
 import LoansTab from "@/modules/loans/LoansTab";
 import PaymentsTab from "@/modules/payments/PaymentsTab";
 import CollectionsTab from "@/modules/collections/CollectionsTab";
@@ -12,12 +12,14 @@ import DatabaseTab from "@/modules/database/DatabaseTab";
 import SecuritySettingsTab from "@/modules/security/SecuritySettingsTab";
 import ReportsTab from "@/modules/reports/ReportsTab";
 import AuditTrailTab from "@/modules/audit/AuditTrailTab";
-import PaymentsHub from "@/pages/PaymentsHub"; // MODIFIED: Added Payments Hub
+import PaymentsHub from "@/pages/PaymentsHub";
+import SalariesTab from "@/pages/PaymentsHub/SalariesTab";
 
 import React, { useState, useMemo, useEffect, useLayoutEffect, useRef, useCallback, memo } from "react";
 import { _hashPw, _checkPw, SEED_WORKERS, SEED_CUSTOMERS, SEED_LOANS, SEED_PAYMENTS, SEED_LEADS, SEED_INTERACTIONS, SEED_AUDIT } from "@/data/seedData";
 import DueLoansCalendar from "@/modules/calendar/DueLoansCalendar";
 import WorkerPanel from "@/modules/workers/WorkerPanel";
+import MultiCalculator from "@/modules/tools/MultiCalculator";
 
 import {
   T,
@@ -85,6 +87,8 @@ import {
   toSupabaseInteraction,
   fromSupabaseWorker,
   toSupabaseWorker,
+  fromSupabaseAsset,
+  toSupabaseAsset,
   generateLoanAgreementHTML,
   generateAssetListHTML,
   downloadLoanDoc,
@@ -167,6 +171,8 @@ export {
   toSupabaseInteraction,
   fromSupabaseWorker,
   toSupabaseWorker,
+  fromSupabaseAsset,
+  toSupabaseAsset,
   generateLoanAgreementHTML,
   generateAssetListHTML,
   downloadLoanDoc,
@@ -180,7 +186,7 @@ export {
 import { useSearchParams } from "react-router-dom"; // MODIFIED: Support parameterized redirects
 import { useTheme } from "@/context/ThemeContext";
 
-const AdminPanel = ({onLogout,loans,setLoans,customers,setCustomers,workers,setWorkers,payments,setPayments,leads,setLeads,interactions,setInteractions,auditLog,setAuditLog,unallocatedC2BCount,setUnallocatedC2BCount,onOpenCustomerProfile,onRefresh}) => {
+const AdminPanel = ({onLogout,loans,setLoans,customers,setCustomers,workers,setWorkers,payments,setPayments,leads,setLeads,interactions,setInteractions,repossessedAssets,setRepossessedAssets,targets,setTargets,salaryPayments,setSalaryPayments,workerDeductions,setWorkerDeductions,auditLog,setAuditLog,unallocatedC2BCount,setUnallocatedC2BCount,onOpenCustomerProfile,onRefresh}) => {
   const { theme, toggleTheme } = useTheme();
   const [screen,setScreen]=useState('dashboard');
   const [searchParams, setSearchParams] = useSearchParams(); // MODIFIED
@@ -190,6 +196,7 @@ const AdminPanel = ({onLogout,loans,setLoans,customers,setCustomers,workers,setW
   const [isMobile, setIsMobile] = useState(window.innerWidth <= 1024);
   const [sb, setSb] = useState(false);
   const [showSearch, setShowSearch] = useState(false);
+  const [showCalc, setShowCalc] = useState(false);
   const [showReminders, setShowReminders] = useState(false);
   const toggleSb = () => isMobile ? setSb(o => !o) : setSideCollapsed(o => !o);
 
@@ -257,7 +264,7 @@ const AdminPanel = ({onLogout,loans,setLoans,customers,setCustomers,workers,setW
   const unalloc=useMemo(()=>payments.filter(p=>p.status==='Unallocated').length + (unallocatedC2BCount || 0),[payments, unallocatedC2BCount]);
   const overdue=useMemo(()=>loans.filter(l=>l.status==='Overdue').length,[loans]);
   const pendingApprovals=useMemo(()=>loans.filter(l=>l.status==='Application submitted'||l.status==='worker-pending').length,[loans]);
-  const allState=useMemo(()=>({loans,customers,payments,workers,leads,interactions,auditLog}),[loans,customers,payments,workers,leads,interactions,auditLog]);
+  const allState=useMemo(()=>({loans,customers,payments,workers,leads,interactions,repossessedAssets,setRepossessedAssets,auditLog,targets,salaryPayments}),[loans,customers,payments,workers,leads,interactions,repossessedAssets,setRepossessedAssets,auditLog,targets,salaryPayments]);
   // FIX B — reminders.filter called 3× inline in JSX on every render. Memoize counts.
   const activeReminderCount=useMemo(()=>reminders.filter(r=>!r.done).length,[reminders]);
   const firingReminderCount=useMemo(()=>reminders.filter(r=>!r.done&&new Date(`${r.dueDate}T${r.dueTime}:00`)>new Date()).length,[reminders]);
@@ -397,28 +404,42 @@ const AdminPanel = ({onLogout,loans,setLoans,customers,setCustomers,workers,setW
     );
   }, [screen, navTo, unalloc, overdue, pendingApprovals]);
 
-  const S={
-    dashboard:  ()=><DashboardTab adminUser={adminUser} loans={loans} setLoans={setLoans} customers={customers} setCustomers={setCustomers} payments={payments} setPayments={setPayments} workers={workers} interactions={interactions} setInteractions={setInteractions} addAudit={addAudit} onNav={navTo} scrollTop={scrollTop} onOpenCustomerProfile={onOpenCustomerProfile} onRefresh={onRefresh}/>,
-    calendar:   ()=><DueLoansCalendar loans={loans} payments={payments} workers={workers} workerContext={{role:'admin',name:'Admin'}} onOpenCustomerProfile={onOpenCustomerProfile} />,
-    loans:      ()=><LoansTab loans={loans} setLoans={setLoans} customers={customers} setCustomers={setCustomers} payments={payments} setPayments={setPayments} interactions={interactions} setInteractions={setInteractions} workers={workers} addAudit={addAudit} showToast={showToast} onOpenCustomerProfile={onOpenCustomerProfile} onNav={navTo} onRefresh={onRefresh}/>,
-    customers:  ()=><CustomersTab customers={customers} setCustomers={setCustomers} workers={workers} loans={loans} setLoans={setLoans} payments={payments} setPayments={setPayments} interactions={interactions} setInteractions={setInteractions} addAudit={addAudit} showToast={showToast} onOpenCustomerProfile={onOpenCustomerProfile} onRefresh={onRefresh}/>,
-    leads:      ()=><LeadsTab leads={leads} setLeads={setLeads} workers={workers} customers={customers} setCustomers={setCustomers} loans={loans} addAudit={addAudit} showToast={showToast} onOpenCustomerProfile={onOpenCustomerProfile} onNav={navTo}/>, // MODIFIED: Added onNav
-    collections:()=><CollectionsTab loans={loans} setLoans={setLoans} customers={customers} setCustomers={setCustomers} payments={payments} setPayments={setPayments} interactions={interactions} setInteractions={setInteractions} workers={workers} addAudit={addAudit} scrollTop={scrollTop} currentUser='Admin' onOpenCustomerProfile={onOpenCustomerProfile} onRefresh={onRefresh}/>,
-    payments:   ()=><PaymentsTab payments={payments} setPayments={setPayments} loans={loans} setLoans={setLoans} customers={customers} setCustomers={setCustomers} interactions={interactions} setInteractions={setInteractions} workers={workers} addAudit={addAudit} showToast={showToast} onOpenCustomerProfile={onOpenCustomerProfile} onRefresh={onRefresh}/>,
-    workers:    ()=><WorkersTab workers={workers} setWorkers={setWorkers} loans={loans} setLoans={setLoans} payments={payments} customers={customers} setCustomers={setCustomers} leads={leads} setLeads={setLeads} interactions={interactions} setInteractions={setInteractions} allState={allState} addAudit={addAudit} showToast={showToast} onOpenCustomerProfile={onOpenCustomerProfile} onRefresh={onRefresh}/>,
-    securitysettings: ()=><SecuritySettingsTab adminUser={adminUser} setAdminUser={setAdminUser} auditLog={auditLog} addAudit={addAudit} showToast={showToast}/>,
-    database:   ()=><DatabaseTab allState={allState} setLoans={setLoans} setCustomers={setCustomers} setPayments={setPayments} setWorkers={setWorkers} setLeads={setLeads} setInteractions={setInteractions} setAuditLog={setAuditLog} addAudit={addAudit} showToast={showToast}/>,
-    reports:    ()=><ReportsTab loans={loans} customers={customers} payments={payments} workers={workers} auditLog={auditLog} showToast={showToast} addAudit={addAudit}/>,
-    audit:      ()=><AuditTrailTab allState={allState} setAuditLog={setAuditLog} />,
-    paymentshub: ()=><PaymentsHub customers={customers} setCustomers={setCustomers} loans={loans} payments={payments} setLoans={setLoans} setPayments={setPayments} addAudit={addAudit} showToast={showToast} unallocatedC2BCount={unallocatedC2BCount} setUnallocatedC2BCount={setUnallocatedC2BCount} />, // MODIFIED: Added Payments Hub
+  const S = {
+    dashboard:  DashboardTab,
+    calendar:   DueLoansCalendar,
+    loans:      LoansTab,
+    customers:  CustomersTab,
+    leads:      LeadsTab,
+    collections:CollectionsTab,
+    payments:   PaymentsTab,
+    workers:    WorkersTab,
+    securitysettings: SecuritySettingsTab,
+    database:   DatabaseTab,
+    reports:    ReportsTab,
+    audit:      AuditTrailTab,
+    paymentshub: PaymentsHub,
+    salary_ledger: SalariesTab,
   };
 
-  // FIX — Bug 1 (Form focus / remounting): S contains plain arrow functions, NOT React
-  // component types. Writing <Screen/> (capital S) makes React treat a brand-new function
-  // reference as a new component type on every render, causing full unmount+remount which
-  // destroys input focus after every keystroke. Call Screen() as a plain render function so
-  // React reconciles the returned JSX in-place without remounting.
-  const renderScreen = (S[screen] || S.dashboard)();
+  const Screen = S[screen] || S.dashboard;
+  const screenProps = {
+    dashboard: { adminUser, loans, setLoans, customers, setCustomers, payments, setPayments, workers, interactions, setInteractions, addAudit, onNav: navTo, scrollTop, onOpenCustomerProfile, onRefresh, targets, setTargets },
+    calendar: { loans, payments, workers, workerContext: { role: 'admin', name: 'Admin' }, onOpenCustomerProfile },
+    loans: { loans, setLoans, customers, setCustomers, payments, setPayments, interactions, setInteractions, workers, addAudit, showToast, onOpenCustomerProfile, onNav: navTo, onRefresh },
+    customers: { customers, setCustomers, workers, loans, setLoans, payments, setPayments, interactions, setInteractions, addAudit, showToast, onOpenCustomerProfile, onRefresh },
+    leads: { leads, setLeads, workers, customers, setCustomers, loans, addAudit, showToast, onOpenCustomerProfile, onNav: navTo },
+    collections: { loans, setLoans, customers, setCustomers, payments, setPayments, interactions, setInteractions, workers, addAudit, scrollTop, currentUser: 'Admin', onOpenCustomerProfile, onRefresh },
+    payments: { payments, setPayments, loans, setLoans, customers, setCustomers, interactions, setInteractions, workers, addAudit, showToast, onOpenCustomerProfile, onRefresh },
+    workers: { workers, setWorkers, loans, setLoans, payments, customers, setCustomers, leads, setLeads, interactions, setInteractions, allState, addAudit, showToast, isMobile, onOpenCustomerProfile, onRefresh, targets, setTargets, onNav: navTo },
+    securitysettings: { adminUser, setAdminUser, auditLog, addAudit, showToast },
+    database: { allState, setLoans, setCustomers, setPayments, setWorkers, setLeads, setInteractions, setAuditLog, addAudit, showToast },
+    reports: { loans, customers, payments, workers, auditLog, salaryPayments, showToast, addAudit },
+    audit: { allState, setAuditLog },
+    paymentshub: { customers, setCustomers, loans, payments, setLoans, setPayments, workers, addAudit, showToast, unallocatedC2BCount, setUnallocatedC2BCount },
+    salary_ledger: { workers, salaryPayments, setSalaryPayments, customers, loans, leads, addAudit, showToast, onNav: navTo, workerDeductions, setWorkerDeductions },
+  };
+
+  const renderScreen = <Screen {...(screenProps[screen] || screenProps.dashboard)} />;
 
   return (
     <div style={{display:'flex',minHeight:'100vh',background:T.bg,fontFamily:T.body,position:'relative'}}>
@@ -618,6 +639,10 @@ const AdminPanel = ({onLogout,loans,setLoans,customers,setCustomers,workers,setW
               <SearchIcon size={16}/>
             </button>
 
+            <button onClick={() => setShowCalc(true)} aria-label="Calculator" style={{background:T.card2,border:`1px solid ${T.border}`,color:T.dim,borderRadius:9,padding:'5px 10px',fontSize:14,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',width:36,height:34}}>
+              <Calculator size={16}/>
+            </button>
+
             <button onClick={toggleTheme} className="theme-toggle" aria-label="Toggle Theme" style={{background:T.card2,border:`1px solid ${T.border}`,color:T.dim,borderRadius:9,padding:'5px 10px',fontSize:14,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',width:36,height:34}}>
               {theme === 'dark' ? '🌙' : theme === 'dim' ? '🌓' : '☀️'}
             </button>
@@ -682,6 +707,7 @@ const AdminPanel = ({onLogout,loans,setLoans,customers,setCustomers,workers,setW
         {firingReminder&&<ReminderAlertModal reminder={firingReminder} onDismiss={dismissFiring} onDone={doneReminder}/>}
         {showReminders&&<RemindersPanel reminders={reminders} unallocatedCount={unalloc} loans={loans} customers={customers} payments={payments} onAction={navTo} onAdd={addReminder} onDone={doneReminder} onRemove={removeReminder} onUpdate={updateReminder} onClose={()=>setShowReminders(false)}/>}
         {showSearch && <CommandCenter customers={customers} onClose={() => setShowSearch(false)} onSelect={onOpenCustomerProfile} />}
+        {showCalc && <MultiCalculator onClose={() => setShowCalc(false)} />}
         <div id="main-content" className='admin-content' style={{ padding: '20px 22px', flex: 1, minWidth: 0 }}>
           <div key={screen} className='fu screen-fade-in' ref={el => { if (el) { scrollTop(); } }}>{renderScreen}</div>
         </div>
@@ -710,7 +736,7 @@ const AdminPanel = ({onLogout,loans,setLoans,customers,setCustomers,workers,setW
 // ═══════════════════════════════════════════
 //  WORKER PORTAL
 // ═══════════════════════════════════════════
-const WorkerPortal = ({workers,setWorkers,loans,setLoans,customers,setCustomers,payments,setPayments,leads,setLeads,interactions,setInteractions,auditLog,setAuditLog,onBack,dataLoaded,onOpenCustomerProfile,unallocatedC2BCount,setUnallocatedC2BCount}) => {
+const WorkerPortal = ({workers,setWorkers,loans,setLoans,customers,setCustomers,payments,setPayments,leads,setLeads,interactions,setInteractions,repossessedAssets,setRepossessedAssets,auditLog,setAuditLog,onBack,dataLoaded,onOpenCustomerProfile,unallocatedC2BCount,setUnallocatedC2BCount}) => {
   const { theme, toggleTheme } = useTheme();
   const [loggedIn,setLoggedIn]=useState(false);
   const [curr,setCurr]=useState(null);
@@ -735,11 +761,17 @@ const WorkerPortal = ({workers,setWorkers,loans,setLoans,customers,setCustomers,
   const login=()=>{
     if(!email||!pw){setErr('Enter your email and password.');return;}
     setLoading(true);
+    console.log('[WorkerPortal] Attempting login for:', email.trim());
+    const loginTimeout = setTimeout(() => {
+      setLoading(false);
+      setErr('Login timed out. Please check your connection and try again.');
+    }, 10000);
+
     import('@/config/supabaseClient').then(({supabase,DEMO_MODE})=>{
-      // ── Supabase auth (production) ─────────────────────────
       if(!DEMO_MODE&&supabase){
         supabase.auth.signInWithPassword({email:email.trim(),password:pw})
           .then(({error})=>{
+            clearTimeout(loginTimeout);
             if(error){
               setErr('Invalid credentials or inactive account.');
               setLoading(false);
@@ -764,16 +796,21 @@ const WorkerPortal = ({workers,setWorkers,loans,setLoans,customers,setCustomers,
                 // Merge Supabase row into workers state so UI can show it
                 setWorkers(ws=>{
                   const exists=ws.find(w=>w.email===workerRow.email);
-                  if(exists) return ws.map(w=>w.email===workerRow.email?{...w,...workerRow}:w);
-                  return [...ws,workerRow];
+                  const wMapped = fromSupabaseWorker(workerRow);
+                  if(exists) return ws.map(w=>w.email===workerRow.email?{...w,...wMapped}:w);
+                  return [...ws,wMapped];
                 });
-                const candidate={...workerRow,avatar:workerRow.avatar||(workerRow.name||'').split(' ').map(x=>x[0]).join('').slice(0,2).toUpperCase()};
+                const candidate={...fromSupabaseWorker(workerRow),avatar:workerRow.avatar||(workerRow.name||'').split(' ').map(x=>x[0]).join('').slice(0,2).toUpperCase()};
                 setCurr(candidate);setLoggedIn(true);
                 addAudit('Worker Login',candidate.id,candidate.name);SFX.login();
                 // Note: loading state will be "cleared" by loggedIn changing, but we can set it to false too
                 setLoading(false);
               }).catch(() => { setLoading(false); setErr('Account verification failed.'); });
-          }).catch(err => { setLoading(false); setErr(err.message || 'Login failed.'); });
+          }).catch(err => { 
+            clearTimeout(loginTimeout);
+            setLoading(false); 
+            setErr(err.message || 'Login failed.'); 
+          });
         return;
       }
       // ── Demo/offline fallback — local hash check ──────────
@@ -828,10 +865,39 @@ const WorkerPortal = ({workers,setWorkers,loans,setLoans,customers,setCustomers,
           </button>
           <Av ini={curr?.avatar||curr?.name[0]} size={26} color={T.accent}/>
           <span style={{color:T.dim,fontSize:13}}>{curr?.name}</span>
-          <Btn sm v='ghost' onClick={()=>{setLoggedIn(false);setCurr(null);}}>Logout</Btn>
+          <Btn sm v='ghost' onClick={()=>{
+            import('@/config/supabaseClient').then(({supabase}) => { if(supabase) supabase.auth.signOut(); });
+            setLoggedIn(false);
+            setCurr(null);
+          }}>Logout</Btn>
         </div>
       </div>
-      <WorkerPanel worker={curr} workers={workers} setWorkers={setWorkers} loans={loans} payments={payments} customers={customers} leads={leads} allWorkers={workers} setCustomers={setCustomers} onSubmitLoan={l=>setLoans(ls=>[l,...ls])} setLeads={setLeads} interactions={interactions} setInteractions={setInteractions} addAudit={addAudit} showToast={showToast} onOpenCustomerProfile={onOpenCustomerProfile}/>
+      <WorkerPanel 
+        worker={curr} 
+        workers={workers} 
+        setWorkers={setWorkers} 
+        loans={loans} 
+        setLoans={setLoans} 
+        payments={payments} 
+        customers={customers} 
+        leads={leads} 
+        allWorkers={workers} 
+        setCustomers={setCustomers} 
+        onSubmitLoan={l=>setLoans(ls=>[l,...ls])} 
+        setLeads={setLeads} 
+        interactions={interactions} 
+        setInteractions={setInteractions} 
+        repossessedAssets={repossessedAssets} 
+        setRepossessedAssets={setRepossessedAssets} 
+        addAudit={addAudit} 
+        showToast={showToast} 
+        onOpenCustomerProfile={onOpenCustomerProfile}
+        onLogout={() => { 
+          import('@/config/supabaseClient').then(({supabase}) => { if(supabase) supabase.auth.signOut(); });
+          setLoggedIn(false); 
+          setCurr(null); 
+        }}
+      />
       <ToastContainer toasts={toasts}/>
     </div>
   );
@@ -1229,38 +1295,45 @@ const AdminLogin = ({onLogin,onWorkerPortal}) => {
   );
 };
 
-// FIX D — Styles: the original Styles component re-rendered every time App re-rendered
-// (on every state mutation: loan save, payment, navigation, etc.), causing the browser
-// to re-parse the entire ~200-line CSS block each time. Wrapped in React.memo so React
-// skips it on every re-render since it has no props that ever change.
 const StylesMemo = memo(Styles);
 
 // ═══════════════════════════════════════════
 //  ROOT APP
 // ═══════════════════════════════════════════
-// Infrastructure symbols are imported and re-exported at the top of this file from ./lms-common
 
 let _hasLoadedDataGlobal = false;
+const LOANS_FAST = 200;
+const CUSTOMERS_FAST = 200;
+const PAYMENTS_FAST = 500;
+const LOANS_MAX = 2000;
+const PAYMENTS_MAX = 5000;
+const CUSTOMERS_MAX = 5000;
+const CUSTOMERS_PAGE = 200;
 
 export default function App() {
 
-  const [mode,setMode]=useState('admin-login');
-  const [dataLoaded,setDataLoaded]=useState(false);
+  const [mode,setMode] = useState('admin-login');
+  const [dataLoaded,setDataLoaded] = useState(false);
 
   const [loans,        setLoans]        = useState([]);
   const [customers,    setCustomers]    = useState([]);
   const [payments,     setPayments]     = useState([]);
   const [leads,        setLeads]        = useState([]);
   const [interactions, setInteractions] = useState([]);
-  const [workers,      setWorkers]      = useState(SEED_WORKERS); // keep — needed for login before Supabase loads
+  const [workers,      setWorkers]      = useState(SEED_WORKERS);
   const [auditLog,     setAuditLog]     = useState([]);
   const [unallocatedC2BCount, setUnallocatedC2BCount] = useState(0);
+  const [repossessedAssets, setRepossessedAssets] = useState([]);
+  const [targets, setTargets] = useState([]);
+  const [salaryPayments, setSalaryPayments] = useState([]);
+  const [workerDeductions, setWorkerDeductions] = useState([]);
 
-  // ISSUE 4 FIX: Global Customer Profile State
+  // Global Customer Profile State
   const [globalCustomerId, setGlobalCustomerId] = useState(null);
 
+
   // ── Local cache (speed up first paint after login) ──────────────────────────
-  const CACHE_KEY = 'acl_cache_v2'; // bumped — forces fresh fetch, discards stale loan snapshots
+  const CACHE_KEY = 'acl_cache_v2';
   const readCache = () => {
     try { return JSON.parse(localStorage.getItem(CACHE_KEY) || 'null'); } catch(e){ return null; }
   };
@@ -1274,52 +1347,44 @@ export default function App() {
       const { supabase, DEMO_MODE } = await import('@/config/supabaseClient');
       if (DEMO_MODE || !supabase) { setDataLoaded(true); return; }
 
-      // Phase 1 (fast): load a small first page so UI populates quickly.
-      const LOANS_FAST = 200;
-      const CUSTOMERS_FAST = 200;
-      const PAYMENTS_FAST = 500;
-      const LOANS_MAX = 2000;
-      const CUSTOMERS_PAGE = 200; 
-      const CUSTOMERS_MAX = 2000;
-      const PAYMENTS_MAX = 5000;
-      const CACHE_TTL = 180000; // 3 minutes in ms
+      // Load all data with constants in scope
 
-      const [lFast, cFast, pFast, wR, unallocR] = await Promise.all([
+      const [lFast, cFast, pFast, wR, unallocR, assetsR] = await Promise.all([
         supabase.from('loans').select('id,customer_id,customer_name,amount,balance,status,repayment_type,officer,risk,disbursed,mpesa,phone,days_overdue,created_at').order('created_at', { ascending: false }).range(0, LOANS_FAST - 1),
-        // OPTIMIZED: Fetch only essential searchable/navigable fields for global state. Full profiles load lazily in CustomerProfile.
         supabase.from('customers').select('id,name,phone,id_no,officer,loans,risk,blacklisted,joined,status,assigned_officer,mpesa_registered').order('name', { ascending: true }).range(0, CUSTOMERS_FAST - 1),
         supabase.from('payments').select('id,loan_id,customer_id,customer_name,amount,mpesa,date,status,allocated_by,is_reg_fee').order('date', { ascending: false }).range(0, PAYMENTS_FAST - 1),
-        supabase.from('workers').select('id,name,email,phone,role,status').order('name'),
+        supabase.from('workers').select('id,name,email,phone,role,status,docs,id_no,avatar').order('name'),
         supabase.from('unallocated_payments').select('*', { count: 'exact', head: true }).eq('status', 'Unallocated'),
+        supabase.from('repossessed_assets').select('*').order('possession_date', { ascending: false }),
       ]);
+      
       if (!unallocR.error) setUnallocatedC2BCount(unallocR.count || 0);
+      if (assetsR && !assetsR.error) setRepossessedAssets(assetsR.data.map(fromSupabaseAsset));
 
       const nextLoansFast = (!lFast.error && lFast.data?.length) ? lFast.data.map(fromSupabaseLoan) : [];
       if (lFast.error) console.error('[load loans]', lFast.error.message);
+      
       const nextCustomersFast = (!cFast.error && cFast.data?.length) ? cFast.data.map(fromSupabaseCustomer) : [];
       if (cFast.error) console.error('[load customers]', cFast.error.message);
+      
       const nextPaymentsFast = (!pFast.error && pFast.data?.length) ? pFast.data.map(fromSupabasePayment) : [];
       if (pFast.error) console.error('[load payments]', pFast.error.message);
-      if (!wR.error && wR.data?.length) setWorkers(wR.data.map(w => ({ ...w, docs: w.docs || [], avatar: w.avatar || (w.name || '').split(' ').map(x => x[0]).join('').slice(0, 2).toUpperCase() })));
-      else if (wR.error) console.error('[load workers]', wR.error.message);
+      
+      if (!wR.error && wR.data?.length) {
+        setWorkers(wR.data.map(w => fromSupabaseWorker(w)));
+      } else if (wR.error) {
+        console.error('[load workers]', wR.error.message);
+      }
 
-      // Guard each table independently against RLS returning 0 rows when the cache has data.
-      // Previously only an all-three-empty scenario triggered the guard, meaning
-      // a partial failure (e.g., loans OK but customers blocked by RLS) would
-      // silently overwrite the customers cache with an empty array.
       const cache = readCache();
-      const hasWarmLoans = !!(cache?.loans?.length);
-      const hasWarmCustomers = !!(cache?.customers?.length);
-      const hasWarmPayments = !!(cache?.payments?.length);
       const anyErrorFast = !!(lFast.error || cFast.error || pFast.error);
 
-      // Guard state against connectivity wipes: Only update if fetch succeeded and returned data.
+      // Guard state against connectivity wipes
       if (!lFast.error && nextLoansFast.length > 0) setLoans(nextLoansFast);
       if (!cFast.error && nextCustomersFast.length > 0) {
         setCustomers(cs => {
-          const existingIds = new Set(cs.map(c => c.id));
-          const filtered = nextCustomersFast.filter(c => !existingIds.has(c.id));
-          return [...cs, ...filtered];
+          const ids = new Set(cs.map(c => c.id));
+          return [...cs, ...nextCustomersFast.filter(c => !ids.has(c.id))];
         });
       }
       if (!pFast.error && nextPaymentsFast.length > 0) setPayments(nextPaymentsFast);
@@ -1329,10 +1394,11 @@ export default function App() {
           loans: (!lFast.error && nextLoansFast.length) ? nextLoansFast : (cache?.loans || []),
           customers: (!cFast.error && nextCustomersFast.length) ? nextCustomersFast : (cache?.customers || []),
           payments: (!pFast.error && nextPaymentsFast.length) ? nextPaymentsFast : (cache?.payments || []),
+          workers: (!wR.error && wR.data?.length) ? wR.data.map(fromSupabaseWorker) : (cache?.workers || []),
         });
       }
 
-      // Backfill missing customers referenced by loans (preserves previous behavior)
+      // Backfill missing customers
       if (!lFast.error && !cFast.error) {
         const ll = lFast.data || [];
         const lc = cFast.data || [];
@@ -1343,53 +1409,49 @@ export default function App() {
             const dbStub = {
               id: l.customer_id, 
               name: l.customer_name || 'Unknown', 
-              phone: l.phone || null,
-              alt_phone: null, 
+              phone: l.phone || null, 
               id_no: 'PENDING-' + l.customer_id,
-              business: null, 
-              location: null, 
-              residence: null, 
               assigned_officer: l.officer || null,
-              loans: 1, 
-              risk: 'Medium', 
-              status: 'Active',
-              joined: l.disbursed || null,
-              documents: [],
-              mpesa_registered: false
+              loans: 1, risk: 'Medium', status: 'Active',
+              joined: l.disbursed || null, documents: [], mpesa_registered: false
             };
             cids.add(l.customer_id);
             missing.push(dbStub);
           }
         });
-        if (missing.length > 0) {
-          console.warn('[load] Synthesized', missing.length, 'missing customer records.');
-          setCustomers(cs => {
-            const existingIds = new Set(cs.map(c => c.id));
-            const toAdd = missing
-              .filter(m => !existingIds.has(m.id))
-              .map(m => ({ ...fromSupabaseCustomer(m), _isSynthesized: true }));
-            return toAdd.length > 0 ? [...cs, ...toAdd] : cs;
-          });
-          // Upsert to DB — use the sanitized snake_case records
-          supabase.from('customers').upsert(missing, { onConflict: 'id' })
-            .then(({ error }) => { if (error) console.error('[backfill customers]', error.message); })
-            .catch(() => {});
-        }
+          if (missing.length > 0) {
+            setCustomers(cs => {
+              const ids = new Set(cs.map(c => c.id));
+              const toAdd = missing.filter(m => !ids.has(m.id)).map(m => fromSupabaseCustomer(m));
+              return [...cs, ...toAdd];
+            });
+            // ONLY Admin should trigger DB backfill to avoid RLS violations
+            const { data: { session } } = await supabase.auth.getSession();
+            const isAdmin = session?.user?.email?.includes('admin') || session?.user?.email?.includes('ushern');
+            if (isAdmin) {
+              supabase.from('customers').upsert(missing, { onConflict: 'id' }).then(({error}) => { if(error) console.error('[backfill]', error.message); });
+            }
+          }
       }
 
       setDataLoaded(true);
-
+      
       // Phase 1b (background): fetch remaining data without heavy single queries.
       // - Loans/payments can still be fetched in one go
       // - Customers MUST be paged (200/page) to avoid "statement timeout" on order(name)
       setTimeout(() => {
         // Loans + payments (single query)
+        if (!supabase) return;
         Promise.all([
           supabase.from('loans').select('id,customer_id,customer_name,amount,balance,status,repayment_type,officer,risk,disbursed,mpesa,phone,days_overdue,created_at').order('created_at', { ascending: false }).range(0, LOANS_MAX - 1),
           supabase.from('payments').select('id,loan_id,customer_id,customer_name,amount,mpesa,date,status,allocated_by,is_reg_fee').order('date', { ascending: false }).range(0, PAYMENTS_MAX - 1),
           supabase.from('unallocated_payments').select('*', { count: 'exact', head: true }).eq('status', 'Unallocated'),
-        ]).then(([lFull, pFull, uFull]) => {
+          supabase.from('monthly_targets').select('*'),
+          supabase.from('salary_payments').select('*').order('created_at', { ascending: false }).limit(1000),
+        ]).then(([lFull, pFull, uFull, tFull, sFull]) => {
           if (!uFull.error) setUnallocatedC2BCount(uFull.count || 0);
+          if (!tFull.error && tFull.data) setTargets(tFull.data);
+          if (!sFull.error && sFull.data) setSalaryPayments(sFull.data);
           const nextLoans = (!lFull.error && lFull.data?.length) ? lFull.data.map(fromSupabaseLoan) : [];
           if (lFull.error) console.error('[load loans full]', lFull.error.message);
           const nextPayments = (!pFull.error && pFull.data?.length) ? pFull.data.map(fromSupabasePayment) : [];
@@ -1406,6 +1468,7 @@ export default function App() {
               loans: nextLoans,
               customers: (readCache()?.customers) || customers,
               payments: nextPayments,
+              salaryPayments: (!sFull.error && sFull.data) ? sFull.data : [],
             });
           }
         }).catch((err) => console.error('[load full loans/payments]', err?.message || err));
@@ -1425,16 +1488,15 @@ export default function App() {
                 .from('customers')
                 .select('id,name,phone,alt_phone,id_no,business,location,residence,officer,loans,risk,gender,dob,blacklisted,bl_reason,n1_name,n1_phone,n1_relation,n2_name,n2_phone,n2_relation,n3_name,n3_phone,n3_relation,joined,created_at,status,assigned_officer,mpesa_registered,business_name,business_type,business_location,documents,gps_coordinates')
                 .order('name')
-                .range(offset, offset + CUSTOMERS_PAGE - 1);
+                .range(offset, offset + (CUSTOMERS_PAGE || 200) - 1);
 
               if (error) { console.error('[load customers page]', error.message); break; }
               const page = (data && data.length) ? data.map(fromSupabaseCustomer) : [];
               if (page.length === 0) break;
 
               combined = combined.concat(page);
-              offset += CUSTOMERS_PAGE;
+              offset += (CUSTOMERS_PAGE || 200);
 
-              // Update progressively so categories populate gradually (not one big freeze)
               // Update progressively and deduplicate
               setCustomers(prev => {
                 const next = [...prev];
@@ -1463,10 +1525,9 @@ export default function App() {
         })();
       }, 300); // slight delay so first paint happens before background work
 
-      // Phase 2: Deferred loading removed to save egress. 
-      // Leads, Interactions, and Audit Logs now load only when their respective tabs are opened.
-    } catch (e) {
-      console.error('[load] Failed to load from Supabase:', e?.message || e);
+    } catch (err) {
+      console.error('[loadAllData] fatal:', err);
+      setDataLoaded(true);
     }
   }, []);
 
@@ -1526,7 +1587,7 @@ export default function App() {
     }).catch(()=>setMode('admin'));
   };
 
-  const shared={loans,setLoans,customers,setCustomers,workers,setWorkers,payments,setPayments,leads,setLeads,interactions,setInteractions,auditLog,setAuditLog,unallocatedC2BCount,setUnallocatedC2BCount,onOpenCustomerProfile: setGlobalCustomerId, onRefresh: loadAllData};
+  const shared={loans,setLoans,customers,setCustomers,workers,setWorkers,payments,setPayments,leads,setLeads,interactions,setInteractions,auditLog,setAuditLog,unallocatedC2BCount,setUnallocatedC2BCount,repossessedAssets,setRepossessedAssets,targets,setTargets,salaryPayments,setSalaryPayments,workerDeductions,setWorkerDeductions,onOpenCustomerProfile: setGlobalCustomerId, onRefresh: loadAllData};
 
   return (
     <>

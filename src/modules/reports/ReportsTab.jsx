@@ -37,6 +37,7 @@ const ReportsTab = ({loans,customers,payments,workers,auditLog,showToast=()=>{},
         {id:'overdue', label:'Arrears & Default', icon:AlertTriangle, desc:`Risk assessment report of loans past their maturity date or in default.`, color: T.danger},
         {id:'due-today', label:'Repayment Schedule', icon:Calendar, desc:'Forecast of installments and repayments expected in the current period.', color: T.blue},
         {id:'payments-today', label:'Transaction Ledger', icon:CreditCard, desc:`Full audit trail of all manual and M-Pesa repayment entries.`, color: T.ok},
+        {id:'salary-payouts', label:'Salary Disbursements', icon:Landmark, desc:`Audit ledger of all B2C payroll and commission payments to staff.`, color: T.accent},
       ]
     },
     {
