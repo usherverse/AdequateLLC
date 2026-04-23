@@ -416,7 +416,7 @@ export const Styles = () => (
       border: 1px solid var(--border) !important;
       color: var(--txt) !important;
       border-radius: 12px !important;
-      padding: 12px 16px !important;
+      padding: 12px 16px;
       font-size: 14px !important;
       font-weight: 500 !important;
       transition: all 0.25s cubic-bezier(0.2, 0.8, 0.2, 1) !important;
@@ -906,6 +906,10 @@ export const buildFullBackup = ({
   leads,
   interactions,
   auditLog,
+  targets,
+  salaryPayments,
+  workerDeductions,
+  repossessedAssets,
 }) => {
   const sections = [
     toCSV(
@@ -915,30 +919,20 @@ export const buildFullBackup = ({
     "\n\n--- CUSTOMERS ---\n",
     toCSV(
       [
-        "ID",
-        "Name",
-        "Phone",
-        "ID No",
-        "Business",
-        "Location",
-        "Officer",
-        "Loans",
-        "Risk",
-        "Joined",
-        "Blacklisted",
+        "ID", "Name", "Phone", "Alt Phone", "ID No", "DOB", "Gender",
+        "Business", "Business Type", "Location", "Officer", 
+        "Loans", "Risk", "Joined", "Blacklisted",
+        "NOK1 Name", "NOK1 Phone", "NOK1 Relation",
+        "NOK2 Name", "NOK2 Phone", "NOK2 Relation",
+        "NOK3 Name", "NOK3 Phone", "NOK3 Relation"
       ],
       customers.map((c) => [
-        c.id,
-        c.name,
-        c.phone,
-        c.idNo,
-        c.business || "",
-        c.location || "",
-        c.officer || "",
-        c.loans,
-        c.risk,
-        c.joined,
-        c.blacklisted ? "Yes" : "No",
+        c.id, c.name, c.phone, c.altPhone || "", c.idNo, c.dob || "", c.gender || "",
+        c.business || "", c.businessType || "", c.location || "", c.officer || "",
+        c.loans, c.risk, c.joined, c.blacklisted ? "Yes" : "No",
+        c.n1n || "", c.n1p || "", c.n1r || "",
+        c.n2n || "", c.n2p || "", c.n2r || "",
+        c.n3n || "", c.n3p || "", c.n3r || ""
       ]),
     ),
     "\n\n--- LOANS ---\n",
@@ -1024,7 +1018,7 @@ export const buildFullBackup = ({
     ),
     "\n\n--- WORKERS ---\n",
     toCSV(
-      ["ID", "Name", "Email", "Role", "Status", "Phone", "Joined"],
+      ["ID", "Name", "Email", "Role", "Status", "Phone", "ID No", "Salary", "Onboarding Target", "Collection Target", "Joined"],
       workers.map((w) => [
         w.id,
         w.name,
@@ -1032,6 +1026,10 @@ export const buildFullBackup = ({
         w.role,
         w.status,
         w.phone,
+        w.idNo || "",
+        w.baseSalary || 20000,
+        w.onboardingTarget || 60,
+        w.collectionTarget || 500000,
         w.joined,
       ]),
     ),
@@ -1064,13 +1062,66 @@ export const buildFullBackup = ({
     ),
     "\n\n--- AUDIT LOG ---\n",
     toCSV(
-      ["Timestamp", "User", "Action", "Target", "Detail"],
+      ["ID", "Timestamp", "User", "Action", "Target", "Detail"],
       (auditLog || []).map((e) => [
+        e.id || "",
         e.ts,
         e.user,
         e.action,
         e.target,
         e.detail || "",
+      ]),
+    ),
+    "\n\n--- TARGETS ---\n",
+    toCSV(
+      ["ID", "Worker ID", "Month", "Onboarding Target", "Collection Target"],
+      (targets || []).map((t) => [
+        t.id,
+        t.worker_id,
+        t.month,
+        t.onboarding_target,
+        t.collection_target,
+      ]),
+    ),
+    "\n\n--- SALARY PAYMENTS ---\n",
+    toCSV(
+      ["ID", "Worker ID", "Amount", "Month", "Date", "Status", "Receipt", "Recipient Phone"],
+      (salaryPayments || []).map((s) => [
+        s.id,
+        s.worker_id,
+        s.amount,
+        s.month,
+        s.created_at,
+        s.status,
+        s.mpesa_receipt || "",
+        s.recipient_phone || "",
+      ]),
+    ),
+    "\n\n--- WORKER DEDUCTIONS ---\n",
+    toCSV(
+      ["ID", "Worker ID", "Amount", "Month", "Reason", "Date"],
+      (workerDeductions || []).map((d) => [
+        d.id,
+        d.worker_id,
+        d.amount,
+        d.month,
+        d.reason || "",
+        d.created_at,
+      ]),
+    ),
+    "\n\n--- REPOSSESSED ASSETS ---\n",
+    toCSV(
+      ["ID", "Loan ID", "Asset Name", "Serial", "Possession Date", "Status", "Estimated Value", "Actual Sale Price", "Officer"],
+      (repossessedAssets || []).map((a) => [
+        a.id,
+        a.loanId,
+        a.name,
+        a.serial || "",
+        a.possessionDate,
+        a.status,
+        a.estimatedValue || 0,
+        a.actualSalePrice || 0,
+        a.officer || "",
       ]),
     ),
   ];
@@ -1094,7 +1145,8 @@ const _sha256Hex = async (str) => {
   }
 };
 const HASH_SALT = "acl:2024:mfi";
-export const DEFAULT_ADMIN_PW = "admin123";
+export const DEFAULT_ADMIN_PW = "123456";
+
 export const hashPwAsync = (pw) => _sha256Hex((pw || "") + HASH_SALT);
 export const checkPwAsync = async (raw, stored) => {
   try {
@@ -1473,6 +1525,7 @@ export const PhoneInput = ({
         gridColumn: half ? "span 1" : "span 2",
         position: "relative",
         minWidth: 0,
+        width: '100%'
       }}
     >
       {label && (
@@ -1508,15 +1561,15 @@ export const PhoneInput = ({
           style={{
             display: "flex",
             alignItems: "center",
-            gap: 5,
-            padding: "10px 10px",
+            gap: 4,
+            padding: "10px 8px",
             background: "transparent",
             border: "none",
             borderRight: `1px solid ${T.border}`,
             cursor: "pointer",
             flexShrink: 0,
             color: T.txt,
-            fontSize: 13,
+            fontSize: 12,
             fontWeight: 700,
             fontFamily: T.mono,
             whiteSpace: "nowrap",
@@ -2115,17 +2168,16 @@ export const ToastContainer = ({ toasts }) => (
     aria-label="Notifications"
     style={{
       position: "fixed",
-      top: 24,
-      left: "50%",
-      transform: "translateX(-50%)",
+      top: 16,
+      left: 0,
+      right: 0,
       zIndex: 999999,
       display: "flex",
       flexDirection: "column",
       alignItems: "center",
       gap: 12,
+      padding: "0 16px",
       pointerEvents: "none",
-      width: "100%",
-      maxWidth: 400,
     }}
   >
     {toasts.map((t) => {
@@ -3117,7 +3169,7 @@ export const Search = ({ value, onChange, placeholder, debounceMs = 180 }) => {
     </div>
   );
 };
-export const Pills = ({ opts, val, onChange }) => (
+export const Pills = ({ opts = [], val, onChange, sm }) => (
   <div style={{ 
     display: "inline-flex", 
     background: T.surface, 
@@ -3126,33 +3178,42 @@ export const Pills = ({ opts, val, onChange }) => (
     gap: 4,
     border: `1px solid ${T.border}`,
     overflowX: 'auto',
-    maxWidth: '100%'
+    maxWidth: '100%',
+    scrollbarWidth: 'none'
   }}>
-    {opts.map((o) => (
-      <button
-        key={o}
-        onClick={() => onChange(o)}
-        style={{
-          background: val === o ? T.accent : 'transparent',
-          color: val === o ? "#060A10" : T.muted,
-          border: 'none',
-          borderRadius: 10,
-          padding: "8px 16px",
-          fontSize: 12,
-          fontWeight: 800,
-          cursor: "pointer",
-          transition: "all 0.2s cubic-bezier(0.2, 0.8, 0.2, 1)",
-          whiteSpace: 'nowrap',
-          display: 'flex',
-          alignItems: 'center',
-          gap: 6
-        }}
-      >
-        {o}
-      </button>
-    ))}
+    {opts.map((o, idx) => {
+      const isObj = typeof o === 'object' && o !== null;
+      const oVal = isObj ? (o.v ?? o.id) : o;
+      const oLabel = isObj ? (o.l ?? o.name ?? o.v) : o;
+      const isActive = oVal === val;
+      
+      return (
+        <button
+          key={`pill-${oVal}-${idx}`}
+          onClick={() => onChange(oVal)}
+          style={{
+            background: isActive ? T.accent : 'transparent',
+            color: isActive ? "#060A10" : T.muted,
+            border: 'none',
+            borderRadius: 10,
+            padding: sm ? "6px 12px" : "8px 16px",
+            fontSize: sm ? 11 : 12,
+            fontWeight: 800,
+            cursor: "pointer",
+            transition: "all 0.2s cubic-bezier(0.2, 0.8, 0.2, 1)",
+            whiteSpace: 'nowrap',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 6
+          }}
+        >
+          {oLabel}
+        </button>
+      );
+    })}
   </div>
 );
+
 
 // ── Document lightbox viewer ──────────────────────────────────
 export const DocViewer = ({ doc, onClose }) => {
@@ -4106,6 +4167,9 @@ export const OnboardForm = ({ workers, onSave, onClose, prefill, leadId }) => {
     return await onSave({
       id: uid("CUS"),
       ...finalData,
+      idNumber: finalData.idNo,
+      accountNumber: finalData.idNo, // Auto-assign ID as account number for new customers
+      usesIdAsAccount: true,
       loans: 0,
       risk: "Low",
       joined: now(),
@@ -10922,7 +10986,7 @@ export const LoanModal = ({
                           sbWrite('loans', toSupabaseLoan(upd));
                           if (addAudit) addAudit('Loan Allocated', loan.id, `Assignee: ${val || 'Unassigned'}`);
                         }}
-                        opts={[
+                        options={[
                           { l: '— Unassigned —', v: '' },
                           ...workers.filter(w => w.role === 'Collections Officer').map(w => ({ l: w.name, v: w.name }))
                         ]}
@@ -12523,6 +12587,11 @@ export const toSupabaseCustomer = (c) => ({
   // Write to the dedicated `joined` column — NOT `created_at` which is server-managed
   // and will silently ignore or overwrite whatever we supply.
   joined: c.joined || c.createdAt || null,
+  mpesa_registered: c.mpesaRegistered || false,
+  // ── M-PESA C2B ADDITIONS ──
+  account_number: c.accountNumber || (c.usesIdAsAccount ? c.idNo : null),
+  id_number: c.idNumber || c.idNo,
+  uses_id_as_account: c.usesIdAsAccount || false,
 });
 export const fromSupabaseCustomer = (r) => ({
   id: r.id,
@@ -12548,6 +12617,10 @@ export const fromSupabaseCustomer = (r) => ({
   status: r.status,
   // ── Registration Fee — SINGLE SOURCE OF TRUTH ──
   mpesaRegistered: r.mpesa_registered === true,
+  // ── M-PESA C2B ADDITIONS ──
+  accountNumber: r.account_number,
+  idNumber: r.id_number,
+  usesIdAsAccount: r.uses_id_as_account,
   // ── Next of Kin ──
   n1n: r.n1_name,
   n1p: r.n1_phone,
@@ -12809,7 +12882,7 @@ export const ADMIN_NAV = [
   { cat: "Organization", id: "workers", l: "Team", i: Users, c: '#FB6514' },
   { cat: "Organization", id: "reports", l: "Reports", i: BarChart3, c: '#EE46BC' },
   
-  { cat: "System", id: "securitysettings", l: "Security Settings", i: Settings, c: '#667085' },
+  { cat: "System", id: "securitysettings", l: "System Settings", i: Settings, c: '#667085' },
   { cat: "System", id: "database", l: "Platform Health", i: Database, c: '#D92D20' },
   { cat: "System", id: "audit", l: "Security Logs", i: FileText, c: '#98A2B3' },
 ];
@@ -13087,6 +13160,7 @@ export const ModuleHeader = ({
   exportProps,
   refreshProps,
   pillsProps,
+  right,
 }) => (
   <div className="fu" style={{ marginBottom: 20, position: "relative", zIndex: 1200 }}>
     <div
@@ -13123,6 +13197,7 @@ export const ModuleHeader = ({
         )}
       </div>
       <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+        {right}
         {refreshProps && <RefreshBtn {...refreshProps} />}
         {exportProps && <ExportMenu {...exportProps} />}
       </div>

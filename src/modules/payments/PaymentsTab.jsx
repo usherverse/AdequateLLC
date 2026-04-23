@@ -47,28 +47,43 @@ const PaymentsTab = ({payments,setPayments,loans,setLoans,customers,setCustomers
     ];
   }, [payments]);
 
-  const doAlloc=()=>{
-    if(!af.loanId)return;
-    const loan=loans.find(l=>l.id===af.loanId);
-    if(!loan){showToast('⚠ Loan not found. Please select a valid loan.','warn');return;}
-    const allocTs=new Date().toLocaleString('en-KE',{day:'2-digit',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit'});
-    const allocBy=(af.allocatedBy||'').trim()||'Admin';
-    const amt = Number(showA.amount || 0);
-    const allocUpd={...showA,status:'Allocated',loanId:af.loanId,customerId:loan.customerId,customer:loan.customer,allocatedBy:allocBy,allocatedAt:allocTs,note:af.note};
-    setPayments(ps=>ps.map(p=>p.id===showA.id?allocUpd:p));
-    sbWrite('payments',toSupabasePayment(allocUpd));
-    const totalPaid = payments.filter(p => p.loanId === af.loanId).reduce((s, p) => s + (Number(p.amount) || 0), 0) + amt;
-    const e = calculateLoanStatus(loan, null, totalPaid);
-    
-    setLoans(ls => ls.map(l => {
-      if (l.id !== af.loanId) return l;
-      const newBal = Math.max(l.balance - amt, 0); // Still update balance field for legacy purposes
-      const newStatus = e.isSettled ? 'Settled' : l.status;
-      return { ...l, balance: newBal, status: newStatus };
-    }));
-    addAudit('Payment Allocated',showA.id,`${fmt(amt)} → ${af.loanId}`);
-    showToast(`✅ Payment of ${fmt(amt)} allocated to ${af.loanId}`,'ok');
-    setShowA(null);setAf({loanId:'',note:''});
+  const doAlloc = async () => {
+    if (!af.loanId) return;
+    const loan = loans.find(l => l.id === af.loanId);
+    if (!loan) { showToast('⚠ Loan not found.', 'warn'); return; }
+
+    try {
+      const { supabase } = await import('@/config/supabaseClient');
+      const { data: { session } } = await supabase.auth.getSession();
+      
+      // VULN-06 FIX: Route through the Express backend.
+      // Server will use allocate_manual_payment RPC to:
+      //   1. Verify payment status (must be Unallocated)
+      //   2. Identify admin via JWT (allocatedBy is NOT sent from client)
+      //   3. Perform atomic update of payment and loan balance
+      const response = await fetch(`${import.meta.env.VITE_API_URL || ''}/api/v1/payments/payments/allocate`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session.access_token}`
+        },
+        body: JSON.stringify({
+          paymentId: showA.id,
+          loanId: af.loanId,
+          note: af.note || 'Manual allocation'
+        })
+      });
+
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || 'Allocation rejected by server');
+
+      showToast(`✅ Payment allocated to ${af.loanId}`, 'ok');
+      setShowA(null);
+      setAf({ loanId: '', note: '' });
+      onRefresh?.(); // Trigger global refresh to sync ledger and loan balances
+    } catch (err) {
+      showToast(err.message, 'danger');
+    }
   };
 
   const exportCols = [
@@ -210,8 +225,11 @@ const PaymentsTab = ({payments,setPayments,loans,setLoans,customers,setCustomers
             />
             
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
-              <FI label='Allocated By' value={af.allocatedBy || ''} onChange={v => setAf(f => ({ ...f, allocatedBy: v }))} placeholder='Officer name' />
-              <FI label='Reference Note' value={af.note} onChange={v => setAf(f => ({ ...f, note: v }))} placeholder='Allocation context' />
+               <div style={{ background: `${T.accent}08`, border: `1px dashed ${T.accent}30`, borderRadius: 12, padding: '12px 16px', display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
+                  <div style={{ fontSize: 10, color: T.dim, fontWeight: 800, textTransform: 'uppercase', marginBottom: 2 }}>Allocated By</div>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: T.accent }}>Server Verified Identity</div>
+               </div>
+               <FI label='Reference Note' value={af.note} onChange={v => setAf(f => ({ ...f, note: v }))} placeholder='Allocation context' />
             </div>
 
             <div style={{ display: 'flex', gap: 12, marginTop: 8 }}>

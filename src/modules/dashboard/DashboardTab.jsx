@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect } from 'react';
-import { Home, TrendingUp, AlertTriangle, CheckCircle, BarChart, HardHat, User, UserPlus, Clock, Target } from 'lucide-react';
+import { Home, TrendingUp, AlertTriangle, CheckCircle, BarChart, HardHat, User, UserPlus, Clock, Target, Activity } from 'lucide-react';
 import { T, SC, RC, SFX, Card, CH, KPI, DT, Btn, Badge, Av, Bar, BackBtn, RefreshBtn,
   FI, PhoneInput, NumericInput, Search, Pills, Alert, Dialog, ConfirmDialog, ToastContainer,
   LoanModal, LoanForm, RepayTracker, LivePortfolioChart, WeeklyCollectionsChart,
@@ -45,12 +45,15 @@ const LiveClock = () => {
   );
 };
 
-const DashboardTab = ({adminUser,loans,setLoans,customers,setCustomers,payments,setPayments,workers,interactions,setInteractions,onNav,scrollTop,addAudit,onOpenCustomerProfile,onRefresh,targets=[]}) => {
+const DashboardTab = ({adminUser,loans,setLoans,customers,setCustomers,payments,setPayments,workers,interactions,setInteractions,stkRequests=[],b2cDisbursements=[],onNav,scrollTop,addAudit,onOpenCustomerProfile,onRefresh,targets=[],setTargets}) => {
   const {open:openContact, Popup:ContactPopup} = useContactPopup();
   const [drill,setDrillRaw]=useState(null);
   const setDrill = (d) => { setDrillRaw(d); if(d) setTimeout(()=>{ try{scrollTop?.();}catch(e){} },20); };
   const [selOverdue,setSelOverdue]=useState(null);
   const [selLoan,setSelLoanRaw]=useState(null);
+  const [showTargetModal, setShowTargetModal] = useState(false);
+  const [newTargetAmt, setNewTargetAmt] = useState('');
+  const [savingTarget, setSavingTarget] = useState(false);
   const setSelLoan = (l) => { setSelLoanRaw(l); if(l) setTimeout(()=>{ try{scrollTop?.();}catch(e){} },10); };
   const setSelCust = (c) => onOpenCustomerProfile?.(c.id);
 
@@ -134,10 +137,52 @@ const DashboardTab = ({adminUser,loans,setLoans,customers,setCustomers,payments,
     paidMap,
     activeBorrowersCount,
     pendingApprovals,
-    totalTgt,
-    curDisb,
-    tgtPct
   } = dashDerived;
+
+  // ── Monthly Target derived from targets[] prop ─────────────────────────────
+  const currentMonthKey = new Date().toISOString().slice(0, 7); // e.g. "2026-04"
+  const currentMonthTarget = useMemo(() => targets.find(t => t.month === currentMonthKey), [targets, currentMonthKey]);
+  const totalTgt = currentMonthTarget?.total_target_amount || 0;
+  const curDisb = useMemo(() => {
+    const thisMonthStart = currentMonthKey + '-01';
+    const nextMonthStart = new Date(new Date(thisMonthStart).setMonth(new Date(thisMonthStart).getMonth() + 1)).toISOString().slice(0, 10);
+    return loans
+      .filter(l => l.disbursed && l.createdAt >= thisMonthStart && l.createdAt < nextMonthStart)
+      .reduce((s, l) => s + (l.amount || 0), 0);
+  }, [loans, currentMonthKey]);
+  const tgtPct = totalTgt > 0 ? Math.min(100, Math.round((curDisb / totalTgt) * 100)) : 0;
+
+  // ── Save Monthly Target ────────────────────────────────────────────────────
+  const handleSaveTarget = async () => {
+    const amt = parseFloat(newTargetAmt);
+    if (!amt || amt <= 0) return;
+    setSavingTarget(true);
+    try {
+      const { supabase } = await import('@/config/supabaseClient');
+      const row = { month: currentMonthKey, total_target_amount: amt };
+      const { error } = await supabase.from('monthly_targets').upsert(row, { onConflict: 'month' });
+      if (error) throw error;
+      setTargets?.(prev => {
+        const others = prev.filter(t => t.month !== currentMonthKey);
+        return [...others, row];
+      });
+      addAudit?.('Set Monthly Target', 'System', `Target for ${currentMonthKey} set to KES ${amt.toLocaleString()}`);
+      setShowTargetModal(false);
+      setNewTargetAmt('');
+    } catch (e) {
+      alert('Failed to save target: ' + e.message);
+    }
+    setSavingTarget(false);
+  };
+
+  const paymentHealth = useMemo(() => {
+    const total = (stkRequests?.length || 0) + (b2cDisbursements?.length || 0);
+    if (total === 0) return 100;
+    const failed = (stkRequests?.filter(r => r.status === 'Failed')?.length || 0) + 
+                 (b2cDisbursements?.filter(r => r.status === 'Failed')?.length || 0);
+    return Math.max(0, Math.round(((total - failed) / total) * 100));
+  }, [stkRequests, b2cDisbursements]);
+
   // todayP is UI-specific — computed locally rather than cluttering the shared engine
   const todayP = payments.filter((p) => p.date === now() && p.status === 'Allocated').reduce((s, p) => s + p.amount, 0);
 
@@ -621,6 +666,30 @@ const DashboardTab = ({adminUser,loans,setLoans,customers,setCustomers,payments,
             })
           }
         />
+        <KPI
+          label="Payment Health"
+          icon={Activity}
+          value={`${paymentHealth}%`}
+          color={paymentHealth > 90 ? T.ok : paymentHealth > 70 ? T.warn : T.danger}
+          delay={4.5}
+          onClick={() =>
+            setDrill({
+              title: "M-Pesa Webhook & API Health",
+              color: paymentHealth > 90 ? T.ok : T.warn,
+              cols: [
+                { k: "type", l: "Type" },
+                { k: "phone", l: "Phone" },
+                { k: "amount", l: "Amount", r: (v) => fmt(v) },
+                { k: "status", l: "Status", r: (v) => <Badge color={SC[v] || T.muted}>{v}</Badge>},
+                { k: "desc", l: "Result / Message", r: (v) => <span style={{fontSize:11, opacity:0.7}}>{v}</span> }
+              ],
+              rows: [
+                ...stkRequests.map(r => ({ type: 'STK Push', phone: r.phone_number, amount: r.amount, status: r.status, desc: r.result_desc || 'Waiting for callback...' })),
+                ...b2cDisbursements.map(r => ({ type: 'B2C Payout', phone: r.phone_number, amount: r.amount, status: r.status, desc: r.result_desc || 'Waiting for result...' }))
+              ].sort((a,b) => (a.status === 'Pending' ? -1 : 1))
+            })
+          }
+        />
       </div>
 
       {/* KPI Row 2 */}
@@ -721,23 +790,14 @@ const DashboardTab = ({adminUser,loans,setLoans,customers,setCustomers,payments,
         <KPI
           label="Monthly Target"
           icon={Target}
-          value={`${tgtPct}%`}
-          color={T.accent}
+          value={totalTgt > 0 ? `${tgtPct}%` : 'Set Target'}
+          color={tgtPct >= 100 ? T.ok : tgtPct >= 50 ? T.warn : T.accent}
           delay={2.8}
-          onClick={() =>
-            setDrill({
-              title: "Monthly Target Progress",
-              cols: [
-                { k: "label", l: "Metric" },
-                { k: "value", l: "Value", r: (v) => fmt(v) },
-              ],
-              rows: [
-                { label: "Target Amount", value: totalTgt },
-                { label: "Disbursed", value: curDisb },
-                { label: "Remaining", value: Math.max(0, totalTgt - curDisb) },
-              ],
-            })
-          }
+          sub={totalTgt > 0 ? `${fmt(curDisb)} / ${fmt(totalTgt)}` : 'Click to configure'}
+          onClick={() => {
+            setNewTargetAmt(totalTgt > 0 ? String(totalTgt) : '');
+            setShowTargetModal(true);
+          }}
         />
         <KPI
           label="PAR 7"
@@ -919,6 +979,41 @@ const DashboardTab = ({adminUser,loans,setLoans,customers,setCustomers,payments,
       {/* Overdue Loans card removed from dashboard — see Collections page */}
       <RepayTracker loans={loans} payments={payments} onSelectLoan={setSelLoan}/>
       {selLoan&&<LoanModal loan={selLoan} customers={customers} payments={payments} interactions={interactions||[]} onClose={()=>setSelLoan(null)} onViewCustomer={cust=>{setSelLoan(null);setSelCust(cust);}}/>}
+
+      {showTargetModal && (
+        <Dialog title={`Set Monthly Disbursement Target — ${currentMonthKey}`} onClose={() => setShowTargetModal(false)}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+            {totalTgt > 0 && (
+              <div style={{ padding: '12px 16px', background: T.surface, borderRadius: 12, border: `1px solid ${T.border}` }}>
+                <div style={{ fontSize: 11, color: T.dim, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 1 }}>Current Target</div>
+                <div style={{ fontSize: 22, fontWeight: 900, color: T.txt, marginTop: 4 }}>{fmt(totalTgt)}</div>
+                <div style={{ fontSize: 12, color: tgtPct >= 100 ? T.ok : T.warn, marginTop: 4, fontWeight: 700 }}>
+                  {fmt(curDisb)} disbursed ({tgtPct}% achieved)
+                </div>
+              </div>
+            )}
+            <NumericInput
+              label="New Disbursement Target (KES)"
+              value={newTargetAmt}
+              onChange={setNewTargetAmt}
+              placeholder="e.g. 5000000"
+            />
+            <Alert type="info">
+              This sets the total loan disbursement goal for <strong>{new Date().toLocaleString('default', { month: 'long', year: 'numeric' })}</strong>. 
+              Progress is tracked against active loans disbursed this month.
+            </Alert>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 12 }}>
+              <Btn variant="ghost" onClick={() => setShowTargetModal(false)}>Cancel</Btn>
+              <Btn
+                onClick={handleSaveTarget}
+                disabled={savingTarget || !newTargetAmt || parseFloat(newTargetAmt) <= 0}
+              >
+                {savingTarget ? 'Saving...' : totalTgt > 0 ? 'Update Target' : 'Set Target'}
+              </Btn>
+            </div>
+          </div>
+        </Dialog>
+      )}
     </div>
   );
 };

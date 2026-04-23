@@ -4,31 +4,49 @@ dotenv.config({ path: '../.env' });
 import express from 'express';
 import helmet from 'helmet';
 import cors from 'cors';
+import { rateLimit } from 'express-rate-limit';
 import mpesaRoutes from './modules/payments/payments.routes.js';
-import mpesaWebhooks from './modules/payments/mpesa.webhook.js';
+// import mpesaWebhooks from './modules/payments/mpesa.webhook.js';
+import { runFullReconciliation } from './modules/payments/reconcile.service.js';
+import { runDailyMaintenance } from './modules/maintenance/maintenance.service.js';
 
 const app = express();
-// Trust the first proxy (ngrok/load balancer) to ensure X-Forwarded-For is safely parsed
-app.set('trust proxy', 1);
+// Optimized for Cloudflare & Proxy environments (ensures req.ip is the real client IP)
+app.set('trust proxy', true);
+
 
 const PORT = process.env.PORT || 3001;
 
 // 1. Security & Body Parsing
 app.use(helmet());
+
+// Production Security: Only allow defined frontend URL. 
+// Fallback to '*' only in development (sandbox).
+const allowedOrigin = process.env.FRONTEND_URL || (process.env.MPESA_ENVIRONMENT === 'production' ? null : '*');
+
 app.use(cors({
-  origin: process.env.FRONTEND_URL || '*',
+  origin: allowedOrigin,
   methods: ['GET', 'POST', 'PUT', 'DELETE'],
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Idempotency-Key']
 }));
 app.use(express.json());
 
-// 2. Webhooks (Mount before /api to skip standard auth if needed - validation happens in middleware)
-app.use('/webhooks/mpesa', mpesaWebhooks);
-// Alias without 'mpesa' in path - required by Safaricom C2B URL registration filter
-app.use('/cb', mpesaWebhooks);
+// 2. Rate Limiting
+// General API limiter: 100 requests per 15 minutes
+const apiLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 100,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many requests, please try again later.' }
+});
 
-// 3. API Routes
-app.use('/api/v1/payments', mpesaRoutes);
+// 3. Webhooks - DEACTIVATED in favor of Supabase Edge Functions (Option A)
+// app.use('/webhooks/mpesa', mpesaWebhooks);
+// app.use('/cb', mpesaWebhooks);
+
+// 4. API Routes (With Rate Limiting)
+app.use('/api/v1/payments', apiLimiter, mpesaRoutes);
 
 // 4. Default Route
 app.get('/', (req, res) => {
@@ -46,4 +64,28 @@ app.listen(PORT, () => {
   console.log(`\n🚀 Payments Hub Server started on port ${PORT}`);
   console.log(`🌍 URL: http://localhost:${PORT}`);
   console.log(`🛠️ Mode: ${process.env.MPESA_ENVIRONMENT || 'sandbox'}\n`);
+  
+  // 7. Background Tasks
+  
+  // A) Payment Reconciliation: every 15 minutes
+  setInterval(() => {
+    runFullReconciliation().catch(err => console.error('[Background Task] Reconcile Error:', err.message));
+  }, 15 * 60 * 1000);
+  
+  // B) Daily Maintenance (Penalties/Status): every 1 hour
+  // Note: RPC handles idempotency, so calling every hour is safe and ensures 
+  // we catch the date rollover regardless of when the server started.
+  setInterval(() => {
+    runDailyMaintenance().catch(err => console.error('[Background Task] Maintenance Error:', err.message));
+  }, 60 * 60 * 1000);
+  
+  // Run both once on startup after 10-20 seconds
+  setTimeout(() => {
+    runFullReconciliation().catch(err => console.error('[Startup Task] Reconcile Error:', err.message));
+  }, 10000);
+
+  setTimeout(() => {
+    runDailyMaintenance().catch(err => console.error('[Startup Task] Maintenance Error:', err.message));
+  }, 20000);
 });
+

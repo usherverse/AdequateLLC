@@ -139,8 +139,10 @@ const WorkerPanel = ({
            l.status?.toUpperCase() !== 'WRITTEN OFF';
   });
   const myC = customers.filter(c => {
-    if (worker.role === 'Collections Officer') return loans.some(l => l.customerId === c.id && l.collectionsOfficer === worker.name);
-    return c.officer?.trim().toLowerCase() === worker.name?.trim().toLowerCase();
+    const matches = worker.role === 'Collections Officer' 
+      ? loans.some(l => l.customerId === c.id && l.collectionsOfficer === worker.name)
+      : c.officer?.trim().toLowerCase() === worker.name?.trim().toLowerCase();
+    return matches && c.status !== 'Rejected';
   });
   const myLeads = (leads || []).filter(l => {
     if (worker.role === 'Collections Officer') return false; // Leads are for Loan Officers
@@ -183,9 +185,9 @@ const WorkerPanel = ({
 
   if (worker.role === 'Loan Officer') {
     performanceRate = (curMonthOnboarded / (worker.onboardingTarget || 60));
-    performanceLabel = "Onboarding Achievement";
-    // For Loan Officers, commission is the full target cap based on achievement
-    commission = Math.round(performanceRate * (worker.baseSalary || 20000)); 
+    performanceLabel = "Growth Performance";
+    // KES 333.33 per verified customer
+    commission = Math.round(curMonthOnboarded * 333.33); 
   } else if (worker.role === 'Collections Officer') {
     // Dynamic Target: What is actually collectible this month (Collected + Current Overdue in portfolio)
     const myLoans = loans.filter(l => (l.collectionsOfficer || '').toLowerCase() === worker.name.toLowerCase());

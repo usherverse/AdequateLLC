@@ -9,11 +9,12 @@ import CustomerProfile from "@/modules/customers/CustomerProfile";
 import LeadsTab from "@/modules/leads/LeadsTab";
 import WorkersTab from "@/modules/workers/WorkersTab";
 import DatabaseTab from "@/modules/database/DatabaseTab";
-import SecuritySettingsTab from "@/modules/security/SecuritySettingsTab";
+import SettingsTab from "@/modules/security/SettingsTab";
 import ReportsTab from "@/modules/reports/ReportsTab";
 import AuditTrailTab from "@/modules/audit/AuditTrailTab";
 import PaymentsHub from "@/pages/PaymentsHub";
 import SalariesTab from "@/pages/PaymentsHub/SalariesTab";
+import UnallocatedPaymentsTab from "@/modules/payments/UnallocatedPaymentsTab";
 
 import React, { useState, useMemo, useEffect, useLayoutEffect, useRef, useCallback, memo } from "react";
 import { _hashPw, _checkPw, SEED_WORKERS, SEED_CUSTOMERS, SEED_LOANS, SEED_PAYMENTS, SEED_LEADS, SEED_INTERACTIONS, SEED_AUDIT } from "@/data/seedData";
@@ -186,9 +187,9 @@ export {
 import { useSearchParams } from "react-router-dom"; // MODIFIED: Support parameterized redirects
 import { useTheme } from "@/context/ThemeContext";
 
-const AdminPanel = ({onLogout,loans,setLoans,customers,setCustomers,workers,setWorkers,payments,setPayments,leads,setLeads,interactions,setInteractions,repossessedAssets,setRepossessedAssets,targets,setTargets,salaryPayments,setSalaryPayments,workerDeductions,setWorkerDeductions,auditLog,setAuditLog,unallocatedC2BCount,setUnallocatedC2BCount,onOpenCustomerProfile,onRefresh}) => {
+const AdminPanel = ({onLogout,loans,setLoans,customers,setCustomers,workers,setWorkers,payments,setPayments,leads,setLeads,interactions,setInteractions,repossessedAssets,setRepossessedAssets,stkRequests,setStkRequests,b2cDisbursements,setB2cDisbursements,mpesaTransactions,setMpesaTransactions,targets,setTargets,salaryPayments,setSalaryPayments,workerDeductions,setWorkerDeductions,auditLog,setAuditLog,unallocatedC2BCount,setUnallocatedC2BCount,onOpenCustomerProfile,onRefresh, initialScreen}) => {
   const { theme, toggleTheme } = useTheme();
-  const [screen,setScreen]=useState('dashboard');
+  const [screen,setScreen]=useState(initialScreen || 'dashboard');
   const [searchParams, setSearchParams] = useSearchParams(); // MODIFIED
   const [screenHistory,setScreenHistory]=useState([]);
   const [forwardHistory, setForwardHistory] = useState([]);
@@ -214,6 +215,10 @@ const AdminPanel = ({onLogout,loans,setLoans,customers,setCustomers,workers,setW
     window.addEventListener('resize', handleResize);
     return () => window.removeEventListener('resize', handleResize);
   }, []);
+
+  useEffect(() => {
+    if (initialScreen) setScreen(initialScreen);
+  }, [initialScreen]);
 
   const scrollRef = useRef(null);
   const scrollTop = () => {
@@ -281,67 +286,7 @@ const AdminPanel = ({onLogout,loans,setLoans,customers,setCustomers,workers,setW
   // eslint-disable-next-line react-hooks/exhaustive-deps
   },[]);
 
-  // Loan status update — runs on mount and then every 24 hours
-  useEffect(()=>{
-    // Strict Business Logic: Repayment frequency does not determine loan maturity.
-    // A loan is 'due' strictly 30 days from disbursement date calculation.
-
-    const updateLoans = () => {
-      const n = new Date();
-      setLoans((ls) =>
-        ls.map((l) => {
-          if (!["Active", "Overdue", "Frozen"].includes(l.status) || !l.disbursed)
-            return l;
-          const disbDate = new Date(l.disbursed);
-          const diffDays = Math.floor((n - disbDate) / (1000 * 60 * 60 * 24));
-          const grace = 30; // Enforced strict due logic
-          const od = Math.max(0, diffDays - grace);
-
-          if (l.status === "Active") {
-            if (diffDays > grace && l.balance > 0) {
-              const targetStatus = od > FREEZE_AFTER ? "Frozen" : "Overdue";
-              const upd = { ...l, status: targetStatus, daysOverdue: od };
-              sbWrite("loans", toSupabaseLoan(upd));
-              return upd;
-            }
-            return l;
-          }
-          if (l.status === "Overdue" || l.status === "Frozen") {
-            // Automatic write-off if 121+ days since disbursement (91+ days overdue)
-            if (od >= 91) {
-              const upd = { ...l, status: "Written off", daysOverdue: od };
-              sbWrite("loans", toSupabaseLoan(upd));
-              addAudit(
-                "Auto Write-Off",
-                l.id,
-                `Amount: ${fmt(l.amount)} (Automated after ${diffDays}d total age / 91d overdue)`
-              );
-              return upd;
-            }
-
-            const targetStatus = od > FREEZE_AFTER ? "Frozen" : "Overdue";
-            if (od !== l.daysOverdue || l.status !== targetStatus) {
-              const upd = { ...l, status: targetStatus, daysOverdue: od };
-              sbWrite("loans", toSupabaseLoan(upd));
-              return upd;
-            }
-            return l;
-          }
-          return l;
-        })
-      );
-    };
-    updateLoans();
-    const id=setInterval(updateLoans,24*60*60*1000);
-    return()=>clearInterval(id);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  },[]);
-
-  // FIX — Bug 2 (Dashboard/sidebar perf): navItem was an inline arrow re-created every
-  // render. LiveClock ticks every second, so AdminPanel re-renders every second, meaning
-  // navItem (and every button it produces) was a brand-new function/element each tick.
-  // useCallback stabilizes it so it only re-creates when its actual dependencies change.
-  // Enhanced Navigation Item with Active Indicators and Categories
+  // Fixed Navigation Item with Active Indicators and Categories
   const navItem = useCallback((item, index, array) => {
     const isFirstInSection = index === 0 || array[index - 1].cat !== item.cat;
     const isActive = screen === item.id;
@@ -351,51 +296,51 @@ const AdminPanel = ({onLogout,loans,setLoans,customers,setCustomers,workers,setW
         {isFirstInSection && (!sideCollapsed || isMobile) && (
           <div style={{
             fontSize: 10,
-            fontWeight: 800,
+            fontWeight: 900,
             color: T.dim,
             textTransform: 'uppercase',
-            letterSpacing: 1.2,
-            padding: isMobile ? '12px 12px 4px' : '18px 12px 6px',
-            opacity: 0.6
+            letterSpacing: '0.15em',
+            padding: isMobile ? '20px 16px 8px' : '24px 16px 8px',
+            opacity: 0.5
           }}>
             {item.cat}
           </div>
         )}
-        <button onClick={() => navTo(item.id)} className='nb nav-item-new'
+        <button onClick={() => navTo(item.id)} className='nb'
           title={sideCollapsed && !isMobile ? item.l : ''}
           style={{
-            display: 'flex', alignItems: 'center', justifyContent: sideCollapsed && !isMobile ? 'center' : 'flex-start', gap: sideCollapsed && !isMobile ? 0 : 12, width: '100%', padding: '10px 12px', borderRadius: 12, border: 'none',
-            background: isActive ? `${item.c}12` : 'none',
+            display: 'flex', alignItems: 'center', justifyContent: sideCollapsed && !isMobile ? 'center' : 'flex-start', 
+            gap: sideCollapsed && !isMobile ? 0 : 12, width: 'calc(100% - 16px)', margin: '0 8px', padding: '12px', borderRadius: 14, border: 'none',
+            background: isActive ? `linear-gradient(135deg, ${item.c}20, transparent)` : 'none',
             color: isActive ? T.txt : T.muted,
-            cursor: 'pointer', fontSize: 13.5, fontWeight: isActive ? 700 : 500, marginBottom: 2, textAlign: 'left',
-            transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)', flexShrink: 0, position: 'relative',
-            overflow: 'hidden'
+            cursor: 'pointer', fontSize: 13.5, fontWeight: isActive ? 800 : 500, marginBottom: 2, textAlign: 'left',
+            transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)', flexShrink: 0, position: 'relative',
           }}>
-          {isActive && !sideCollapsed && (
+          {isActive && (
             <div style={{
-              position: 'absolute', left: 0, top: '20%', bottom: '20%', width: 3, 
+              position: 'absolute', left: 0, top: '25%', bottom: '25%', width: 3, 
               background: item.c, borderRadius: '0 4px 4px 0',
-              boxShadow: `0 0 10px ${item.c}80`
+              boxShadow: `0 0 15px ${item.c}aa`
             }} />
           )}
           <span style={{
             display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
             width: 32, height: 32, borderRadius: 10,
-            background: isActive ? item.c : `${item.c}15`,
-            color: isActive ? '#fff' : item.c,
-            transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
-            boxShadow: isActive ? `0 8px 16px ${item.c}30` : 'none',
-            border: `1px solid ${isActive ? 'transparent' : `${item.c}20`}`
+            background: isActive ? item.c : `${item.c}10`,
+            color: isActive ? '#000' : item.c,
+            transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+            boxShadow: isActive ? `0 8px 20px -5px ${item.c}60` : 'none',
+            border: `1.5px solid ${isActive ? 'transparent' : `${item.c}20`}`
           }}>
             <item.i size={16} strokeWidth={isActive ? 2.5 : 2} />
           </span>
           {(!sideCollapsed || isMobile) && (
             <>
-              <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: isActive ? T.txt : T.dim, marginLeft: 2 }}>{item.l}</span>
+              <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: isActive ? T.txt : T.dim, fontWeight: isActive ? 800 : 600, fontSize: 14, letterSpacing: '-0.01em' }}>{item.l}</span>
               <div style={{ display: 'flex', gap: 4 }}>
-                {item.id === 'payments' && unalloc > 0 && <span style={{ background: T.danger, color: '#fff', borderRadius: 6, padding: '2px 6px', fontSize: 10, fontWeight: 800, boxShadow: '0 2px 4px rgba(0,0,0,0.2)' }}>{unalloc}</span>}
-                {item.id === 'collections' && overdue > 0 && <span style={{ background: T.dLo, color: T.danger, borderRadius: 6, padding: '2px 6px', fontSize: 10, fontWeight: 800, border: `1px solid ${T.danger}38` }}>{overdue}</span>}
-                {item.id === 'loans' && pendingApprovals > 0 && <span style={{ background: T.gLo, color: T.gold, borderRadius: 6, padding: '2px 6px', fontSize: 10, fontWeight: 800, border: `1px solid ${T.gold}38` }}>{pendingApprovals}</span>}
+                {item.id === 'payments' && unalloc > 0 && <span style={{ background: T.danger, color: '#fff', borderRadius: 6, padding: '2px 6px', fontSize: 9, fontWeight: 900 }}>{unalloc}</span>}
+                {item.id === 'collections' && overdue > 0 && <span style={{ background: T.danger, color: '#fff', borderRadius: 6, padding: '2px 6px', fontSize: 9, fontWeight: 900 }}>{overdue}</span>}
+                {item.id === 'loans' && pendingApprovals > 0 && <span style={{ background: T.gold, color: '#000', borderRadius: 6, padding: '2px 6px', fontSize: 9, fontWeight: 900 }}>{pendingApprovals}</span>}
               </div>
             </>
           )}
@@ -412,8 +357,9 @@ const AdminPanel = ({onLogout,loans,setLoans,customers,setCustomers,workers,setW
     leads:      LeadsTab,
     collections:CollectionsTab,
     payments:   PaymentsTab,
+    unallocated: UnallocatedPaymentsTab,
     workers:    WorkersTab,
-    securitysettings: SecuritySettingsTab,
+    securitysettings: SettingsTab,
     database:   DatabaseTab,
     reports:    ReportsTab,
     audit:      AuditTrailTab,
@@ -423,20 +369,21 @@ const AdminPanel = ({onLogout,loans,setLoans,customers,setCustomers,workers,setW
 
   const Screen = S[screen] || S.dashboard;
   const screenProps = {
-    dashboard: { adminUser, loans, setLoans, customers, setCustomers, payments, setPayments, workers, interactions, setInteractions, addAudit, onNav: navTo, scrollTop, onOpenCustomerProfile, onRefresh, targets, setTargets },
-    calendar: { loans, payments, workers, workerContext: { role: 'admin', name: 'Admin' }, onOpenCustomerProfile },
-    loans: { loans, setLoans, customers, setCustomers, payments, setPayments, interactions, setInteractions, workers, addAudit, showToast, onOpenCustomerProfile, onNav: navTo, onRefresh },
-    customers: { customers, setCustomers, workers, loans, setLoans, payments, setPayments, interactions, setInteractions, addAudit, showToast, onOpenCustomerProfile, onRefresh },
-    leads: { leads, setLeads, workers, customers, setCustomers, loans, addAudit, showToast, onOpenCustomerProfile, onNav: navTo },
-    collections: { loans, setLoans, customers, setCustomers, payments, setPayments, interactions, setInteractions, workers, addAudit, scrollTop, currentUser: 'Admin', onOpenCustomerProfile, onRefresh },
-    payments: { payments, setPayments, loans, setLoans, customers, setCustomers, interactions, setInteractions, workers, addAudit, showToast, onOpenCustomerProfile, onRefresh },
-    workers: { workers, setWorkers, loans, setLoans, payments, customers, setCustomers, leads, setLeads, interactions, setInteractions, allState, addAudit, showToast, isMobile, onOpenCustomerProfile, onRefresh, targets, setTargets, onNav: navTo },
-    securitysettings: { adminUser, setAdminUser, auditLog, addAudit, showToast },
-    database: { allState, setLoans, setCustomers, setPayments, setWorkers, setLeads, setInteractions, setAuditLog, addAudit, showToast },
-    reports: { loans, customers, payments, workers, auditLog, salaryPayments, showToast, addAudit },
-    audit: { allState, setAuditLog },
-    paymentshub: { customers, setCustomers, loans, payments, setLoans, setPayments, workers, addAudit, showToast, unallocatedC2BCount, setUnallocatedC2BCount, salaryPayments, setSalaryPayments, workerDeductions, setWorkerDeductions, onNav: navTo },
-    salary_ledger: { workers, salaryPayments, setSalaryPayments, customers, loans, leads, addAudit, showToast, onNav: navTo, workerDeductions, setWorkerDeductions },
+    dashboard: { adminUser, loans, setLoans, customers, setCustomers, payments, setPayments, workers, interactions, setInteractions, stkRequests, b2cDisbursements, addAudit, onNav: navTo, scrollTop, onOpenCustomerProfile, onRefresh, targets, setTargets, theme },
+    calendar: { loans, payments, workers, workerContext: { role: 'admin', name: 'Admin' }, onOpenCustomerProfile, theme },
+    loans: { loans, setLoans, customers, setCustomers, payments, setPayments, interactions, setInteractions, workers, addAudit, showToast, onOpenCustomerProfile, onNav: navTo, onRefresh, theme },
+    customers: { customers, setCustomers, workers, loans, setLoans, payments, setPayments, interactions, setInteractions, addAudit, showToast, onOpenCustomerProfile, onRefresh, theme },
+    leads: { leads, setLeads, workers, customers, setCustomers, loans, addAudit, showToast, onOpenCustomerProfile, onNav: navTo, theme },
+    collections: { loans, setLoans, customers, setCustomers, payments, setPayments, interactions, setInteractions, workers, addAudit, scrollTop, currentUser: 'Admin', onOpenCustomerProfile, onRefresh, theme },
+    payments: { payments, setPayments, loans, setLoans, customers, setCustomers, interactions, setInteractions, workers, addAudit, showToast, onOpenCustomerProfile, onRefresh, theme },
+    unallocated: { transactions: mpesaTransactions, customers, onRefresh, addAudit, theme },
+    workers: { workers, setWorkers, loans, setLoans, payments, customers, setCustomers, leads, setLeads, interactions, setInteractions, allState, addAudit, showToast, isMobile, onOpenCustomerProfile, onRefresh, targets, setTargets, onNav: navTo, theme },
+    securitysettings: { adminUser, setAdminUser, auditLog, addAudit, showToast, theme },
+    database: { allState, setLoans, setCustomers, setPayments, setWorkers, setLeads, setInteractions, setAuditLog, addAudit, showToast, theme },
+    reports: { loans, customers, payments, workers, auditLog, salaryPayments, showToast, addAudit, theme },
+    audit: { allState, setAuditLog, theme },
+    paymentshub: { customers, setCustomers, loans, payments, setLoans, setPayments, workers, addAudit, showToast, unallocatedC2BCount, setUnallocatedC2BCount, salaryPayments, setSalaryPayments, workerDeductions, setWorkerDeductions, onNav: navTo, theme },
+    salary_ledger: { workers, salaryPayments, setSalaryPayments, customers, loans, leads, addAudit, showToast, onNav: navTo, workerDeductions, setWorkerDeductions, theme },
   };
 
   const renderScreen = <Screen {...(screenProps[screen] || screenProps.dashboard)} />;
@@ -455,19 +402,22 @@ const AdminPanel = ({onLogout,loans,setLoans,customers,setCustomers,workers,setW
         }}/>
 
       {/* Sidebar — Persistent on Desktop, Overlay on Mobile */}
-      <div className="main-sidebar glass" style={{
+      <div className="main-sidebar" style={{
         position: isMobile ? 'fixed' : 'relative',
         top: 0, bottom: 0, left: 0,
-        width: sideCollapsed && !isMobile ? 80 : 260,
+        width: sideCollapsed && !isMobile ? 80 : 280,
         zIndex: 5100,
         height: isMobile ? '100dvh' : '100vh',
+        background: theme === 'light' ? 'rgba(255, 255, 255, 0.95)' : 'rgba(13, 20, 33, 0.92)',
+        backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)',
         transform: isMobile ? `translateX(${sb ? '0%' : '-100%'})` : 'none',
-        transition: 'transform 0.4s cubic-bezier(0.16, 1, 0.3, 1), width 0.3s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.4s ease',
-        boxShadow: (isMobile && sb) ? '20px 0 60px rgba(0,0,0,0.6)' : (!isMobile && !sideCollapsed) ? '4px 0 20px rgba(0,0,0,0.05)' : 'none',
+        transition: 'transform 0.5s cubic-bezier(0.16, 1, 0.3, 1), width 0.4s cubic-bezier(0.16, 1, 0.3, 1)',
+        boxShadow: (isMobile && sb) ? '40px 0 100px rgba(0,0,0,0.8)' : (!isMobile && !sideCollapsed) ? '1px 0 0 rgba(255,255,255,0.05)' : 'none',
         display: 'flex',
         flexDirection: 'column',
         flexShrink: 0,
-        overflow: 'hidden'
+        overflow: 'hidden',
+        borderRight: `1px solid ${T.border}`
       }}>
         <div style={{ padding: sideCollapsed && !isMobile ? '15px 0' : '15px 14px 12px', borderBottom: `1px solid ${T.border}`, display: 'flex', alignItems: 'center', justifyContent: sideCollapsed && !isMobile ? 'center' : 'space-between', minHeight: 64, flexShrink: 0 }}>
           {(!sideCollapsed || isMobile) ? (
@@ -626,7 +576,22 @@ const AdminPanel = ({onLogout,loans,setLoans,customers,setCustomers,workers,setW
       {/* Main content — always full width, never shifts */}
       <div ref={scrollRef} className='main-scroll' style={{flex:1,display:'flex',flexDirection:'column',minWidth:0}}>
         {/* Topbar */}
-        <div className="glass" style={{padding:'10px 14px',display:'flex',justifyContent:'space-between',alignItems:'center',position:'sticky',top:0,zIndex:5000,flexShrink:0,gap:8}}>
+        <div style={{
+          padding: '12px 20px', 
+          display: 'flex', 
+          justifyContent: 'space-between', 
+          alignItems: 'center', 
+          position: 'sticky', 
+          top: 0, 
+          zIndex: 5000, 
+          flexShrink: 0, 
+          gap: 12,
+          background: theme === 'light' ? 'rgba(255, 255, 255, 0.85)' : 'rgba(6, 10, 16, 0.8)',
+          backdropFilter: 'blur(20px)',
+          WebkitBackdropFilter: 'blur(20px)',
+          borderBottom: `1px solid ${T.border}`,
+          boxShadow: '0 4px 30px rgba(0,0,0,0.02)'
+        }}>
           <div style={{display:'flex',alignItems:'center',gap:8}}>
             <button onClick={toggleSb} aria-label={isMobile ? "Open navigation menu" : sideCollapsed ? "Expand sidebar" : "Collapse sidebar"} style={{ background: 'none', border: `1px solid ${T.border}`, color: T.dim, cursor: 'pointer', fontSize: 16, padding: '5px 9px', borderRadius: 8, lineHeight: 1, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', width: 36, height: 34 }}>
               {isMobile ? <Menu size={18} /> : sideCollapsed ? <ChevronRight size={18} /> : <ChevronLeft size={18} />}
@@ -909,8 +874,28 @@ const WorkerPortal = ({workers,setWorkers,loans,setLoans,customers,setCustomers,
 const _LOCK_KEY = '_acl_lockout';
 const _LOCK_MS  = 15 * 60 * 1000;
 const _getLockout    = () => { try { const v=JSON.parse(localStorage.getItem(_LOCK_KEY)||'null'); return (v&&Date.now()<v.until)?v:null; } catch(e){ return null; } };
-const _recordFailure = () => { try { const v=JSON.parse(localStorage.getItem(_LOCK_KEY)||'null')||{count:0,until:0}; const c=(v.count||0)+1; const until=c>=3?Date.now()+_LOCK_MS:v.until; localStorage.setItem(_LOCK_KEY,JSON.stringify({count:c,until})); return c; } catch(e){ return 1; } };
-const _clearLockout  = () => { try { localStorage.removeItem(_LOCK_KEY); } catch(e){} };
+const _recordFailure = () => {
+  try { 
+    const v = JSON.parse(localStorage.getItem(_LOCK_KEY) || 'null') || { count: 0, until: 0 };
+    // If the old lockout has expired, we reset the count to 0 for a fresh session
+    const isExpired = v.until && Date.now() > v.until;
+    const currentCount = isExpired ? 0 : (v.count || 0);
+    
+    const nextCount = currentCount + 1;
+    const nextUntil = nextCount >= 3 ? Date.now() + _LOCK_MS : 0;
+    
+    localStorage.setItem(_LOCK_KEY, JSON.stringify({ count: nextCount, until: nextUntil }));
+    return nextCount;
+  } catch (e) { 
+    return 1; 
+  }
+};
+const _clearLockout = () => { 
+  try { 
+    localStorage.removeItem(_LOCK_KEY); 
+  } catch(e) {} 
+};
+
 
 const AdminLogin = ({onLogin,onWorkerPortal}) => {
   const [lockout,setLockout]=useState(_getLockout);
@@ -943,15 +928,56 @@ const AdminLogin = ({onLogin,onWorkerPortal}) => {
   const hasEmail=!!(secCfgForRec.adminEmail);
   const hasPhone=!!(secCfgForRec.adminRecoveryPhone||secCfgForRec.adminPhone);
 
-  const sendRecoveryCode=(method)=>{
-    const code=String(Math.floor(100000+Math.random()*900000));
-    setRecCode(code);setRecInput('');setRecErr('');setRecSent(true);setRecMethod(method);
-    // Production: send via email/SMS gateway
-    // Demo: code shown inline
+  const sendRecoveryCode = async (method) => {
+    if (loading) return;
+    setLoading(true);
+    setRecErr('');
+
+    // Generate a secure 6-digit code
+    const code = String(Math.floor(100000 + Math.random() * 900000));
+
+    try {
+      const { supabase } = await import('@/config/supabaseClient');
+      
+      // Use the email entered in the login field
+      const targetEmail = loginEmail.trim(); 
+      if (!targetEmail) {
+        setRecErr('Please type your email in the login field first.');
+        setLoading(false);
+        return;
+      }
+      
+      const { data, error } = await supabase.functions.invoke('send-recovery-auth', {
+        body: { email: targetEmail, code, method }
+      });
+
+      if (error || (data && data.error)) {
+        setRecErr(error?.message || data?.error || 'Server error occurred.');
+        setLoading(false);
+        return;
+      }
+
+
+
+      setRecCode(code);
+      setRecInput('');
+      setRecSent(true);
+      setRecMethod(method);
+      setShowRecovery(true); // ONLY show the entry screen AFTER successful dispatch
+    } catch (e) {
+      console.error('[Recovery Error]', e);
+      setRecErr('Failed to dispatch recovery code. Please contact system support.');
+    } finally {
+      setLoading(false);
+    }
   };
 
+
   const verifyRecoveryCode=()=>{
-    if(recInput.trim()!==recCode){setRecErr('Incorrect code. Try again.');return;}
+    if(!recCode || recInput.length < 6 || recInput.trim()!==recCode){
+      setRecErr('Incorrect code. Try again.');
+      return;
+    }
     _clearLockout();setLockout(null);setShowRecovery(false);
     setRecCode('');setRecInput('');setRecSent(false);setRecErr('');
   };
@@ -959,7 +985,7 @@ const AdminLogin = ({onLogin,onWorkerPortal}) => {
   // ── Main login state ───────────────────────────────────────
   const [step,setStep]=useState(1);
   const [loading,setLoading]=useState(false);
-  const [loginEmail,setLoginEmail]=useState('admin@adequatecapital.co.ke');
+  const [loginEmail,setLoginEmail]=useState('');
   const [pw,setPw]=useState('');
   const [err,setErr]=useState('');
   const [otpCode,setOtpCodeState]=useState(null);
@@ -980,9 +1006,16 @@ const AdminLogin = ({onLogin,onWorkerPortal}) => {
       if(!DEMO_MODE&&supabase){
         supabase.auth.signInWithPassword({email:loginEmail.trim(),password:pw}).then(({error})=>{
           if(error){
-            const c=_recordFailure();const lo=_getLockout();setLockout(lo);
-            setErr(c>=3?<span style={{display:'inline-flex',alignItems:'center',gap:4}}><Lock size={14}/> Too many failed attempts. Wait 15 min.</span>:error.message||'Incorrect email or password.');
+            const c = _recordFailure();
+            const lo = _getLockout();
+            setLockout(lo);
+            const rem = 3 - c;
+            setErr(c >= 3 
+              ? <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><Lock size={14} /> Too many failed attempts. Wait 15 min.</span>
+              : `Incorrect password. ${rem} attempt${rem === 1 ? '' : 's'} remaining.`);
             setLoading(false);
+
+
             try{SFX.error();}catch(e){}
             return;
           }
@@ -1147,24 +1180,27 @@ const AdminLogin = ({onLogin,onWorkerPortal}) => {
             {/* Recovery options */}
             <div style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 20, padding: '20px', marginBottom: 20 }}>
               <div style={{ color: '#fff', fontWeight: 800, fontSize: 14, marginBottom: 12, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}><ShieldAlert size={16} color={T.accent} /> Recover Access Now</div>
+              {recErr && <div style={{ color: T.danger, fontSize: 12, textAlign: 'center', marginBottom: 12, background: 'rgba(255,71,87,0.1)', padding: '8px', borderRadius: '8px' }}>⚠ {recErr}</div>}
               {!hasEmail && !hasPhone && (
+
                 <div style={{ color: T.dim, fontSize: 12 }}>No recovery contacts configured. Contact system administrator.</div>
               )}
-              {(hasEmail || hasPhone) && (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                  {hasEmail && (
-                    <button onClick={() => { setShowRecovery(true); sendRecoveryCode('email'); }}
-                      style={{ background: `${T.accent}15`, border: `1px solid ${T.accent}30`, color: T.accent, borderRadius: 12, padding: '12px', cursor: 'pointer', fontWeight: 800, fontSize: 13, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
-                      <Mail size={16} /> Restore via Email
-                    </button>
-                  )}
-                  {hasPhone && (
-                    <button onClick={() => { setShowRecovery(true); sendRecoveryCode('sms'); }}
-                      style={{ background: `${T.gold}15`, border: `1px solid ${T.gold}30`, color: T.gold, borderRadius: 12, padding: '12px', cursor: 'pointer', fontWeight: 800, fontSize: 13, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
-                      <Smartphone size={16} /> Restore via SMS
-                    </button>
-                  )}
+              {hasEmail && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                  <input 
+                    type="email" 
+                    placeholder="Enter Admin Email" 
+                    value={loginEmail} 
+                    onChange={e => setLoginEmail(e.target.value)}
+                    style={{ background: 'rgba(0,0,0,0.3)', border: `1px solid ${T.hi}`, color: '#fff', padding: '12px', borderRadius: 10, fontSize: 13, outline: 'none', textAlign: 'center' }}
+                  />
+                  <button onClick={() => sendRecoveryCode('email')}
+                    disabled={loading}
+                    style={{ background: `${T.accent}15`, border: `1px solid ${T.accent}30`, color: T.accent, borderRadius: 12, padding: '12px', cursor: 'pointer', fontWeight: 800, fontSize: 13, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, opacity: loading ? 0.5 : 1 }}>
+                    {loading ? 'Sending...' : <><Mail size={16} /> Restore via Email</>}
+                  </button>
                 </div>
+
               )}
             </div>
 
@@ -1185,19 +1221,10 @@ const AdminLogin = ({onLogin,onWorkerPortal}) => {
               <div style={{display:'flex',justifyContent:'center',marginBottom:10}}>{recMethod==='email'?<Mail size={32}/>:<Smartphone size={32}/>}</div>
               <div style={{color:T.txt,fontWeight:800,fontSize:15,fontFamily:T.head,marginBottom:4}}>Enter Recovery Code</div>
               <div style={{color:T.muted,fontSize:12}}>
-                {recMethod==='email'
-                  ?`Code sent to ${secCfgForRec.adminEmail}`
-                  :`Code sent to ${secCfgForRec.adminRecoveryPhone||secCfgForRec.adminPhone}`}
+                {`Code sent to your registered admin email.`}
               </div>
             </div>
 
-            {/* Demo: show the code */}
-            {recSent&&recCode&&(
-              <div style={{background:T.gLo,border:`1px solid ${T.gold}38`,borderRadius:10,padding:'12px',textAlign:'center',marginBottom:16}}>
-                <div style={{color:T.muted,fontSize:11,marginBottom:4}}>Recovery Code (demo — sent to {recMethod==='email'?'email':'phone'})</div>
-                <div style={{color:T.gold,fontFamily:T.mono,fontSize:28,fontWeight:900,letterSpacing:8}}>{recCode}</div>
-              </div>
-            )}
 
             <input
               value={recInput}
@@ -1240,7 +1267,7 @@ const AdminLogin = ({onLogin,onWorkerPortal}) => {
             {err && <Alert type='danger' style={{ marginBottom: 20, borderRadius: 14 }}>⚠ {err}</Alert>}
             {step === 1 && (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-                <FI label='Credential Email' type='email' value={loginEmail} onChange={setLoginEmail} placeholder='admin@adequatecapital.co.ke'
+                <FI label='Credential Email' type='email' value={loginEmail} onChange={setLoginEmail} placeholder='your@email.com'
                    onKeyDown={(e) => { if (e.key === 'Enter' && !loading) stepPw(); }} />
                 <FI label='System Password' type='password' value={pw} onChange={setPw} placeholder='••••••••'
                    hint='Secure encrypted connection'
@@ -1264,12 +1291,7 @@ const AdminLogin = ({onLogin,onWorkerPortal}) => {
                   <div style={{color:T.txt,fontWeight:800,fontFamily:T.head,fontSize:15,marginBottom:5}}>One-Time Password</div>
                   <div style={{color:T.muted,fontSize:12}}>Code sent to: <b>{secCfg.adminPhone||'registered phone'}</b></div>
                 </div>
-                {otpCode&&(
-                  <div style={{background:T.gLo,border:`1px solid ${T.gold}38`,borderRadius:10,padding:'12px',textAlign:'center',marginBottom:12}}>
-                    <div style={{color:T.muted,fontSize:11,marginBottom:4}}>OTP Code (demo)</div>
-                    <div style={{color:T.gold,fontFamily:T.mono,fontSize:28,fontWeight:900,letterSpacing:8}}>{otpCode}</div>
-                  </div>
-                )}
+
                 <input value={otpInput} onChange={e=>setOtpInput(e.target.value.replace(/\D/g,'').slice(0,6))} placeholder='••••••' maxLength={6}
                   onKeyDown={e => { if(e.key === 'Enter' && !loading) stepTotp(); }}
                   style={{width:'100%',background:T.surface,border:`1px solid ${T.hi}`,borderRadius:10,padding:'13px',color:T.accent,fontSize:26,fontWeight:800,letterSpacing:12,textAlign:'center',outline:'none',marginBottom:7,boxSizing:'border-box'}}/>
@@ -1314,6 +1336,7 @@ export default function App() {
 
   const [mode,setMode] = useState('admin-login');
   const [dataLoaded,setDataLoaded] = useState(false);
+  const [adminStartScreen, setAdminStartScreen] = useState(null);
 
   const [loans,        setLoans]        = useState([]);
   const [customers,    setCustomers]    = useState([]);
@@ -1324,16 +1347,19 @@ export default function App() {
   const [auditLog,     setAuditLog]     = useState([]);
   const [unallocatedC2BCount, setUnallocatedC2BCount] = useState(0);
   const [repossessedAssets, setRepossessedAssets] = useState([]);
+  const [stkRequests, setStkRequests] = useState([]);
+  const [b2cDisbursements, setB2cDisbursements] = useState([]);
   const [targets, setTargets] = useState([]);
   const [salaryPayments, setSalaryPayments] = useState([]);
   const [workerDeductions, setWorkerDeductions] = useState([]);
+  const [mpesaTransactions, setMpesaTransactions] = useState([]);
 
   // Global Customer Profile State
   const [globalCustomerId, setGlobalCustomerId] = useState(null);
 
 
   // ── Local cache (speed up first paint after login) ──────────────────────────
-  const CACHE_KEY = 'acl_cache_v2';
+  const CACHE_KEY = 'acl_cache_v3';
   const readCache = () => {
     try { return JSON.parse(localStorage.getItem(CACHE_KEY) || 'null'); } catch(e){ return null; }
   };
@@ -1349,17 +1375,25 @@ export default function App() {
 
       // Load all data with constants in scope
 
-      const [lFast, cFast, pFast, wR, unallocR, assetsR] = await Promise.all([
-        supabase.from('loans').select('id,customer_id,customer_name,amount,balance,status,repayment_type,officer,collections_officer,risk,disbursed,mpesa,phone,days_overdue,created_at').order('created_at', { ascending: false }).range(0, LOANS_FAST - 1),
-        supabase.from('customers').select('id,name,phone,id_no,officer,loans,risk,blacklisted,joined,status,assigned_officer,mpesa_registered').order('name', { ascending: true }).range(0, CUSTOMERS_FAST - 1),
-        supabase.from('payments').select('id,loan_id,customer_id,customer_name,amount,mpesa,date,status,allocated_by,is_reg_fee').order('date', { ascending: false }).range(0, PAYMENTS_FAST - 1),
+      const [lFast, cFast, pFast, wR, mR, aR, iR, adR] = await Promise.all([
+        supabase.from('loans').select('id,customer_id,customer_name,amount,balance,status,repayment_type,officer,collections_officer,risk,disbursed,mpesa,phone,days_overdue,created_at').order('created_at', { ascending: false }).range(0, 50),
+        supabase.from('customers').select('id,name,phone,id_no,officer,loans,risk,blacklisted,joined,status,assigned_officer,mpesa_registered,n1_name,n1_phone,n2_name,n2_phone,n3_name,n3_phone').order('name', { ascending: true }).range(0, CUSTOMERS_FAST - 1),
+        supabase.from('payments').select('id,loan_id,customer_id,customer_name,amount,mpesa,date,status,allocated_by,is_reg_fee').order('date', { ascending: false }).range(0, 50),
         supabase.from('workers').select('id,name,email,phone,role,status,docs,id_no,avatar,base_salary,onboarding_target,collection_target').order('name'),
-        supabase.from('unallocated_payments').select('*', { count: 'exact', head: true }).eq('status', 'Unallocated'),
-        supabase.from('repossessed_assets').select('*').order('possession_date', { ascending: false }),
+        supabase.from('mpesa_transactions').select('*').order('created_at', { ascending: false }).limit(200),
+        supabase.from('leads').select('*').order('date', { ascending: false }).limit(50),
+        supabase.from('interactions').select('*').order('date', { ascending: false }).limit(50),
+        supabase.from('audit_log').select('*').order('ts', { ascending: false }).limit(50),
       ]);
       
-      if (!unallocR.error) setUnallocatedC2BCount(unallocR.count || 0);
-      if (assetsR && !assetsR.error) setRepossessedAssets(assetsR.data.map(fromSupabaseAsset));
+      if (!mR.error && mR.data) {
+        setMpesaTransactions(mR.data);
+        const unallocCount = mR.data.filter(tx => tx.allocation_status === 'unallocated').length;
+        setUnallocatedC2BCount(unallocCount);
+      }
+      if (!aR.error && aR.data) setLeads(aR.data.map(fromSupabaseLead));
+      if (!iR.error && iR.data) setInteractions(iR.data.map(fromSupabaseInteraction));
+      if (!adR.error && adR.data) setAuditLog(adR.data);
 
       const nextLoansFast = (!lFast.error && lFast.data?.length) ? lFast.data.map(fromSupabaseLoan) : [];
       if (lFast.error) console.error('[load loans]', lFast.error.message);
@@ -1379,21 +1413,23 @@ export default function App() {
       const cache = readCache();
       const anyErrorFast = !!(lFast.error || cFast.error || pFast.error);
 
-      // Guard state against connectivity wipes
-      if (!lFast.error && nextLoansFast.length > 0) setLoans(nextLoansFast);
-      if (!cFast.error && nextCustomersFast.length > 0) {
+      // Guard state against connectivity wipes - Only skip if there's an actual ERROR.
+      // If error is null and length is 0, it means the database is intentionally empty.
+      if (!lFast.error) setLoans(nextLoansFast);
+      if (!cFast.error) {
         setCustomers(cs => {
+          if (nextCustomersFast.length === 0) return []; // Reset if DB is empty
           const ids = new Set(cs.map(c => c.id));
           return [...cs, ...nextCustomersFast.filter(c => !ids.has(c.id))];
         });
       }
-      if (!pFast.error && nextPaymentsFast.length > 0) setPayments(nextPaymentsFast);
+      if (!pFast.error) setPayments(nextPaymentsFast);
 
-      if (!anyErrorFast && (nextLoansFast.length || nextCustomersFast.length || nextPaymentsFast.length)) {
+      if (!anyErrorFast) {
         writeCache({
-          loans: (!lFast.error && nextLoansFast.length) ? nextLoansFast : (cache?.loans || []),
-          customers: (!cFast.error && nextCustomersFast.length) ? nextCustomersFast : (cache?.customers || []),
-          payments: (!pFast.error && nextPaymentsFast.length) ? nextPaymentsFast : (cache?.payments || []),
+          loans: nextLoansFast,
+          customers: nextCustomersFast,
+          payments: nextPaymentsFast,
           workers: (!wR.error && wR.data?.length) ? wR.data.map(fromSupabaseWorker) : (cache?.workers || []),
         });
       }
@@ -1429,7 +1465,10 @@ export default function App() {
             const { data: { session } } = await supabase.auth.getSession();
             const isAdmin = session?.user?.email?.includes('admin') || session?.user?.email?.includes('ushern');
             if (isAdmin) {
-              supabase.from('customers').upsert(missing, { onConflict: 'id' }).then(({error}) => { if(error) console.error('[backfill]', error.message); });
+              const validMissing = missing.filter(m => m.phone && m.id && m.name);
+              if (validMissing.length > 0) {
+                supabase.from('customers').upsert(validMissing, { onConflict: 'id' }).then(({error}) => { if(error) console.error('[backfill]', error.message); });
+              }
             }
           }
       }
@@ -1439,19 +1478,32 @@ export default function App() {
       // Phase 1b (background): fetch remaining data without heavy single queries.
       // - Loans/payments can still be fetched in one go
       // - Customers MUST be paged (200/page) to avoid "statement timeout" on order(name)
-      setTimeout(() => {
+      setTimeout(async () => {
         // Loans + payments (single query)
         if (!supabase) return;
         Promise.all([
           supabase.from('loans').select('id,customer_id,customer_name,amount,balance,status,repayment_type,officer,collections_officer,risk,disbursed,mpesa,phone,days_overdue,created_at').order('created_at', { ascending: false }).range(0, LOANS_MAX - 1),
           supabase.from('payments').select('id,loan_id,customer_id,customer_name,amount,mpesa,date,status,allocated_by,is_reg_fee').order('date', { ascending: false }).range(0, PAYMENTS_MAX - 1),
-          supabase.from('unallocated_payments').select('*', { count: 'exact', head: true }).eq('status', 'Unallocated'),
           supabase.from('monthly_targets').select('*'),
           supabase.from('salary_payments').select('*').order('created_at', { ascending: false }).limit(1000),
-        ]).then(([lFull, pFull, uFull, tFull, sFull]) => {
-          if (!uFull.error) setUnallocatedC2BCount(uFull.count || 0);
+          supabase.from('leads').select('*').order('date', { ascending: false }).limit(1000),
+          supabase.from('interactions').select('*').order('date', { ascending: false }).limit(1000),
+          supabase.from('repossessed_assets').select('*').order('possession_date', { ascending: false }),
+          supabase.from('stk_requests').select('*').order('created_at', { ascending: false }).limit(500),
+          supabase.from('b2c_disbursements').select('*').order('created_at', { ascending: false }).limit(500),
+          supabase.from('mpesa_transactions').select('*').order('created_at', { ascending: false }).limit(1000),
+        ]).then(async ([lFull, pFull, tFull, sFull, leadFull, intFull, assetFull, stkFull, b2cFull, mFull]) => {
+          if (!mFull.error && mFull.data) {
+            setMpesaTransactions(mFull.data);
+            setUnallocatedC2BCount(mFull.data.filter(tx => tx.allocation_status === 'unallocated').length);
+          }
           if (!tFull.error && tFull.data) setTargets(tFull.data);
           if (!sFull.error && sFull.data) setSalaryPayments(sFull.data);
+          if (!leadFull.error && leadFull.data) setLeads(leadFull.data.map(fromSupabaseLead));
+          if (!intFull.error && intFull.data) setInteractions(intFull.data.map(fromSupabaseInteraction));
+          if (!assetFull.error && assetFull.data) setRepossessedAssets(assetFull.data.map(fromSupabaseAsset));
+          if (!stkFull.error && stkFull.data) setStkRequests(stkFull.data);
+          if (!b2cFull.error && b2cFull.data) setB2cDisbursements(b2cFull.data);
           const nextLoans = (!lFull.error && lFull.data?.length) ? lFull.data.map(fromSupabaseLoan) : [];
           if (lFull.error) console.error('[load loans full]', lFull.error.message);
           const nextPayments = (!pFull.error && pFull.data?.length) ? pFull.data.map(fromSupabasePayment) : [];
@@ -1472,6 +1524,15 @@ export default function App() {
             });
           }
         }).catch((err) => console.error('[load full loans/payments]', err?.message || err));
+
+        // Detect fresh state after load
+        if (workers.length === 0 && customers.length === 0 && loans.length === 0) {
+          // If we just loaded and everything is empty, verify we aren't in SEED mode
+          const { data: wCount } = await supabase.from('workers').select('*', { count: 'exact', head: true });
+          if (wCount === 0) {
+             setMode('welcome');
+          }
+        }
 
         // Customers (paged)
         (async () => {
@@ -1552,10 +1613,18 @@ export default function App() {
       }
     }
 
-    if (isStale) loadAllData();
+    if (isStale) {
+      import('@/config/supabaseClient').then(({ supabase, DEMO_MODE }) => {
+        if (DEMO_MODE) { loadAllData(); return; }
+        supabase.auth.getSession().then(({ data: { session } }) => {
+          if (session) loadAllData();
+          else setDataLoaded(true); // Don't block UI if not logged in
+        });
+      });
+    }
   }, [loadAllData]);
 
-  const ADMIN_ROLES = ['admin', 'Admin'];
+  const ADMIN_ROLES = ['admin', 'Admin', 'Super Admin', 'Director'];
   const handleLogin = (email) => {
     SFX.login();
     import('@/config/supabaseClient').then(({supabase,DEMO_MODE})=>{
@@ -1575,7 +1644,7 @@ export default function App() {
           detail: 'Login successful via Admin Portal'
         }).catch(console.error);
         setAuditLog(l => [{ ts: ts(), user: email.trim(), action: 'Admin Login', target: 'System', detail: 'Login successful via Admin Portal' }, ...l].slice(0, 10));
-        supabase.from('workers').select('role').eq('email', email.trim()).single()
+        supabase.from('workers').select('role').eq('email', email.trim()).maybeSingle()
           .then(({data,error})=>{
             const role = (!error&&data)?data.role:null;
             if (role && !ADMIN_ROLES.includes(role)) setMode('worker');
@@ -1587,7 +1656,16 @@ export default function App() {
     }).catch(()=>setMode('admin'));
   };
 
-  const shared={loans,setLoans,customers,setCustomers,workers,setWorkers,payments,setPayments,leads,setLeads,interactions,setInteractions,auditLog,setAuditLog,unallocatedC2BCount,setUnallocatedC2BCount,repossessedAssets,setRepossessedAssets,targets,setTargets,salaryPayments,setSalaryPayments,workerDeductions,setWorkerDeductions,onOpenCustomerProfile: setGlobalCustomerId, onRefresh: loadAllData};
+  const shared={
+    loans,setLoans,customers,setCustomers,workers,setWorkers,payments,setPayments,
+    leads,setLeads,interactions,setInteractions,auditLog,setAuditLog,
+    unallocatedC2BCount,setUnallocatedC2BCount,repossessedAssets,setRepossessedAssets,
+    stkRequests, setStkRequests, b2cDisbursements, setB2cDisbursements,
+    mpesaTransactions, setMpesaTransactions,
+    targets,setTargets,salaryPayments,setSalaryPayments,workerDeductions,setWorkerDeductions,
+    onOpenCustomerProfile: setGlobalCustomerId, onRefresh: loadAllData,
+    onGlobalReset: () => setMode('welcome')
+  };
 
   return (
     <>
@@ -1599,8 +1677,18 @@ export default function App() {
           <div style={{width:32,height:32,border:'3px solid #1A2234',borderTop:'3px solid #00D4AA',borderRadius:'50%',animation:'spin .8s linear infinite'}}/>
           <div style={{color:T.muted,fontSize:13,fontFamily:T.body,fontWeight:500}}>Hydro-syncing workspace…</div>
         </div>
-      ) : <AdminPanel {...shared} onLogout={()=>setMode('admin-login')}/>)}
+      ) : <AdminPanel {...shared} onLogout={()=>setMode('admin-login')} initialScreen={adminStartScreen}/>)}
       {mode==='worker'&&<WorkerPortal {...shared} dataLoaded={dataLoaded} onBack={()=>setMode('admin-login')}/>}
+      {mode === 'welcome' && (
+        <WelcomeExperience 
+          onStartSetup={(targetScreen) => {
+            setAdminStartScreen(targetScreen);
+            setMode('admin'); 
+            setDataLoaded(true);
+          }} 
+          onLogout={() => setMode('admin-login')} 
+        />
+      )}
 
       {/* Global Customer Profile Overlay */}
       {globalCustomerId && (
@@ -1644,25 +1732,60 @@ const CommandCenter = ({ customers, onClose, onSelect }) => {
 
   const results = useMemo(() => {
     if (!q || q.length < 2) return [];
-    const term = q.toLowerCase();
+    const term = q.trim().toLowerCase();
+    if (!term || term.length < 2) return [];
+    const parts = term.split(/\s+/).filter(Boolean);
+    const cleanTerm = q.replace(/\D/g, ''); 
     
     return customers.map(c => {
       let matchType = null;
       let matchedValue = '';
 
-      if (c.name?.toLowerCase().includes(term)) matchType = 'Customer';
-      else if (c.phone?.includes(term)) matchType = 'Phone';
-      else if (c.idNo?.toLowerCase().includes(term)) matchType = 'ID Match';
-      else if (c.n1n?.toLowerCase().includes(term)) { matchType = 'NOK'; matchedValue = c.n1n; }
-      else if (c.n1p?.includes(term)) { matchType = 'NOK'; matchedValue = c.n1p; }
-      else if (c.n2n?.toLowerCase().includes(term)) { matchType = 'NOK'; matchedValue = c.n2n; }
-      else if (c.n2p?.includes(term)) { matchType = 'NOK'; matchedValue = c.n2p; }
-      else if (c.n3n?.toLowerCase().includes(term)) { matchType = 'NOK'; matchedValue = c.n3n; }
-      else if (c.n3p?.includes(term)) { matchType = 'NOK'; matchedValue = c.n3p; }
+      const name = (c.name || '').toLowerCase();
+      const n1n = (String(c.n1n || c.n1_name || '')).toLowerCase();
+      const n1p = (String(c.n1p || c.n1_phone || '')).toLowerCase();
+      const n2n = (String(c.n2n || c.n2_name || '')).toLowerCase();
+      const n2p = (String(c.n2p || c.n2_phone || '')).toLowerCase();
+      const n3n = (String(c.n3n || c.n3_name || '')).toLowerCase();
+      const n3p = (String(c.n3p || c.n3_phone || '')).toLowerCase();
+
+      if (parts.every(p => name.includes(p))) {
+        matchType = 'Customer';
+      } 
+      else if (cleanTerm && (String(c.phone || c.phone_no || '')).replace(/\D/g, '').includes(cleanTerm)) {
+        matchType = 'Phone';
+      }
+      else if (cleanTerm && (String(c.idNo || c.id_no || '')).toLowerCase().includes(cleanTerm.toLowerCase())) {
+        matchType = 'ID Match';
+      }
+      else if (parts.every(p => n1n.includes(p)) && n1n.length > 0) {
+        matchType = 'NOK';
+        matchedValue = c.n1n || c.n1_name;
+      }
+      else if (cleanTerm && n1p.replace(/\D/g, '').includes(cleanTerm) && n1p.length > 0) {
+        matchType = 'NOK Phone';
+        matchedValue = c.n1n || c.n1_name;
+      }
+      else if (parts.every(p => n2n.includes(p)) && n2n.length > 0) {
+        matchType = 'NOK';
+        matchedValue = c.n2n || c.n2_name;
+      }
+      else if (cleanTerm && n2p.replace(/\D/g, '').includes(cleanTerm) && n2p.length > 0) {
+        matchType = 'NOK Phone';
+        matchedValue = c.n2n || c.n2_name;
+      }
+      else if (parts.every(p => n3n.includes(p)) && n3n.length > 0) {
+        matchType = 'NOK';
+        matchedValue = c.n3n || c.n3_name;
+      }
+      else if (cleanTerm && n3p.replace(/\D/g, '').includes(cleanTerm) && n3p.length > 0) {
+        matchType = 'NOK Phone';
+        matchedValue = c.n3n || c.n3_name;
+      }
 
       if (matchType) return { ...c, matchType, matchedValue };
       return null;
-    }).filter(Boolean).slice(0, 8);
+    }).filter(Boolean).slice(0, 15);
   }, [customers, q]);
 
   return (
@@ -1767,6 +1890,53 @@ const CommandCenter = ({ customers, onClose, onSelect }) => {
                </div>
             </div>
           )}
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// ═══════════════════════════════════════════
+//  WELCOME EXPERIENCE (AFTER RESET)
+// ═══════════════════════════════════════════
+const WelcomeExperience = ({ onStartSetup, onLogout }) => {
+  return (
+    <div className="fade" style={{ minHeight: '100vh', background: '#02060C', color: '#fff', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: 24, textAlign: 'center' }}>
+      <div style={{ maxWidth: 640 }}>
+        <div style={{ marginBottom: 40 }}>
+          <div style={{ background: T.aLo, width: 80, height: 80, borderRadius: 24, display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 24px', color: T.accent, border: `1px solid ${T.accent}30` }}>
+            <Zap size={40} fill={T.accent} style={{ opacity: 0.8 }} />
+          </div>
+          <h1 style={{ fontFamily: T.head, fontSize: 40, fontWeight: 900, marginBottom: 16, letterSpacing: '-0.03em' }}>System Initialized.</h1>
+          <p style={{ color: T.muted, fontSize: 18, lineHeight: 1.6 }}>Welcome to your fresh LMS workspace. The database has been cleared and is ready for your unique configuration.</p>
+        </div>
+
+        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(200px, 1fr) minmax(200px, 1fr)', gap: 20 }}>
+          <Card onClick={() => onStartSetup('settings')} style={{ padding: 32, borderRadius: 32, cursor: 'pointer', border: `1px solid ${T.border}`, textAlign: 'left', transition: 'all .3s ease', background: T.surface }} className="hover-scale">
+            <div style={{ width: 48, height: 48, background: `${T.accent}20`, borderRadius: 16, display: 'flex', alignItems: 'center', justifyContent: 'center', color: T.accent, marginBottom: 20 }}>
+              <ShieldCheck size={24} />
+            </div>
+            <h3 style={{ fontSize: 20, fontWeight: 800, marginBottom: 8, color: T.txt }}>Setup Admin</h3>
+            <p style={{ fontSize: 14, color: T.muted }}>Configure your root administrative credentials and system preferences.</p>
+            <div style={{ marginTop: 20, color: T.accent, fontSize: 13, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 6 }}>
+              Get Started <ArrowRight size={14} />
+            </div>
+          </Card>
+
+          <Card onClick={() => onStartSetup('workers')} style={{ padding: 32, borderRadius: 32, cursor: 'pointer', border: `1px solid ${T.border}`, textAlign: 'left', background: T.surface }} className="hover-scale">
+            <div style={{ width: 48, height: 48, background: `${T.warn}20`, borderRadius: 16, display: 'flex', alignItems: 'center', justifyContent: 'center', color: T.warn, marginBottom: 20 }}>
+              <Users size={24} />
+            </div>
+            <h3 style={{ fontSize: 20, fontWeight: 800, marginBottom: 8, color: T.txt }}>Build Team</h3>
+            <p style={{ fontSize: 14, color: T.muted }}>Start adding your loan officers and collection agents to the platform.</p>
+            <div style={{ marginTop: 20, color: T.warn, fontSize: 13, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 6 }}>
+              Next Step <ArrowRight size={14} />
+            </div>
+          </Card>
+        </div>
+
+        <div style={{ marginTop: 48 }}>
+           <Btn onClick={onLogout} v="ghost" style={{ opacity: 0.6 }}>Back to Login Screen</Btn>
         </div>
       </div>
     </div>

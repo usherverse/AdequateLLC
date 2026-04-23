@@ -11,7 +11,10 @@ import { useDisbursements } from './hooks/useDisbursements';
 const DisbursementsTab = ({ loans = [], customers = [], payments = [], setLoans, addAudit, showToast, onManualLog }) => {
   const [, setSearchParams] = useSearchParams();
   const [sel, setSel] = useState(null);
-  const [disbF, setDisbF] = useState({ mpesa: '', phone: '', date: now() });
+  // SECURITY (VULN-01): 'phone' is NOT stored in disbF — the server
+  // resolves the recipient phone from the customer record. We only
+  // keep a read-only display value derived from the customer object.
+  const [disbF, setDisbF] = useState({ mpesa: '', date: now() });
   const { disburse, loading: disburseLoading, waitingForCallback, status: disbStatus, isSuccess, failureReason, reset } = useDisbursements();
 
   const approvedLoans = loans.filter(l => l.status === 'Approved');
@@ -34,7 +37,8 @@ const DisbursementsTab = ({ loans = [], customers = [], payments = [], setLoans,
   const doMpesaDisburse = async () => {
     if (!sel) return;
     try {
-      await disburse(sel.id, disbF.phone);
+      // SECURITY (VULN-01): No phone argument — server resolves from customer record.
+      await disburse(sel.id);
       addAudit('M-Pesa Disbursement Initiated', sel.id, `${fmt(sel.amount)} via Daraja`);
       showToast('🚀 Disbursement initiated via M-Pesa.', 'info');
       setSel(null);
@@ -80,7 +84,7 @@ const DisbursementsTab = ({ loans = [], customers = [], payments = [], setLoans,
                 );
             }},
             { k: 'action', l: 'Access Management', r: (v, row) => (
-                <Btn onClick={() => { setSel(row); setDisbF(f=>({...f, phone: row.phone || customers.find(c => c.id === row.customerId)?.phone || ''})) }} v="primary" sm icon={Rocket}>
+                <Btn onClick={() => { setSel(row); setDisbF({ mpesa: '', date: now() }); }} v="primary" sm icon={Rocket}>
                     Authorize
                 </Btn>
             )}
@@ -128,7 +132,24 @@ const DisbursementsTab = ({ loans = [], customers = [], payments = [], setLoans,
                 <div style={{ fontSize: 11, fontWeight: 850, color: T.dim, marginBottom: 14, textTransform: 'uppercase', letterSpacing: 1.5 }}>Configuration</div>
                 <FI label='M-Pesa Reference / TXN Code' value={disbF.mpesa} onChange={v => setDisbF(f => ({ ...f, mpesa: v }))} required placeholder='OAB1234567' />
                 <div style={{ height: 12 }} />
-                <FI label='Target Mobile Identity (MSISDN)' value={disbF.phone} onChange={v => setDisbF(f => ({ ...f, phone: v }))} required />
+                {/* SECURITY (VULN-01): Phone is READ-ONLY — shown for transparency but
+                    cannot be edited. The server resolves it from the customer record. */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: T.dim, textTransform: 'uppercase', letterSpacing: 0.8 }}>Recipient Phone (Verified)</div>
+                  <div style={{
+                    display: 'flex', alignItems: 'center', gap: 10,
+                    padding: '10px 14px', borderRadius: 10,
+                    background: `${T.ok}12`,
+                    border: `1px solid ${T.ok}40`,
+                    fontFamily: T.mono, fontSize: 14, fontWeight: 700, color: T.ok,
+                    letterSpacing: '0.04em'
+                  }}>
+                    <ShieldAlert size={14} color={T.ok} />
+                    {cust?.phone || sel?.phone || <span style={{ color: T.danger, fontWeight: 600 }}>⚠ No phone on record — update customer profile first</span>}
+                    <span style={{ marginLeft: 'auto', fontSize: 10, fontWeight: 600, color: T.muted, background: T.surface, padding: '2px 8px', borderRadius: 6 }}>Locked</span>
+                  </div>
+                  <div style={{ fontSize: 10, color: T.muted, fontStyle: 'italic' }}>To change this number, update the customer profile. Phone overrides are not permitted.</div>
+                </div>
               </div>
 
               <div>
@@ -144,7 +165,7 @@ const DisbursementsTab = ({ loans = [], customers = [], payments = [], setLoans,
                   {disburseLoading ? 'Sending API Request...' : 'Trigger M-Pesa B2C Payout'}
                 </Btn>
                 <div style={{ display: 'flex', gap: 12 }}>
-                  <Btn onClick={doManualDisburse} v='ok' full disabled={!feeOk || !disbF.mpesa || !disbF.phone} icon={CheckCircle}>Confirm Manual Payout</Btn>
+                  <Btn onClick={doManualDisburse} v='ok' full disabled={!feeOk || !disbF.mpesa} icon={CheckCircle}>Confirm Manual Payout</Btn>
                   <Btn onClick={() => setSel(null)} v='secondary' style={{ minWidth: 100 }}>Close</Btn>
                 </div>
               </div>

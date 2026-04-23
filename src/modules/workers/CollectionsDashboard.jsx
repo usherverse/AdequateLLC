@@ -31,6 +31,28 @@ export default function CollectionsDashboard({
     });
   }, [customers, myPortfolio]);
 
+  const efficiency = useMemo(() => {
+    const currentMonth = now().slice(0, 7);
+    const myMonthlyPayments = payments.filter(p => {
+      if (!p.date?.startsWith(currentMonth) || (p.status !== 'Allocated' && p.status !== 'allocated')) return false;
+      return myPortfolio.some(l => l.id === p.loanId);
+    });
+    
+    const collected = myMonthlyPayments.reduce((s, p) => s + Number(p.amount), 0);
+    
+    const remaining = myPortfolio.reduce((total, l) => {
+      const paid = payments.filter(p => p.loanId === l.id && (p.status === 'Allocated' || p.status === 'allocated')).reduce((s, p) => s + p.amount, 0);
+      const e = calculateLoanStatus(l, null, paid);
+      return total + (e.totalAmountDue > 0 ? e.totalAmountDue : 0);
+    }, 0);
+
+    const totalCollectible = collected + remaining;
+    const rate = totalCollectible > 0 ? (collected / totalCollectible) : 0;
+    
+    return { collected, remaining, rate, totalCollectible };
+  }, [myPortfolio, payments]);
+
+
   return (
     <div className="fu" style={{ animation: 'fadeIn 0.5s ease-out' }}>
       {/* ── KPI Grid ────────────────────────────────────────────────────────── */}
@@ -102,13 +124,20 @@ export default function CollectionsDashboard({
           <Card style={{ background: `linear-gradient(135deg, ${T.accent}10, transparent)` }}>
             <CH title="Collection Target" icon={TrendingDown} />
             <div style={{ padding: '0 20px 20px' }}>
-               <div style={{ fontSize: 24, fontWeight: 900, marginBottom: 8 }}>72%</div>
-               <div style={{ height: 6, background: T.border, borderRadius: 3, overflow: 'hidden' }}>
-                  <div style={{ width: '72%', height: '100%', background: T.accent }} />
+               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', marginBottom: 8 }}>
+                 <div style={{ fontSize: 28, fontWeight: 900 }}>{(efficiency.rate * 100).toFixed(1)}%</div>
+                 <div style={{ fontSize: 11, color: T.muted, paddingBottom: 4 }}>Goal: 100% Efficiency</div>
                </div>
-               <div style={{ marginTop: 12, fontSize: 11, color: T.muted }}>Monthly reduction goal: 15% remaining</div>
+               <div style={{ height: 8, background: T.border, borderRadius: 4, overflow: 'hidden' }}>
+                  <div style={{ width: `${Math.min(100, efficiency.rate * 100)}%`, height: '100%', background: T.accent, transition: 'width 1s ease-out' }} />
+               </div>
+               <div style={{ marginTop: 12, fontSize: 11, color: T.muted, display: 'flex', justifyContent: 'space-between' }}>
+                  <span>{fmt(efficiency.collected)} collected</span>
+                  <span>{fmt(efficiency.remaining)} remaining</span>
+               </div>
             </div>
           </Card>
+
         </section>
       </div>
     </div>

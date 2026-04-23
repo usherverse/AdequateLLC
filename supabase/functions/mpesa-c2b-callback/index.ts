@@ -1,124 +1,89 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.0";
 
-// Safaricom sends POST directly, no cors strictly needed
+/**
+ * PRODUCTION-READY M-PESA C2B (PAYBILL) CALLBACK HANDLER
+ * Centralizes multiple validation/confirmation logic into a 
+ * single trigger-safe ingestion point.
+ */
+
+const supabaseUrl = Deno.env.get('SUPABASE_URL') || '';
+const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') || '';
+const supabase = createClient(supabaseUrl, supabaseKey);
+
 serve(async (req) => {
   try {
     const payload = await req.json();
+    const TransID = payload.TransID;
+    const amount = Number(payload.TransAmount);
+    const MSISDN = payload.MSISDN;
+    const BillRefNumber = (payload.BillRefNumber || "").trim();
 
-    // Determine payload type: C2B Validation/Confirmation VS STK Push Result
-    let transactionCode = "";
-    let amount = 0;
-    let phoneNumber = "";
-    let accountNumber = "";
-    let isStk = false;
+    console.log(`[M-Pesa Edge C2B] Received TxID: ${TransID}, Amount: ${amount}, Ref: ${BillRefNumber}`);
 
-    // Handle STK Push Format
-    if (payload.Body && payload.Body.stkCallback) {
-        isStk = true;
-        const cb = payload.Body.stkCallback;
-        if (cb.ResultCode !== 0) {
-            // Unsuccessful STK (user cancelled, timeout, etc.)
-            const supabase = createClient(Deno.env.get("SUPABASE_URL") ?? "", Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "");
-            await supabase.from("mpesa_collections")
-              .update({ status: "failed" })
-              .eq("checkout_request_id", cb.CheckoutRequestID);
-            return new Response("OK", { status: 200 }); // Safaricom acknowledged
-        }
-        
-        const metadata = cb.CallbackMetadata.Item;
-        amount = metadata.find((i:any) => i.Name === "Amount")?.Value;
-        transactionCode = metadata.find((i:any) => i.Name === "MpesaReceiptNumber")?.Value;
-        phoneNumber = metadata.find((i:any) => i.Name === "PhoneNumber")?.Value.toString();
-        // For STK, we'll grab account number from our DB tracking since Safaricom drops it in callback
-        
+    // 1. Identification: Match Customer by BillRef or Phone
+    let matchedCustomer = null;
+    if (BillRefNumber) {
+        const { data: cust } = await supabase.from('customers')
+          .select('id, name, status')
+          .or(`id.eq."${BillRefNumber}",id_number.eq."${BillRefNumber}",account_number.eq."${BillRefNumber}"`)
+          .maybeSingle();
+        if (cust) matchedCustomer = cust;
+    }
+
+    if (!matchedCustomer && MSISDN) {
+        const phoneSuffix = String(MSISDN).slice(-9);
+        const { data: phoneMatch } = await supabase.from('customers')
+          .select('id, name, status')
+          .like('phone', `%${phoneSuffix}`)
+          .limit(1)
+          .maybeSingle();
+        if (phoneMatch) matchedCustomer = phoneMatch;
+    }
+
+    // 2. Logic Split: Registration vs Loan Payment
+    if (matchedCustomer && amount === 500 && matchedCustomer.status === 'Pending') {
+        // Handle Registration Fee
+        const { error } = await supabase.from("registration_fees").insert({
+            customer_id: matchedCustomer.id,
+            amount: amount,
+            mpesa_code: TransID,
+            status: 'verified'
+        });
+        if (error) console.error("[Edge C2B] Reg Fee Error:", error.message);
     } else {
-        // Handle Standard C2B URL Format (from Register_URL)
-        transactionCode = payload.TransID;
-        amount = Number(payload.TransAmount);
-        phoneNumber = payload.MSISDN;
-        accountNumber = payload.BillRefNumber || "";
-    }
-
-    const supabase = createClient(Deno.env.get("SUPABASE_URL") ?? "", Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "");
-
-    // Find account number if STK
-    if (isStk) {
-        const {data: rec} = await supabase.from("mpesa_collections")
-            .select("account_number")
-            .eq("checkout_request_id", payload.Body.stkCallback.CheckoutRequestID)
-            .single();
-        if (rec) accountNumber = rec.account_number;
-    }
-
-    // 1. Guard against duplicate Mpesa Transactions
-    const { data: existingTrx } = await supabase.from("payments").select("id").eq("mpesa_code", transactionCode).maybeSingle();
-    if (existingTrx) return new Response("OK", { status: 200 }); // Ignore duplicated callback
-
-    // 2. Identify Customer via Account Number (Customer ID)
-    let customerId = null;
-    if (accountNumber) {
-        const { data: cust } = await supabase.from("customers").select("id").eq("id", accountNumber).maybeSingle();
-        if (cust) customerId = cust.id;
-    }
-
-    // Is it a registration fee? 
-    // Trigger `trg_auto_activate_cust` handles activation, but we need to insert to registration_fees.
-    if (customerId && amount === 500) {
-        // Check if customer is pending
-        const { data: cStatus } = await supabase.from("customers").select("status").eq("id", customerId).single();
-        if (cStatus?.status === 'Pending') {
-             await supabase.from("registration_fees").insert({
-                customer_id: customerId,
-                amount: amount,
-                mpesa_code: transactionCode,
-                status: 'verified' -- verified immediately since we got CB
-             });
-             return new Response(JSON.stringify({ ResultCode: 0, ResultDesc: "Accepted" }));
+        // Handle Loan Payment
+        let targetLoanId = null;
+        if (matchedCustomer) {
+            const { data: loan } = await supabase.from("loans")
+                .select("id")
+                .eq("customer_id", matchedCustomer.id)
+                .in("status", ["Overdue", "Active"])
+                .order("days_overdue", { ascending: false })
+                .limit(1)
+                .maybeSingle();
+            if (loan) targetLoanId = loan.id;
         }
+
+        const { error } = await supabase.from("payments").insert({
+            customer_id: matchedCustomer?.id || null,
+            loan_id: targetLoanId,
+            amount: amount,
+            mpesa: TransID, // Consistent with Shcemav4
+            phone_number: MSISDN,
+            status: targetLoanId ? "Allocated" : "Unallocated",
+            allocated_by: targetLoanId ? "M-Pesa Edge C2B" : null,
+            note: `C2B Feed: ${payload.FirstName || ''} ${payload.LastName || ''}`.trim()
+        });
+        if (error) console.error("[Edge C2B] Payment Log Error:", error.message);
     }
 
-    // 3. Find target loan for this customer (Find oldest overdue or active loan)
-    let targetLoanId = null;
-    if (customerId) {
-        const { data: loans } = await supabase.from("loans")
-            .select("id, status")
-            .eq("customer_id", customerId)
-            .in("status", ["Overdue", "Active"])
-            .order("days_overdue", { ascending: false })
-            .limit(1);
-        if (loans && loans.length > 0) targetLoanId = loans[0].id;
-    }
-
-    let pStatus = targetLoanId ? "Allocated" : "Unallocated";
-    let pAlloc = targetLoanId ? "System (Auto)" : "System (Hold)";
-
-    // 4. Record Payment
-    // Auto-deduct trigger (trg_apply_payment) will fire if state is "Allocated", reducing balance, marking settled if 0, and patching schedules!
-    await supabase.from("payments").insert({
-        customer_id: customerId,
-        loan_id: targetLoanId,
-        amount: amount,
-        mpesa_code: transactionCode,
-        phone_number: phoneNumber,
-        status: pStatus,
-        allocated_by: pAlloc
-    });
-
-    // 5. Update STK collection tracker if stk
-    if (isStk) {
-        await supabase.from("mpesa_collections")
-            .update({ status: "completed" })
-            .eq("checkout_request_id", payload.Body.stkCallback.CheckoutRequestID);
-    }
-
-    // Provide Daraja Acknowledgment response
     return new Response(JSON.stringify({ ResultCode: 0, ResultDesc: "Accepted" }), {
       headers: { "Content-Type": "application/json" }
     });
 
   } catch (err: any) {
-    console.error("C2B Callback Error:", err);
-    return new Response("OK", { status: 200 }); // Always 200 to prevent CB retry spam
+    console.error("[M-Pesa Edge C2B] Critical Error:", err.message);
+    return new Response(JSON.stringify({ ResultCode: 0, ResultDesc: "Accepted with error" }));
   }
 });

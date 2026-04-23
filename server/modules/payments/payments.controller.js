@@ -38,11 +38,13 @@ export const getRegFeeStatus = async (req, res) => {
  */
 export const disburseLoan = async (req, res) => {
   const { loanId } = req.params;
-  const { phone } = req.body;
+  // SECURITY: Do NOT accept a phone from the request body.
+  // The recipient phone is resolved exclusively from the customer
+  // record inside the service layer (VULN-01 fix).
   const adminId = req.user.id;
   
   try {
-    const result = await PaymentsService.disburseLoan(loanId, adminId, phone);
+    const result = await PaymentsService.disburseLoan(loanId, adminId);
     res.json(result);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -54,11 +56,12 @@ export const disburseLoan = async (req, res) => {
  */
 export const payoutWorkerSalary = async (req, res) => {
   const { workerId } = req.params;
-  const { amount, phone } = req.body;
+  // SECURITY (VULN-02): amount and phone are intentionally NOT read from
+  // req.body. The service computes them from verified DB records only.
   const adminId = req.user.id;
 
   try {
-    const result = await PaymentsService.disburseSalary(workerId, adminId, amount, phone);
+    const result = await PaymentsService.disburseSalary(workerId, adminId);
     res.json(result);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -116,3 +119,129 @@ export const createManualTransaction = async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 };
+
+/**
+ * POST /payments/manual-log  (VULN-04 fix)
+ *
+ * Replaces the direct Supabase insert that previously lived in the React
+ * frontend (PaymentsHub/index.jsx handleManualLog).  By routing through
+ * this handler we gain:
+ *   • Server-side identity — allocated_by comes from req.user, not the client
+ *   • Canonical customer name — fetched from DB, cannot be spoofed
+ *   • Atomic loan balance update — uses the same RPC as C2B payments
+ *   • Enforced amount limits — Zod schema caps at 1,000,000 KES
+ *   • Guaranteed audit trail — written by the server with real user identity
+ */
+export const createManualPayment = async (req, res) => {
+  const { customerId, amount, paymentType, method, reference, loanId } = req.body;
+  const adminEmail = req.user.email || req.user.id;
+
+  try {
+    // 1. Fetch canonical customer from DB — client cannot spoof the name
+    const { data: customer, error: custErr } = await supabase
+      .from('customers')
+      .select('id, name, phone')
+      .eq('id', customerId)
+      .single();
+
+    if (custErr || !customer) {
+      return res.status(404).json({ error: 'Customer not found' });
+    }
+
+    const isRegFee   = paymentType === 'registration_fee';
+    const effectiveLoanId = isRegFee ? `REG-FEE-${customerId}` : (loanId || null);
+    const note       = isRegFee
+      ? `Registration Fee — ${method} (Manual Entry by ${adminEmail})`
+      : `Manual Entry (${method}) by ${adminEmail}`;
+
+    // 2. Insert payment record — allocated_by is always the server-verified user
+    const { data: payment, error: payErr } = await supabase
+      .from('payments')
+      .insert([{
+        customer_id:   customer.id,
+        customer_name: customer.name,           // from DB, not client
+        loan_id:       effectiveLoanId,
+        amount,
+        mpesa:         reference || null,
+        date:          new Date().toISOString().split('T')[0],
+        status:        'Allocated',
+        allocated_by:  adminEmail,              // server identity, not client input
+        allocated_at:  new Date().toISOString(),
+        note,
+        is_reg_fee:    isRegFee,
+      }])
+      .select()
+      .single();
+
+    if (payErr) throw payErr;
+
+    // 3. If targeting a loan, decrement its balance atomically
+    if (effectiveLoanId && !isRegFee) {
+      await supabase.rpc('apply_c2b_payment', {
+        p_customer_id:   customer.id,
+        p_customer_name: customer.name,
+        p_loan_id:       effectiveLoanId,
+        p_amount:        amount,
+        p_mpesa_txid:    reference || `MANUAL-${payment.id}`,
+        p_date:          new Date().toISOString().split('T')[0],
+        p_note:          note,
+      });
+    }
+
+    // 4. Flip mpesa_registered flag for registration fees
+    if (isRegFee) {
+      await supabase
+        .from('customers')
+        .update({ mpesa_registered: true })
+        .eq('id', customerId);
+    }
+
+    // 5. Audit log — always written server-side with real identity
+    await supabase.from('audit_log').insert([{
+      user_name: adminEmail,
+      action:    isRegFee ? 'Registration Fee — Manual' : 'Manual Payment Log',
+      target_id: customerId,
+      detail:    `KES ${amount} via ${method}. Ref: ${reference || 'N/A'}. Type: ${paymentType}.`,
+    }]);
+
+    res.json(payment);
+  } catch (err) {
+    console.error('[ManualPayment] Error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+};
+
+/**
+ * POST /payments/allocate  (VULN-06 fix)
+ * Reroutes manual payment allocation to a secure server-side RPC.
+ */
+export const allocatePayment = async (req, res) => {
+  const { paymentId, loanId, note } = req.body;
+  const adminEmail = req.user.email || req.user.id;
+
+  try {
+    const { data, error } = await supabase.rpc('allocate_manual_payment', {
+      p_payment_id:   paymentId,
+      p_loan_id:      loanId,
+      p_allocated_by: adminEmail, // server-side identity
+      p_note:         note
+    });
+
+    if (error) throw error;
+
+    // Record audit log
+    await supabase.from('audit_log').insert([{
+      user_name: adminEmail,
+      action:    'Manual Allocation',
+      target_id: loanId,
+      detail:    `Payment ${paymentId} allocated to loan ${loanId}. Note: ${note}`
+    }]);
+
+    res.json(data);
+  } catch (err) {
+    console.error('[AllocatePayment] Error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+};
+
+

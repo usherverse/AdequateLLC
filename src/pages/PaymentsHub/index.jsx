@@ -9,7 +9,7 @@ import PaybillReceiptsTab from './PaybillReceiptsTab';
 import AuditTab from './AuditTab';
 import SalariesTab from './SalariesTab';
 
-const PaymentsHub = ({ customers, setCustomers, loans, payments, setLoans, setPayments, workers, addAudit, showToast, unallocatedC2BCount, setUnallocatedC2BCount, salaryPayments, setSalaryPayments, workerDeductions, setWorkerDeductions, onNav }) => {
+const PaymentsHub = ({ customers, setCustomers, loans, payments, setLoans, setPayments, workers, addAudit, showToast, unallocatedC2BCount, setUnallocatedC2BCount, salaryPayments, setSalaryPayments, workerDeductions, setWorkerDeductions, onNav, theme }) => {
   const [searchParams, setSearchParams] = useSearchParams();
   const currentTab = searchParams.get('tab') || 'disbursements';
   const [manualLogData, setManualLogData] = useState(null);
@@ -41,66 +41,59 @@ const PaymentsHub = ({ customers, setCustomers, loans, payments, setLoans, setPa
     const fd = new FormData(e.target);
 
     // FI selects are controlled — read from state; plain inputs from FormData
-    const cusId    = manualLogData?.customerId || manualLogData?.customer?.id || fd.get('customer_id');
-    const amount   = parseFloat(fd.get('amount'));
-    const method   = manualLogData?.method || fd.get('method') || 'Cash';
-    const reference = fd.get('reference');
+    const cusId       = manualLogData?.customerId || manualLogData?.customer?.id || fd.get('customer_id');
+    const amount      = parseFloat(fd.get('amount'));
+    const method      = manualLogData?.method || fd.get('method') || 'Cash';
+    const reference   = fd.get('reference');
     const paymentType = manualLogData?.type || fd.get('payment_type') || 'loan_repayment';
 
-    if (!cusId) return showToast('Please select a customer', 'warn');
+    if (!cusId)              return showToast('Please select a customer', 'warn');
     if (!amount || amount <= 0) return showToast('Invalid amount', 'warn');
 
-    const customer = customers.find(c => c.id === cusId);
-    if (!customer) return alert('Select customer');
+    // VULN-04 FIX: Route through the Express backend instead of inserting
+    // directly into Supabase from the browser.  The server will:
+    //   • Verify the customer exists (canonical name from DB)
+    //   • Set allocated_by from the JWT — cannot be spoofed by the client
+    //   • Atomically decrement the loan balance via the apply_c2b_payment RPC
+    //   • Flip mpesa_registered for registration fees
+    //   • Write the audit log with the real admin identity
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) return showToast('Session expired — please log in again', 'danger');
 
-    const isRegFee = paymentType === 'registration_fee';
-    const note = isRegFee
-      ? `Registration Fee — ${method}`
-      : `Manual Entry (${method})`;
+      const response = await fetch(
+        `${import.meta.env.VITE_API_URL || ''}/api/v1/payments/payments/manual-log`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type':  'application/json',
+            'Authorization': `Bearer ${session.access_token}`,
+          },
+          body: JSON.stringify({ customerId: cusId, amount, paymentType, method, reference }),
+        }
+      );
 
-    const { data: newPayment, error } = await supabase
-      .from('payments')
-      .insert([{
-        customer_id: cusId,
-        customer_name: customer.name,
-        amount,
-        mpesa: reference || null,
-        date: new Date().toISOString().split('T')[0],
-        status: 'Allocated',
-        allocated_by: 'Admin',
-        allocated_at: new Date().toISOString(),
-        note,
-        is_reg_fee: isRegFee,
-        loan_id: isRegFee ? `REG-FEE-${cusId}` : null
-      }])
-      .select()
-      .single();
+      const result = await response.json();
+      if (!response.ok) {
+        showToast(result.error || 'Failed to log payment', 'danger');
+        return;
+      }
 
-    if (error) {
-      alert('Error: ' + error.message);
-      return;
-    }
+      // Update local state with the server-returned payment record
+      const isRegFee = paymentType === 'registration_fee';
+      showToast(isRegFee ? 'Registration fee recorded ✓' : 'Payment logged manually');
 
-    // If this was a registration fee, flip the master flag on the customer record
-    if (isRegFee) {
-      const { error: custErr } = await supabase
-        .from('customers')
-        .update({ mpesa_registered: true })
-        .eq('id', cusId);
-      if (custErr) console.error('[ManualLog] Failed to set mpesa_registered:', custErr.message);
-      
-      // Update local state to keep UI in sync
-      if (setCustomers) {
+      if (isRegFee && setCustomers) {
         setCustomers(prev => prev.map(c => c.id === cusId ? { ...c, mpesaRegistered: true } : c));
       }
+      if (setPayments) setPayments(prev => [fromSupabasePayment(result), ...prev]);
+      setManualLogData(null);
+    } catch (err) {
+      showToast('Network error: ' + err.message, 'danger');
     }
-
-    showToast(isRegFee ? 'Registration fee recorded ✓' : 'Payment logged manually');
-    addAudit('insert', 'payments', newPayment.id, null, newPayment,
-      isRegFee ? 'Registration Fee — Manual' : 'Manual Payment Log');
-    setManualLogData(null);
-    if (setPayments) setPayments(prev => [fromSupabasePayment(newPayment), ...prev]);
   };
+
+
 
 
   return (
@@ -207,7 +200,7 @@ const PaymentsHub = ({ customers, setCustomers, loans, payments, setLoans, setPa
           {currentTab === 'disbursements' && <DisbursementsTab loans={loans} customers={customers} payments={payments} setLoans={setLoans} addAudit={addAudit} showToast={showToast} onManualLog={(c) => setManualLogData({ customer: c, type: 'loan_repayment' })} />}
           {currentTab === 'registration-fee' && <RegistrationFeeTab customers={customers} loans={loans} payments={payments} setPayments={setPayments} addAudit={addAudit} showToast={showToast} onManualLog={(c) => setManualLogData({ customer: c, type: 'registration_fee' })} />}
           { currentTab === 'paybill' && <PaybillReceiptsTab loans={loans} payments={payments} customers={customers} addAudit={addAudit} showToast={showToast} setPayments={setPayments} setUnallocatedC2BCount={setUnallocatedC2BCount} /> }
-          { currentTab === 'salaries' && <SalariesTab workers={workers || []} salaryPayments={salaryPayments} setSalaryPayments={setSalaryPayments} customers={customers} loans={loans} addAudit={addAudit} showToast={showToast} onNav={onNav} workerDeductions={workerDeductions} setWorkerDeductions={setWorkerDeductions} payments={payments} /> }
+          { currentTab === 'salaries' && <SalariesTab workers={workers || []} salaryPayments={salaryPayments} setSalaryPayments={setSalaryPayments} customers={customers} loans={loans} addAudit={addAudit} showToast={showToast} onNav={onNav} workerDeductions={workerDeductions} setWorkerDeductions={setWorkerDeductions} payments={payments} theme={theme} /> }
           { currentTab === 'audit' && <AuditTab /> }
         </div>
       </Card>

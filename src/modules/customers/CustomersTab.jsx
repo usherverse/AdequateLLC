@@ -41,7 +41,7 @@ const CustomersTab = ({ customers, setCustomers, workers, loans, setLoans, payme
     data: customers,
     initialTab: 'All',
     dateKey: 'joined',
-    searchFields: ['id', 'name', 'phone', 'altPhone', 'idNo', 'business', 'location', 'officer', 'risk', 'residence'],
+    searchFields: ['id', 'name', 'phone', 'altPhone', 'idNo', 'business', 'location', 'officer', 'risk', 'residence', 'n1n', 'n1p', 'n2n', 'n2p', 'n3n', 'n3p'],
     reportId: 'customers',
     showToast,
     addAudit,

@@ -612,8 +612,16 @@ const WorkersTab = ({workers,setWorkers,loans,setLoans,payments,customers,setCus
                         else if (rate >= 90) estimated = 10000;
                         else estimated = (rate / 90) * 10000;
                       } else {
+                        const wIdStr = String(w.id || '').trim().toLowerCase();
+                        const wNmStr = String(w.name || '').trim().toLowerCase();
+                        const wCusts = customers.filter(c => {
+                           const cAssigned = String(c.assigned_officer || '').trim().toLowerCase();
+                           const cOfficer  = String(c.officer || '').trim().toLowerCase();
+                           return ((wIdStr && cAssigned === wIdStr) || (wNmStr && cOfficer === wNmStr)) && c.status !== 'Rejected';
+                        });
                         rate = (wCusts.length / (w.onboardingTarget || 60)) * 100;
-                        estimated = (rate / 100) * (w.baseSalary || 20000);
+                        estimated = Math.round(wCusts.length * 333.33);
+                        label = "Verified Growth";
                       }
                       
                       const net = estimated - deductions.filter(d => d.month === currentMonth).reduce((s,d) => s + d.amount, 0);
@@ -1050,10 +1058,10 @@ const WorkersTab = ({workers,setWorkers,loans,setLoans,payments,customers,setCus
         <Dialog title="Monthly Target Configuration" onClose={()=>setShowTargets(false)} width={500}>
           <div style={{padding: '0 4px'}}>
              <div style={{marginBottom: 20}}>
-                <FI label="Target Month" type="month" value={targetMonth} onChange={e => setTargetMonth(e.target.value)} />
+                <FI label="Target Month" type="month" value={targetMonth} onChange={v => setTargetMonth(v)} />
              </div>
              <div style={{marginBottom: 20}}>
-                <FI label="Total Distribution Target (KES)" type="number" value={totalTarget} onChange={e => setTotalTarget(e.target.value)} placeholder="e.g. 5,000,000" />
+                <FI label="Total Distribution Target (KES)" type="number" value={totalTarget} onChange={v => setTotalTarget(v)} placeholder="e.g. 5,000,000" />
              </div>
              
              {activeOfficers.length > 0 ? (

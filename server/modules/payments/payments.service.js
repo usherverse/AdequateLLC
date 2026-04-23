@@ -15,7 +15,7 @@ export const isEligibleToBorrow = async (customerId) => {
   }
 
   if (!customer.mpesa_registered) {
-    return { eligible: false, reason: 'Registration fee not paid (KES 1 required)' };
+    return { eligible: false, reason: 'Registration fee not paid (KES 500 required)' };
   }
 
   if (customer.blacklisted) {
@@ -36,15 +36,15 @@ export const isEligibleToBorrow = async (customerId) => {
 };
 
 export const triggerRegistrationStkPush = async (customerId, phone) => {
-  // Hardcoded 500 KES fee for registration
-  const result = await MpesaClient.stkPush(phone, 1, customerId, 'Registration Fee');
+  // Production Fee: 500 KES
+  const result = await MpesaClient.stkPush(phone, 500, customerId, 'Registration Fee');
   
   if (result.ResponseCode === '0') {
     await supabase.from('stk_requests').insert([{
       merchant_request_id: result.MerchantRequestID,
       checkout_request_id: result.CheckoutRequestID,
       phone_number: phone,
-      amount: 1,
+      amount: 500,
       reference: customerId,
       description: 'Registration Fee',
       status: 'Pending'
@@ -53,7 +53,7 @@ export const triggerRegistrationStkPush = async (customerId, phone) => {
   return result;
 };
 
-export const disburseLoan = async (loanId, adminId, customPhone = null) => {
+export const disburseLoan = async (loanId, adminId) => {
   // 1. Simple fetch for the loan first
   const { data: loan, error: loanErr } = await supabase
     .from('loans')
@@ -97,10 +97,13 @@ export const disburseLoan = async (loanId, adminId, customPhone = null) => {
   }
 
   const amount = loan.amount;
-  // Prioritize selection -> loan record -> customer records
-  const phone = customPhone || loan.phone || (customer && customer.phone);
-  
-  if (!phone) throw new Error('Customer phone missing');
+  // ── SECURITY: Phone MUST come from the verified customer record only.
+  // Never accept a phone override from the request body — that is an
+  // insider-threat attack vector (VULN-01). If the customer's phone is
+  // wrong, it must be corrected via the customer profile update flow.
+  const phone = customer.phone;
+
+  if (!phone) throw new Error('Customer has no registered phone number. Update the customer profile before disbursing.');
   if (amount > 150000) throw new Error('Amount exceeds B2C daily limit of KES 150,000');
 
   const result = await MpesaClient.b2cDisbursement(phone, amount, `Loan ${loanId}`, `Disbursement for ${loanId}`);
@@ -135,9 +138,12 @@ export const disburseLoan = async (loanId, adminId, customPhone = null) => {
 
 /**
  * Worker Salary Disbursement (B2C)
+ * SECURITY (VULN-02): amount and phone are NEVER accepted from the caller.
+ * Both are resolved exclusively from the verified worker record in the DB
+ * plus the pre-existing monthly deductions/payments ledger.
  */
-export const disburseSalary = async (workerId, adminId, amount, phone) => {
-  // 1. Fetch worker profile
+export const disburseSalary = async (workerId, adminId) => {
+  // 1. Fetch worker profile — this is the ONLY source of phone truth
   const { data: worker, error: wErr } = await supabase
     .from('workers')
     .select('*')
@@ -147,36 +153,66 @@ export const disburseSalary = async (workerId, adminId, amount, phone) => {
   if (wErr || !worker) throw new Error('Worker record not found');
   if (worker.status !== 'Active') throw new Error('Worker is not in Active status');
 
-  // 2. Validate amount limits (B2C daily limit is usually 150k per transaction)
-  if (amount <= 0) throw new Error('Invalid salary amount');
-  if (amount > 150000) throw new Error('Amount exceeds B2C single transaction limit');
+  // 2. Verify the worker has a registered phone — block if missing
+  if (!worker.phone) {
+    throw new Error('Worker has no registered phone number. Update the worker profile before disbursing salary.');
+  }
 
-  // 3. Initiate Daraja B2C
-  const remarks = `Salary for ${new Date().toISOString().slice(0, 7)}`;
-  const result = await MpesaClient.b2cDisbursement(phone, amount, remarks, 'Salary Payout');
+  // 3. Compute the authoritative net salary from the DB ledger
+  //    base_salary is stored on the worker record (set by admin in the profile).
+  //    We subtract deductions and already-paid amounts for this month.
+  const currentMonth = new Date().toISOString().slice(0, 7);
+
+  const { data: deductions } = await supabase
+    .from('worker_deductions')
+    .select('amount')
+    .eq('worker_id', workerId)
+    .eq('month', currentMonth);
+
+  const { data: alreadyPaid } = await supabase
+    .from('salary_payments')
+    .select('amount')
+    .eq('worker_id', workerId)
+    .eq('month', currentMonth)
+    .eq('status', 'Success');
+
+  const totalDeductions  = (deductions  || []).reduce((s, d) => s + Number(d.amount), 0);
+  const totalAlreadyPaid = (alreadyPaid || []).reduce((s, p) => s + Number(p.amount), 0);
+  const grossCommission  = Number(worker.base_salary) || 0;
+  const amount = Math.max(0, Math.round(grossCommission - totalDeductions - totalAlreadyPaid));
+
+  if (amount <= 0) throw new Error(`No outstanding salary due for worker ${workerId} in ${currentMonth}`);
+
+  // 4. Validate amount limits (B2C daily limit is 150k per transaction)
+  if (amount > 150000) throw new Error('Computed amount exceeds B2C single transaction limit of KES 150,000');
+
+  // 5. Initiate Daraja B2C — using worker.phone from the DB, not from the request
+  const remarks = `Salary for ${currentMonth}`;
+  const result = await MpesaClient.b2cDisbursement(worker.phone, amount, remarks, 'Salary Payout');
 
   if (result.ResponseCode === '0') {
-    // 4. Log the pending payment to salary_payments
+    // 6. Log the pending payment to salary_payments
     const { error: insertErr } = await supabase.from('salary_payments').insert([{
       worker_id: workerId,
       amount: amount,
-      month: new Date().toISOString().slice(0, 7),
+      month: currentMonth,
       status: 'Pending',
-      recipient_phone: phone,
+      recipient_phone: worker.phone,   // always from DB
       remarks: remarks,
-      mpesa_receipt: result.ConversationID, // Temporary placeholder until ResultCallback
+      mpesa_receipt: result.ConversationID,
+      created_by: adminId,
     }]);
 
     if (insertErr) {
       console.error('[Salary Payout] Database Logging Error:', insertErr);
     }
 
-    // 5. Audit Log
+    // 7. Audit Log — record which admin initiated and what was computed
     await supabase.from('audit_log').insert([{
-      user_name: 'Admin', // In a real app, use admin name from JWT
+      user_name: adminId,
       action: 'Salary Payout Initiated',
       target_id: workerId,
-      detail: `Amount: KES ${amount} to ${phone} (Pending Callback)`
+      detail: `Amount: KES ${amount} to ${worker.phone} (DB-sourced). Month: ${currentMonth}. Pending Callback.`
     }]);
   }
 
@@ -379,5 +415,120 @@ export const allocatePaymentEngine = async (mpesaCallbackData) => {
     }]);
 
     return { allocated: false, confidence: matchConfidence, suggestedCustomerId: suggestedCustomer?.id };
+  }
+};
+
+/**
+ * processC2BConfirmation (Paybill) 
+ * Implementation of PART 2 logic
+ */
+export const processC2BConfirmation = async (payload) => {
+  const { 
+    TransID, TransTime, TransAmount, BusinessShortCode, 
+    BillRefNumber, MSISDN, FirstName, LastName 
+  } = payload;
+  
+  // Normalize date format (Safaricom: 20191122063845)
+  let isoTime = new Date().toISOString();
+  if (TransTime && TransTime.length === 14) {
+    const y = TransTime.substring(0, 4);
+    const m = TransTime.substring(4, 6);
+    const d = TransTime.substring(6, 8);
+    const h = TransTime.substring(8, 10);
+    const mi = TransTime.substring(10, 12);
+    const s = TransTime.substring(12, 14);
+    isoTime = `${y}-${m}-${d}T${h}:${mi}:${s}Z`;
+  }
+
+  let matchedCustomer = null;
+  let matchMethod = null;
+  let unallocReason = null;
+
+  try {
+    // STEP 1: Match by account_number / id_number
+    if (BillRefNumber) {
+      const ref = BillRefNumber.trim();
+      const { data } = await supabase
+        .from('customers')
+        .select('id, name')
+        .or(`account_number.eq.${ref},id_number.eq.${ref}`)
+        .maybeSingle();
+      if (data) {
+        matchedCustomer = data;
+        matchMethod = 'account_number';
+        console.log(`[C2B] Matched by Account/ID: ${ref}`);
+      }
+    }
+
+    // STEP 2: Match by phone number
+    if (!matchedCustomer && MSISDN) {
+      // Normalize: 254... (raw) and 0... (local)
+      const raw = MSISDN.toString();
+      const local = raw.replace(/^254/, '0');
+      const { data } = await supabase
+        .from('customers')
+        .select('id, name')
+        .or(`phone.eq.${raw},phone.eq.${local}`)
+        .maybeSingle();
+      if (data) {
+        matchedCustomer = data;
+        matchMethod = 'phone';
+        console.log(`[C2B] Matched by Phone: ${raw}`);
+      }
+    }
+
+    // STEP 3: Match by Name (Last Resort)
+    if (!matchedCustomer && (FirstName || LastName)) {
+      const f = (FirstName || '').trim();
+      const l = (LastName || '').trim();
+      if (f || l) {
+        // Query using ILIKE for both parts if they exist
+        let query = supabase.from('customers').select('id, name');
+        if (f && l) query = query.ilike('name', `%${f}%`).ilike('name', `%${l}%`);
+        else query = query.ilike('name', `%${f || l}%`);
+        
+        const { data: nameMatches } = await query.limit(5);
+
+        // Only use if exactly ONE match found to avoid false positives
+        if (nameMatches && nameMatches.length === 1) {
+          matchedCustomer = nameMatches[0];
+          matchMethod = 'name';
+          console.log(`[C2B] Matched by Name: ${matchedCustomer.name}`);
+        } else if (nameMatches && nameMatches.length > 1) {
+          unallocReason = 'Multiple name matches found';
+        }
+      }
+    }
+
+    if (!matchedCustomer && !unallocReason) {
+      unallocReason = 'No matching account, phone or name found';
+    }
+
+    // STEP 4: Atomic Database Finalization via RPC
+    const { data: rpcResult, error: rpcErr } = await supabase.rpc('finalize_c2b_allocation', {
+      p_trans_id: TransID,
+      p_trans_time: isoTime,
+      p_amount: parseFloat(TransAmount),
+      p_bill_ref: BillRefNumber,
+      p_msisdn: MSISDN.toString(),
+      p_first_name: FirstName || '',
+      p_last_name: LastName || '',
+      p_shortcode: BusinessShortCode,
+      p_raw_payload: payload,
+      p_customer_id: matchedCustomer?.id || null,
+      p_method: matchMethod,
+      p_reason: unallocReason
+    });
+
+    if (rpcErr) {
+      console.error('[C2B] RPC Error:', rpcErr.message);
+      throw rpcErr;
+    }
+
+    console.log(`[C2B] Processed ${TransID}: ${matchedCustomer ? 'Allocated' : 'Unallocated'}`);
+    return rpcResult;
+  } catch (err) {
+    console.error('[C2B] processC2BConfirmation failed:', err.message);
+    throw err;
   }
 };

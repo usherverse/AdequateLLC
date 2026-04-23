@@ -1,6 +1,6 @@
 import CustomerProfile from "@/modules/customers/CustomerProfile";
 import React, { useState, useMemo, useEffect, useRef, useCallback, memo } from 'react';
-import { Target, Check, Phone, Briefcase, MapPin, FastForward, UserCheck, AlertCircle, Sparkles, MessageSquare, Plus, Filter, LayoutGrid, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Target, Check, Phone, Briefcase, MapPin, FastForward, UserCheck, AlertCircle, Sparkles, MessageSquare, Plus, Filter, LayoutGrid, ChevronLeft, ChevronRight, Smartphone, Wallet } from 'lucide-react';
 import { T, SC, RC, SFX, Card, CH, KPI, DT, Btn, Badge, Av, Bar, BackBtn, RefreshBtn,
   FI, PhoneInput, NumericInput, Search, Pills, Alert, Dialog, ConfirmDialog, ToastContainer,
   LoanModal, LoanForm, RepayTracker, ValidationPopup, OnboardForm,
@@ -14,6 +14,50 @@ import { T, SC, RC, SFX, Card, CH, KPI, DT, Btn, Badge, Av, Bar, BackBtn, Refres
   ModuleHeader
 } from '@/lms-common';
 import { useModuleFilter } from '@/hooks/useModuleFilter';
+import { useRegistrationFee } from '@/pages/PaymentsHub/hooks/useRegistrationFee';
+
+const LeadCustomerActions = ({ customer, onNav, showToast }) => {
+  const { status, loading, initiateStk, isSuccess } = useRegistrationFee(customer.id);
+  const [localLoading, setLocalLoading] = useState(false);
+
+  const handlePrompt = async (e) => {
+    e.stopPropagation();
+    if (!customer.phone) return;
+    setLocalLoading(true);
+    try {
+      await initiateStk(customer.phone);
+      showToast('STK Push Sent!', 'Push prompt delivered to client phone.', 'success');
+    } catch (err) {
+      showToast('Prompt Failed', err.message, 'danger');
+    } finally {
+      setLocalLoading(false);
+    }
+  };
+
+  if (customer.mpesaRegistered || status === 'paid' || isSuccess) {
+    return (
+      <div style={{ width: '100%', padding: '8px', borderRadius: 10, background: `${T.ok}15`, color: T.ok, fontSize: 13, fontWeight: 800, textAlign: 'center', border: `1px solid ${T.ok}40`, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
+        <Check size={14} /> Fee Paid
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ display: 'flex', gap: 6, width: '100%' }}>
+      <Btn sm full 
+        loading={loading || localLoading}
+        onClick={handlePrompt} 
+        style={{ background: `linear-gradient(135deg, ${T.gold}, #EAB308)`, color: '#000', border: 'none', fontWeight: 900, fontSize: 11 }}
+        icon={Smartphone}
+      >
+        PROMPT
+      </Btn>
+      <Btn sm v="ghost" onClick={() => onNav && onNav('paymentshub', { tab: 'registration-fee', customerId: customer.id })} style={{ border: `1px solid ${T.border}`, fontSize: 11 }}>
+        Portal
+      </Btn>
+    </div>
+  );
+};
 
 
 const LeadsTab = ({leads,setLeads,workers,customers,setCustomers,loans,addAudit,isWorker,currentWorker,showToast=()=>{},onNav}) => {
@@ -476,19 +520,11 @@ const LeadsTab = ({leads,setLeads,workers,customers,setCustomers,loans,addAudit,
                           </Btn>
                         )}
                         {stage === 'New Customer' && matchedCust && (
-                          matchedCust.mpesaRegistered ? (
-                            <div style={{ width: '100%', padding: '8px', borderRadius: 10, background: `${T.ok}15`, color: T.ok, fontSize: 13, fontWeight: 800, textAlign: 'center', border: `1px solid ${T.ok}40` }}>
-                              ✓ Fee Paid
-                            </div>
-                          ) : (
-                            <Btn sm full onClick={() => onNav && onNav('paymentshub', { tab: 'registration-fee', customerId: matchedCust.id })} style={{ background: `${T.gold}15`, color: T.gold, border: `1px solid ${T.gold}40` }}>
-                               💳 Pay Reg Fee
-                            </Btn>
-                          )
+                          <LeadCustomerActions customer={matchedCust} onNav={onNav} showToast={showToast} />
                         )}
                         {stage === 'New Customer' && !matchedCust && (
                              <div style={{ width: '100%', padding: '8px', borderRadius: 10, background: `${T.surface}`, color: T.muted, fontSize: 13, fontWeight: 800, textAlign: 'center', border: `1px dashed ${T.border}` }}>
-                               ⏳ Linked Profile missing
+                                ⏳ Linked Profile missing
                              </div>
                         )}
                       </div>
@@ -551,7 +587,8 @@ const LeadsTab = ({leads,setLeads,workers,customers,setCustomers,loans,addAudit,
       `}</style>
       {showNew&&(
         <Dialog title='Add New Lead' onClose={()=>setShowNew(false)}>
-          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0 14px'}}>
+          <div className="mob-grid1" style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0 14px'}}>
+
             <FI label='Name' value={f.name} onChange={v=>setF(p=>({...p,name:v}))} required error={!f.name} half/>
             <PhoneInput label='Phone' value={f.phone} onChange={v=>setF(p=>({...p,phone:v}))} required half/>
             <FI label='Business' value={f.business} onChange={v=>setF(p=>({...p,business:v}))} half/>

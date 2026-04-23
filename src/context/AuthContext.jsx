@@ -19,19 +19,23 @@ export function AuthProvider({ children }) {
   const loadWorker = useCallback(async (userId, userEmail) => {
     if (!supabase) return;
 
-    // The workers table uses 'id' (UUID) as the primary key and reference to auth.users(id)
+    // Using maybeSingle() instead of single() to avoid 406 errors if the worker is not found
     let { data, error } = await supabase
       .from('workers')
       .select('*')
       .or(`id.eq.${userId},email.eq.${userEmail}`)
-      .single();
+      .maybeSingle();
 
     if (error) {
-      console.error('[AuthContext] loadWorker:', error.message);
+      console.error('[AuthContext] loadWorker Error:', error.message);
       return;
     }
 
-    // Set the worker profile state
+    if (!data && userEmail !== 'admin@adequatecapital.co.ke') {
+      console.warn('[AuthContext] No worker profile found for:', userEmail);
+    }
+
+    // Set the worker profile state (will be null if not found)
     setWorker(data);
   }, []);
 

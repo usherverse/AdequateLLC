@@ -2,7 +2,7 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { Landmark, Download, RefreshCw, Send, CheckCircle, Clock, TrendingUp, Users, DollarSign, Wallet, FileText, ArrowRight, Printer, AlertCircle, Zap, ShieldCheck, Activity } from 'lucide-react';
 import { T, DT, Btn, Badge, fmt, ts, now, KPI, Card, CH, fmtM, Dialog, FI, generatePayslipHTML, dlBlob } from '@/lms-common';
 
-const SalariesTab = ({ workers = [], salaryPayments = [], setSalaryPayments, customers = [], loans = [], leads = [], addAudit, showToast, onNav, workerDeductions = [], setWorkerDeductions, payments = [] }) => {
+const SalariesTab = ({ workers = [], salaryPayments = [], setSalaryPayments, customers = [], loans = [], leads = [], addAudit, showToast, onNav, workerDeductions = [], setWorkerDeductions, payments = [], theme }) => {
   const [view, setView] = useState('payroll'); // Default to Analysis for better UX
   const [loading, setLoading] = useState(false);
   const [payoutModal, setPayoutModal] = useState(null); 
@@ -26,20 +26,24 @@ const SalariesTab = ({ workers = [], salaryPayments = [], setSalaryPayments, cus
       try {
         const { supabase } = await import('@/config/supabaseClient');
         const counts = {};
+        const currentMonth = now().slice(0, 7); // e.g. "2024-04"
+        const monthStart = `${currentMonth}-01`;
         
         for (const w of workers) {
-          // Query 1: Count by Name
+          // Query 1: Count by Name (Onboarded this month)
           const { count: countName } = await supabase
             .from('customers')
             .select('*', { count: 'exact', head: true })
             .ilike('officer', `%${w.name}%`)
+            .gte('joined', monthStart)
             .not('status', 'eq', 'Rejected');
 
-          // Query 2: Count by Assigned ID
+          // Query 2: Count by Assigned ID (Onboarded this month)
           const { count: countId } = await supabase
             .from('customers')
             .select('*', { count: 'exact', head: true })
             .eq('assigned_officer', w.id)
+            .gte('joined', monthStart)
             .not('status', 'eq', 'Rejected');
 
           counts[w.id] = Math.max(countName || 0, countId || 0);
@@ -108,7 +112,16 @@ const SalariesTab = ({ workers = [], salaryPayments = [], setSalaryPayments, cus
         let localCusts = (customers || []).filter(c => {
           const cAssigned = String(c.assigned_officer || '').trim().toLowerCase();
           const cOfficer  = String(c.officer || '').trim().toLowerCase();
-          return (wIdStr && cAssigned === wIdStr) || (wNmStr && cOfficer === wNmStr);
+          const isAssigned = (wIdStr && cAssigned === wIdStr) || (wNmStr && cOfficer === wNmStr);
+          if (!isAssigned) return false;
+
+          // Only count customers onboarded in the current month
+          const cMonth = (c.joined || c.createdAt || '').slice(0, 7);
+          if (cMonth !== currentMonth) return false;
+
+          // Ensure they have at least one loan that has been disbursed
+          const custLoans = (loans || []).filter(l => l.customerId === c.id);
+          return custLoans.some(l => ['Active', 'Closed', 'Legal', 'Defaulted'].includes(l.status));
         });
 
         activeCount = Math.max(localCusts.length, directCounts[w.id] || 0);
@@ -116,8 +129,8 @@ const SalariesTab = ({ workers = [], salaryPayments = [], setSalaryPayments, cus
         const base = Number(w.baseSalary) || 20000;
         
         progress = target > 0 ? (activeCount / target) * 100 : 0;
-        estimatedEarned = Math.round((activeCount / (target || 60)) * base);
-        label = "ONBOARDING TARGET";
+        estimatedEarned = Math.round(activeCount * 333.33);
+        label = "DISBURSED GROWTH";
       }
       
       const paidThisMonth = salaryPayments
@@ -153,20 +166,23 @@ const SalariesTab = ({ workers = [], salaryPayments = [], setSalaryPayments, cus
     }
   };
 
-  const handleExecutePayout = async (worker, amount) => {
-    if (!amount || amount < 10) return showToast('Amount too low for B2C', 'warn');
+  const handleExecutePayout = async (worker) => {
     setLoading(true);
     try {
       const { supabase } = await import('@/config/supabaseClient');
       const { data: { session } } = await supabase.auth.getSession();
       
+      // SECURITY (VULN-02): No amount or phone in the request body.
+      // The server computes both from verified DB records (worker.phone,
+      // base_salary, deductions, already-paid). Sending them from the
+      // client was an attack vector for redirecting funds.
       const response = await fetch(`${import.meta.env.VITE_API_URL || ''}/api/v1/payments/payouts/worker/${worker.id}`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${session.access_token}`
         },
-        body: JSON.stringify({ amount, phone: worker.phone })
+        body: JSON.stringify({}) // intentionally empty — no overrideable fields
       });
 
       const result = await response.json();
@@ -175,7 +191,7 @@ const SalariesTab = ({ workers = [], salaryPayments = [], setSalaryPayments, cus
       showToast('B2C Disbursement Initiated successfully', 'success');
       setPayoutModal(null);
       handleRefresh(); // Update ledger
-      addAudit('Salary Payout', worker.name, `Amount: ${fmt(amount)}`);
+      addAudit('Salary Payout', worker.name, `Payout initiated via server-computed amount`);
     } catch (err) {
       showToast(err.message, 'danger');
     } finally {
@@ -241,168 +257,205 @@ const SalariesTab = ({ workers = [], salaryPayments = [], setSalaryPayments, cus
   };
 
   return (
-    <div className="fu" style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
-      {/* Header Section */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 20, flexWrap: 'wrap' }}>
+    <div className="fu" style={{ display: 'flex', flexDirection: 'column', gap: 32, animation: 'fadeIn 0.5s ease-out' }}>
+      {/* ── PREMIUM HEADER AREA ── */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', gap: 24, flexWrap: 'wrap' }}>
         <div>
-          <Badge color={T.accent} style={{ marginBottom: 8 }}>FINANCIAL OPERATIONS</Badge>
-          <h2 style={{ fontSize: 32, fontWeight: 900, color: T.txt, margin: 0, letterSpacing: '-0.03em', display: 'flex', alignItems: 'center', gap: 12 }}>
-            <Wallet size={36} color={T.accent} strokeWidth={2.5} /> Salary Ledger
-          </h2>
-          <p style={{ color: T.muted, fontSize: 14, fontWeight: 500, marginTop: 4 }}>Immutable audit trail for all B2C disbursements and performance-based compensation.</p>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
+             <div style={{ width: 32, height: 2, background: T.accent, borderRadius: 2 }} />
+             <div style={{ fontSize: 13, fontWeight: 800, color: T.accent, textTransform: 'uppercase', letterSpacing: '0.15em' }}>Payroll Operations</div>
+          </div>
+          <h1 style={{ fontSize: 42, fontWeight: 950, color: T.txt, margin: 0, letterSpacing: '-0.04em', lineHeight: 1 }}>Salary Ledger</h1>
+          <p style={{ color: T.muted, marginTop: 12, fontSize: 15, maxWidth: 500, lineHeight: 1.6 }}>
+            Unified disbursement gateway for commission-only payroll. All transactions are logged in a high-fidelity audit trail.
+          </p>
         </div>
-        
+
         <div style={{ background: T.surface, padding: '4px', borderRadius: 16, border: `1px solid ${T.border}`, display: 'flex', gap: 4 }}>
            <button onClick={() => setView('payroll')} style={{ 
-             padding: '8px 20px', borderRadius: 12, border: 'none', cursor: 'pointer', fontSize: 13, fontWeight: 800,
+             padding: '10px 24px', borderRadius: 12, border: 'none', cursor: 'pointer', fontSize: 13, fontWeight: 800,
              background: view === 'payroll' ? 'linear-gradient(135deg, #00D4AA 0%, #00a884 100%)' : 'transparent',
              color: view === 'payroll' ? '#000' : T.dim, transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)'
            }}>Payroll Analysis</button>
            <button onClick={() => setView('ledger')} style={{ 
-             padding: '8px 20px', borderRadius: 12, border: 'none', cursor: 'pointer', fontSize: 13, fontWeight: 800,
+             padding: '10px 24px', borderRadius: 12, border: 'none', cursor: 'pointer', fontSize: 13, fontWeight: 800,
              background: view === 'ledger' ? 'linear-gradient(135deg, #00D4AA 0%, #00a884 100%)' : 'transparent',
              color: view === 'ledger' ? '#000' : T.dim, transition: 'all 0.3s'
-           }}>History & Audit</button>
+           }}>Transaction Vault</button>
         </div>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 20 }}>
-          <KPI label="Total Life-to-Date Payouts" value={fmt(stats.totalPaid)} icon={DollarSign} color={T.ok} />
-          <KPI label="Current Month Liquidated" value={fmt(stats.monthPaid)} sub={now().slice(0, 7)} icon={TrendingUp} color={T.accent} />
-          <KPI label="Recipient Headcount" value={workers.length} sub="Verified Staff" icon={Users} color={T.blue} />
-          <KPI label="Awaiting Reconciliation" value={stats.pendingCount} sub="External Bank Tx" icon={Clock} color={stats.pendingCount > 0 ? T.warn : T.ok} />
+      {/* ── KPI CLOUD (GLASSMorphism) ── */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 24 }}>
+         <div className="glass-card" style={{ position: 'relative', overflow: 'hidden' }}>
+            <div style={{ position: 'absolute', top: -30, right: -30, width: 140, height: 140, background: T.accent, filter: 'blur(70px)', opacity: 0.15 }} />
+            <div style={{ fontSize: 13, fontWeight: 900, color: T.dim, textTransform: 'uppercase', letterSpacing: '0.12em', marginBottom: 12, display: 'flex', alignItems: 'center', gap: 8 }}>
+               <div style={{ width: 8, height: 8, borderRadius: '50%', background: T.accent }} /> Total Settled Payroll
+            </div>
+            <div style={{ fontSize: 42, fontWeight: 950, color: T.txt, letterSpacing: '-0.03em' }}>{fmtM(stats.totalPaid)}</div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 16, fontSize: 13, color: T.ok, fontWeight: 800 }}>
+               <TrendingUp size={14} /> <span>Active liquidity cycle</span>
+            </div>
+         </div>
+
+         <div className="glass-card" style={{ position: 'relative', overflow: 'hidden' }}>
+            <div style={{ position: 'absolute', top: -30, right: -30, width: 140, height: 140, background: T.ok, filter: 'blur(70px)', opacity: 0.12 }} />
+            <div style={{ fontSize: 13, fontWeight: 900, color: T.dim, textTransform: 'uppercase', letterSpacing: '0.12em', marginBottom: 12, display: 'flex', alignItems: 'center', gap: 8 }}>
+               <div style={{ width: 8, height: 8, borderRadius: '50%', background: T.ok }} /> Month Disbursements
+            </div>
+            <div style={{ fontSize: 42, fontWeight: 950, color: T.txt, letterSpacing: '-0.03em' }}>{fmtM(stats.monthPaid)}</div>
+            <div style={{ fontSize: 13, color: T.dim, marginTop: 16, fontWeight: 700 }}>Period: <span style={{ color: T.txt }}>{now().slice(0, 7)}</span></div>
+         </div>
+
+         <div className="glass-card" style={{ position: 'relative', overflow: 'hidden' }}>
+            <div style={{ position: 'absolute', top: -30, right: -30, width: 140, height: 140, background: T.warn, filter: 'blur(70px)', opacity: 0.15 }} />
+            <div style={{ fontSize: 13, fontWeight: 900, color: T.dim, textTransform: 'uppercase', letterSpacing: '0.12em', marginBottom: 12, display: 'flex', alignItems: 'center', gap: 8 }}>
+               <div style={{ width: 8, height: 8, borderRadius: '50%', background: T.warn }} /> Pending Reconciliation
+            </div>
+            <div style={{ fontSize: 42, fontWeight: 950, color: T.txt, letterSpacing: '-0.03em' }}>{stats.pendingCount} <span style={{ fontSize: 16, color: T.dim, fontWeight: 600 }}>Staff</span></div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 16, fontSize: 13, color: T.warn, fontWeight: 800 }}>
+               <ShieldCheck size={14} /> <span>Awaiting B2C execution</span>
+            </div>
+         </div>
       </div>
 
       {view === 'ledger' ? (
-        <Card style={{ padding: 0, overflow: 'hidden', border: `1px solid ${T.border}`, boxShadow: '0 20px 50px rgba(0,0,0,0.15)' }}>
+        <Card style={{ borderRadius: 24, padding: 0, overflow: 'hidden', border: `1px solid ${T.border}`, background: T.card }}>
+          <CH title="Historical Disbursement Ledger" icon={Activity} sub="Complete record of all direct Salary transfers initiated via M-Pesa B2C" />
           <DT 
             cols={[
               { k: 'worker_id', l: 'Recipient', r: (v) => {
-                const w = workers.find(x => x.id === v);
+                const w = (workers || []).find(x => x.id === v);
                 return (
                   <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '4px 0' }}>
-                    <div style={{ width: 36, height: 36, borderRadius: 10, background: T.aLo, color: T.accent, display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 900, fontSize: 13 }}>{w?.name?.charAt(0) || 'W'}</div>
+                    <div style={{ width: 36, height: 36, borderRadius: 10, background: T.aLo, color: T.accent, display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 950, fontSize: 13 }}>{w?.name?.charAt(0) || 'W'}</div>
                     <div>
-                      <div style={{ fontWeight: 800, color: T.txt, fontSize: 14 }}>{w?.name || v}</div>
+                      <div style={{ fontWeight: 950, color: T.txt, fontSize: 14 }}>{w?.name || v}</div>
                       <div style={{ fontSize: 11, color: T.dim, fontWeight: 500 }}>{w?.role || 'Staff Member'}</div>
                     </div>
                   </div>
                 );
               }},
-              { k: 'amount', l: 'Amount', r: v => <span style={{ fontWeight: 900, color: T.accent, fontSize: 15 }}>{fmt(v)}</span> },
+              { k: 'amount', l: 'Amount', r: v => <span style={{ fontWeight: 950, color: T.accent, fontSize: 15 }}>{fmt(v)}</span> },
               { k: 'status', l: 'Status', r: v => (
                 <Badge color={v === 'Success' ? T.ok : v === 'Pending' ? T.warn : T.danger}>
-                  {v === 'Success' ? <><CheckCircle size={10} /> Cleared</> : v === 'Pending' ? <><Clock size={10} /> Routing</> : v}
+                   {v?.toUpperCase()}
                 </Badge>
               )},
-              { k: 'recipient_phone', l: 'M-Pesa Destination', r: v => <span style={{ fontWeight: 600, color: T.dim }}>{v}</span> },
-              { k: 'mpesa_receipt', l: 'TXN Reference', r: v => <span style={{ fontFamily: T.mono, fontSize: 11, color: T.dim }}>{v || 'PENDING_GW'}</span> },
-              { k: 'created_at', l: 'Timestamp', r: v => <span style={{ fontSize: 12, color: T.dim }}>{ts(v)}</span> },
+              { k: 'recipient_phone', l: 'M-Pesa Destination', r: v => <span style={{ fontWeight: 700, color: T.dim }}>{v}</span> },
+              { k: 'mpesa_receipt', l: 'TXN Reference', r: v => <span style={{ fontFamily: T.mono, fontSize: 11, color: T.dim, background: 'rgba(0,212,170,0.05)', padding: '2px 6px', borderRadius: 4 }}>{v || 'PENDING_GW'}</span> },
+              { k: 'created_at', l: 'Timestamp', r: v => ts(v) },
               { k: 'id', l: 'Actions', r: (v, row) => (
                 <div style={{ display: 'flex', gap: 6 }}>
-                   <Btn sm onClick={() => handlePrintPayslip(workers.find(x => x.id === row.worker_id), row)} icon={Printer} style={{ padding: '6px 12px' }}>Slip</Btn>
+                   <Btn sm v="secondary" onClick={() => handlePrintPayslip((workers || []).find(x => x.id === row.worker_id), row)} icon={Printer}>Slip</Btn>
                 </div>
               )}
             ]}
             rows={salaryPayments}
             emptyMsg="The disbursement ledger is empty. No payroll transactions found."
-            maxHeightVh={0.6}
+            maxHeightVh={0.65}
           />
         </Card>
       ) : (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(420px, 1fr))', gap: 20 }}>
-           {payrollData.sort((a,b) => b.netDue - a.netDue).map(w => (
-             <Card key={w.id} style={{ 
-               padding: 24, transition: 'all 0.3s ease', position: 'relative', overflow: 'hidden', 
-               border: `1px solid ${T.border}`, background: `linear-gradient(145deg, ${T.card} 0%, ${T.surface} 100%)`
-             }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 20 }}>
-                   <div style={{ display: 'flex', gap: 16, alignItems: 'center' }}>
-                      <div style={{ width: 56, height: 56, borderRadius: 16, background: w.netDue > 0 ? 'rgba(0, 212, 170, 0.1)' : T.border, color: w.netDue > 0 ? T.accent : T.dim, display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 900, fontSize: 24, border: `1.5px solid ${w.netDue > 0 ? T.accent : T.border}50` }}>{w.name.charAt(0)}</div>
-                      <div>
-                         <div style={{ color: T.txt, fontWeight: 900, fontSize: 18, letterSpacing: '-0.01em' }}>{w.name}</div>
-                         <div style={{ color: T.muted, fontSize: 12, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', marginTop: 2 }}>{w.role}</div>
-                      </div>
-                   </div>
-                   <div style={{ textAlign: 'right' }}>
-                      <Badge color={w.netDue > 0 ? T.warn : T.ok}>{w.netDue > 0 ? 'PAYMENT DUE' : 'FULLY PAID'}</Badge>
-                      <div style={{ fontSize: 20, fontWeight: 900, color: T.txt, marginTop: 4 }}>{fmt(w.netDue)}</div>
-                   </div>
-                </div>
-
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1.5fr', gap: 12, marginBottom: 24 }}>
-                   <div style={{ padding: 14, background: T.surface, borderRadius: 14, border: `1px solid ${T.border}` }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, color: T.dim, fontWeight: 800, fontSize: 10, marginBottom: 4 }}><Activity size={12}/> EST. COMMISSIONS</div>
-                      <div style={{ fontSize: 18, fontWeight: 900, color: T.txt }}>{fmt(w.estimatedEarned)}</div>
-                   </div>
-                   <div style={{ padding: '4px 14px', background: T.surface, borderRadius: 14, border: `1px solid ${T.border}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <div>
-                         <div style={{ display: 'flex', alignItems: 'center', gap: 6, color: T.dim, fontWeight: 800, fontSize: 10, marginBottom: 4 }}><AlertCircle size={12}/> DEDUCTIONS</div>
-                         <div style={{ fontSize: 18, fontWeight: 900, color: T.danger }}>- {fmt(w.monthDeductions)}</div>
-                      </div>
-                      <Btn sm v="secondary" icon={AlertCircle} onClick={() => setDeductionModal(w)} style={{ padding: '6px 12px' }}>Adjust</Btn>
-                   </div>
-                </div>
-
-                <div style={{ marginBottom: 28 }}>
-                   <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
-                      <div style={{ fontSize: 12, fontWeight: 800, color: T.muted, display: 'flex', alignItems: 'center', gap: 8 }}>{w.label} <span style={{ color: T.accent }}>{w.role === 'Collections Officer' ? `${Math.round(w.progress)}%` : `${w.activeCount} / ${w.onboardingTarget || 60}`}</span></div>
-                      <div style={{ fontSize: 12, fontWeight: 900, color: T.txt }}>{Math.round(w.progress)}%</div>
-                   </div>
-                   <div style={{ height: 10, background: T.border, borderRadius: 20, overflow: 'hidden' }}>
-                      <div style={{ height: '100%', width: `${Math.min(100, (w.progress || 0))}%`, background: `linear-gradient(90deg, ${T.accent} 0%, #00a884 100%)`, borderRadius: 20, transition: 'width 1s cubic-bezier(0.175, 0.885, 0.32, 1.275)' }} />
-                   </div>
-                </div>
-
-                {w.netDue > 0 ? (
-                  <Btn block v="primary" icon={Zap} style={{ background: T.accent, color: '#000', height: 48, borderRadius: 14, fontSize: 14 }} onClick={() => setPayoutModal(w)}>
-                    Execute Managed Payout
-                  </Btn>
-                ) : (
-                  <div style={{ padding: '14px', borderRadius: 14, background: `${T.ok}08`, border: `1px dashed ${T.ok}40`, color: T.ok, fontWeight: 800, fontSize: 13, textAlign: 'center', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
-                    <ShieldCheck size={18} /> Reconciliation Complete
+        <Card style={{ borderRadius: 24, padding: 0, overflow: 'hidden', border: `1px solid ${T.border}`, background: T.card }}>
+          <CH title="Interactive Payroll Analysis" icon={Wallet} sub="Real-time commission tracking and automated M-Pesa B2C orchestration" />
+          <DT 
+            cols={[
+              { k: 'name', l: 'Staff Member', r: (v, row) => (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 16, padding: '6px 0' }}>
+                  <div style={{ 
+                    width: 44, height: 44, borderRadius: 14, 
+                    background: row.netDue > 0 ? `${T.warn}15` : `${T.ok}15`, 
+                    color: row.netDue > 0 ? T.warn : T.ok,
+                    display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 950, fontSize: 16,
+                    border: `1px solid ${row.netDue > 0 ? T.warn : T.ok}33`
+                  }}>{v.charAt(0)}</div>
+                  <div>
+                    <div style={{ fontWeight: 950, color: T.txt, fontSize: 15 }}>{v}</div>
+                    <div style={{ fontSize: 11, color: T.dim, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.05em' }}>{row.role}</div>
                   </div>
-                )}
-             </Card>
-           ))}
-        </div>
+                </div>
+              )},
+              { k: 'estimatedEarned', l: 'Commis.', r: v => <span style={{ fontWeight: 850, color: T.txt, fontSize: 14 }}>{fmt(v)}</span> },
+              { k: 'monthDeductions', l: 'Deducts.', r: (v, row) => (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <span style={{ fontWeight: 850, color: T.danger, fontSize: 14 }}>-{fmt(v)}</span>
+                  <button onClick={() => setDeductionModal(row)} style={{ padding: '4px 8px', borderRadius: 6, background: `${T.danger}15`, color: T.danger, border: 'none', fontSize: 9, fontWeight: 900, cursor: 'pointer' }}>ADJUST</button>
+                </div>
+              )},
+              { k: 'progress', l: 'Performance', r: (v, row) => (
+                <div style={{ width: 140 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, fontWeight: 900, color: T.dim, marginBottom: 4 }}>
+                    <span>{row.label}</span>
+                    <span style={{ color: T.txt }}>{Math.round(v)}%</span>
+                  </div>
+                  <div style={{ height: 6, background: T.surface, borderRadius: 10, overflow: 'hidden' }}>
+                    <div style={{ height: '100%', width: `${Math.min(100, v)}%`, background: T.accent, borderRadius: 10, transition: 'width 1s cubic-bezier(0.34, 1.56, 0.64, 1)' }} />
+                  </div>
+                </div>
+              )},
+              { k: 'netDue', l: 'Net Due', r: v => <span style={{ fontWeight: 950, color: v > 0 ? T.warn : T.ok, fontSize: 18, letterSpacing: '-0.02em' }}>{fmt(v)}</span> },
+              { k: 'id', l: 'Action', r: (v, row) => (
+                row.netDue > 0 ? (
+                  <Btn sm v="accent" icon={Zap} onClick={() => setPayoutModal(row)} style={{ height: 36, borderRadius: 10, fontWeight: 900, padding: '0 16px' }}>Execute Payout</Btn>
+                ) : (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, color: T.ok, fontSize: 11, fontWeight: 900 }}>
+                    <ShieldCheck size={14} /> CLEAR
+                  </div>
+                )
+              )}
+            ]}
+            rows={payrollData.sort((a,b) => b.netDue - a.netDue)}
+            emptyMsg="No payroll analysis available for this period."
+            maxHeightVh={0.7}
+          />
+        </Card>
       )}
 
       {/* Payout Modal */}
       {payoutModal && (
-        <Dialog title="Finalize Disbursement" onClose={() => setPayoutModal(null)} width={480}>
-           <div style={{ padding: '4px 0' }}>
-              <div style={{ background: T.surface, padding: 20, borderRadius: 16, marginBottom: 24, border: `1px solid ${T.border}` }}>
-                 <div style={{ textAlign: 'center', marginBottom: 20 }}>
-                    <div style={{ fontSize: 12, fontWeight: 800, color: T.muted, textTransform: 'uppercase', letterSpacing: 1 }}>Recipient Distribution</div>
-                    <div style={{ fontSize: 24, fontWeight: 900, color: T.txt, marginTop: 4 }}>{payoutModal.name}</div>
-                    <div style={{ color: T.accent, fontSize: 14, fontWeight: 700, background: T.aLo, padding: '4px 12px', borderRadius: 99, display: 'inline-block', marginTop: 8 }}>{payoutModal.phone}</div>
-                 </div>
-                 
-                 <div style={{ display: 'flex', justifyContent: 'space-between', padding: '10px 0', borderBottom: `1px solid ${T.border}` }}>
-                    <span style={{ color: T.muted, fontSize: 13, fontWeight: 600 }}>Unpaid Earnings</span>
-                    <span style={{ color: T.txt, fontWeight: 900 }}>{fmt(payoutModal.estimatedEarned)}</span>
-                 </div>
-                 <div style={{ display: 'flex', justifyContent: 'space-between', padding: '10px 0', borderBottom: `1px solid ${T.border}` }}>
-                    <span style={{ color: T.danger, fontSize: 13, fontWeight: 600 }}>Deductions Applied</span>
-                    <span style={{ color: T.danger, fontWeight: 900 }}>- {fmt(payoutModal.monthDeductions)}</span>
-                 </div>
-                 <div style={{ display: 'flex', justifyContent: 'space-between', padding: '12px 0', borderBottom: `2.5px solid ${T.accent}30` }}>
-                    <span style={{ color: T.accent, fontSize: 14, fontWeight: 800 }}>Total B2C Payout</span>
-                    <span style={{ color: T.accent, fontSize: 20, fontWeight: 900 }}>{fmt(payoutModal.netDue)}</span>
-                 </div>
+        <Dialog title="Release Performance Funds" onClose={() => setPayoutModal(null)} width={500}>
+           <div style={{ padding: '8px 0' }}>
+              <div style={{ background: T.surface, padding: 28, borderRadius: 24, marginBottom: 32, border: `1px solid ${T.border}`, boxShadow: 'inset 0 2px 10px rgba(0,0,0,0.1)' }}>
+                  <div style={{ textAlign: 'center', marginBottom: 28 }}>
+                     <div style={{ width: 48, height: 48, background: `${T.accent}20`, color: T.accent, borderRadius: 14, display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 16px' }}>
+                        <Wallet size={24} />
+                     </div>
+                     <div style={{ fontSize: 11, fontWeight: 900, color: T.muted, textTransform: 'uppercase', letterSpacing: 1.5, marginBottom: 4 }}>Payee Profile</div>
+                     <div style={{ fontSize: 28, fontWeight: 950, color: T.txt, letterSpacing: '-0.02em' }}>{payoutModal.name}</div>
+                     <div style={{ color: T.accent, fontSize: 13, fontWeight: 800, background: `${T.accent}10`, padding: '6px 14px', borderRadius: 99, display: 'inline-flex', alignItems: 'center', gap: 6, marginTop: 12, border: `1px solid ${T.accent}30` }}>
+                       {payoutModal.phone || <span style={{ color: T.danger }}>⚠ No phone — update worker profile</span>}
+                       <span style={{ fontSize: 9, fontWeight: 700, background: T.surface, padding: '2px 6px', borderRadius: 4, color: T.muted }}>Locked</span>
+                     </div>
+                     <div style={{ fontSize: 10, color: T.muted, marginTop: 6, fontStyle: 'italic' }}>Phone sourced from worker profile. Cannot be overridden here.</div>
+                  </div>
+                  
+                  <div style={{ display: 'flex', justifyContent: 'space-between', padding: '14px 0', borderBottom: `1px solid ${T.border}` }}>
+                     <span style={{ color: T.dim, fontSize: 14, fontWeight: 700 }}>Unpaid Commissions</span>
+                     <span style={{ color: T.txt, fontWeight: 900, fontSize: 16 }}>{fmt(payoutModal.estimatedEarned)}</span>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', padding: '14px 0', borderBottom: `1px solid ${T.border}` }}>
+                     <span style={{ color: T.danger, fontSize: 14, fontWeight: 700 }}>Active Deductions</span>
+                     <span style={{ color: T.danger, fontWeight: 900, fontSize: 16 }}>- {fmt(payoutModal.monthDeductions)}</span>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '20px 0', marginTop: 8 }}>
+                     <span style={{ color: T.txt, fontSize: 16, fontWeight: 900 }}>Estimated B2C Value</span>
+                     <div style={{ textAlign: 'right' }}>
+                       <div style={{ color: T.accent, fontSize: 26, fontWeight: 950 }}>{fmt(payoutModal.netDue)}</div>
+                       <div style={{ fontSize: 10, color: T.muted, fontStyle: 'italic', marginTop: 2 }}>Server verifies final amount from DB</div>
+                     </div>
+                  </div>
               </div>
 
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-                 <Btn block v="primary" loading={loading} icon={Zap} style={{ background: T.accent, color: '#000', height: 52, borderRadius: 16, fontSize: 15 }} onClick={() => handleExecutePayout(payoutModal, payoutModal.netDue)}>
-                   Release Funds via M-Pesa B2C
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+                 <Btn block v="primary" loading={loading} icon={Zap} style={{ background: `linear-gradient(135deg, ${T.accent}, #00a884)`, color: '#000', height: 60, borderRadius: 20, fontSize: 16, fontWeight: 900, border: 'none' }} onClick={() => handleExecutePayout(payoutModal)}>
+                   Initiate B2C Disbursement
                  </Btn>
-                 <Btn block v="secondary" onClick={() => setPayoutModal(null)} style={{ border: 'none', color: T.dim }}>Discard and Exit</Btn>
+                 <Btn block v="secondary" onClick={() => setPayoutModal(null)} style={{ border: 'none', color: T.dim, fontSize: 14 }}>Dismiss and Back</Btn>
               </div>
 
-              <div style={{ marginTop: 24, textAlign: 'center', color: T.muted, fontSize: 11, fontStyle: 'italic' }}>
-                 <AlertCircle size={12} style={{ verticalAlign: 'middle', marginRight: 4 }} />
-                 This transaction is immutable and will be recorded in the audit ledger immediately upon network acknowledgment.
+              <div style={{ marginTop: 32, padding: '16px 20px', background: `${T.warn}05`, border: `1px solid ${T.warn}20`, borderRadius: 16, textAlign: 'center', color: T.dim, fontSize: 12, lineHeight: 1.5 }}>
+                 <b>Security Protocol:</b> This instruction will push an immediate B2C request to the Safaricom gateway. This action is irreversible once the M-Pesa network acknowledges it.
               </div>
            </div>
         </Dialog>
@@ -410,20 +463,48 @@ const SalariesTab = ({ workers = [], salaryPayments = [], setSalaryPayments, cus
 
       {/* Deduction Modal */}
       {deductionModal && (
-        <Dialog title="Log Manual Deduction" onClose={() => setDeductionModal(null)} width={420}>
-           <form onSubmit={handleRecordDeduction} style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-              <p style={{ color: T.muted, fontSize: 13 }}>Recording a deduction for <b>{deductionModal.name}</b> for the period of <b>{now().slice(0, 7)}</b>.</p>
+        <Dialog title="Commission Adjustment" onClose={() => setDeductionModal(null)} width={420}>
+           <form onSubmit={handleRecordDeduction} style={{ display: 'flex', flexDirection: 'column', gap: 20, padding: '10px 0' }}>
+              <div style={{ padding: '16px', background: `${T.danger}05`, border: `1px solid ${T.danger}20`, borderRadius: 16 }}>
+                 <p style={{ color: T.dim, fontSize: 13, margin: 0, lineHeight: 1.5 }}>
+                   You are modifying the payroll for <b>{deductionModal.name}</b>. This adjustment will be subtracted from the current month's disbursement.
+                 </p>
+              </div>
               
-              <FI label="Deduction Amount (KES)" name="amount" type="number" required autoFocus />
-              <FI label="Reason for Adjustment" name="reason" placeholder="e.g. Salary Advance, Lost Asset, Performance Penalty" required />
+              <FI label="Adjustment Amount (KES)" name="amount" type="number" placeholder="Enter amount to deduct" required autoFocus />
+              <FI label="Internal Reason / Memo" name="reason" placeholder="e.g. Salary Advance, Lost Asset" required />
 
-              <div style={{ display: 'flex', gap: 12, marginTop: 8 }}>
-                 <Btn block v="primary" type="submit" loading={loading} icon={CheckCircle} style={{ background: T.danger, color: '#fff' }}>Apply Deduction</Btn>
-                 <Btn block v="secondary" onClick={() => setDeductionModal(null)}>Cancel</Btn>
+              <div style={{ display: 'flex', gap: 12, marginTop: 12 }}>
+                 <Btn block v="primary" type="submit" loading={loading} style={{ background: T.danger, color: '#fff', height: 48, borderRadius: 12, border: 'none', fontWeight: 800 }}>Confirm Deduction</Btn>
+                 <Btn block v="secondary" onClick={() => setDeductionModal(null)} style={{ height: 48, borderRadius: 12 }}>Cancel</Btn>
               </div>
            </form>
         </Dialog>
       )}
+      <style>{`
+        .glass-card {
+          padding: 28px;
+          border-radius: 32px;
+          background: ${theme === 'light' ? 'rgba(255, 255, 255, 0.8)' : 'rgba(25, 33, 50, 0.6)'};
+          backdrop-filter: blur(20px);
+          -webkit-backdrop-filter: blur(20px);
+          border: 1px solid ${theme === 'light' ? 'rgba(0,0,0,0.05)' : 'rgba(255, 255, 255, 0.08)'};
+          box-shadow: 0 30px 60px -12px rgba(0,0,0,0.25);
+          transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+        .hover-lift {
+          transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1) !important;
+        }
+        .hover-lift:hover {
+          transform: translateY(-8px) scale(1.01);
+          box-shadow: 0 40px 80px -15px rgba(0,0,0,0.5) !important;
+          border-color: ${T.accent} !important;
+        }
+        @keyframes fadeIn {
+          from { opacity: 0; transform: translateY(20px); }
+          to { opacity: 1; transform: translateY(0); }
+        }
+      `}</style>
     </div>
   );
 };

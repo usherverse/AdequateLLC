@@ -63,12 +63,11 @@ export const useModuleFilter = ({
           }
         }
 
-      // 3. Search Filter
+      // 3. Search Filter (Multi-part matching)
       if (lq) {
-        const match = searchFields.some(field => {
-          const val = item[field];
-          return val && String(val).toLowerCase().includes(lq);
-        });
+        const parts = lq.split(/\s+/).filter(Boolean);
+        const searchableText = searchFields.map(f => String(item[f] || "").toLowerCase()).join(" ");
+        const match = parts.every(p => searchableText.includes(p));
         if (!match) return false;
       }
 

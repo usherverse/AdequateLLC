@@ -50,7 +50,7 @@ export function useDisbursements() {
     return () => clearInterval(interval);
   }, [waitingForCallback, activeLoanId, fetchStatus]);
 
-  const disburse = useCallback(async (loanId, phone) => {
+  const disburse = useCallback(async (loanId) => {
     if (!session?.access_token) {
       setError('You are not logged in or your session has expired.');
       return;
@@ -64,6 +64,9 @@ export function useDisbursements() {
     setRequestId(null);
 
     try {
+      // SECURITY (VULN-01): No phone is sent in the request body.
+      // The server resolves the recipient phone from the verified
+      // customer record. Sending a phone here was an attack vector.
       const response = await fetch(`${import.meta.env.VITE_API_URL || ''}/api/v1/payments/disbursements/${loanId}/disburse`, {
         method: 'POST',
         headers: {
@@ -71,7 +74,7 @@ export function useDisbursements() {
           'Authorization': `Bearer ${session.access_token}`,
           'X-Idempotency-Key': `disburse-${loanId}-${Date.now()}`
         },
-        body: JSON.stringify({ phone })
+        body: JSON.stringify({}) // intentionally empty — no overrideable fields
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || 'Disbursement failed');
