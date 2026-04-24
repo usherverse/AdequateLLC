@@ -149,6 +149,146 @@ const WorkersTab = ({workers,setWorkers,loans,setLoans,payments,customers,setCus
           </div>
         )}
 
+        {detailTab==='compensation'&&(
+          <div className="fu">
+            <Card style={{marginBottom:18, borderLeft: `4px solid ${T.ok}`}}>
+              <div style={{padding:20, display:'flex', justifyContent:'space-between', alignItems:'center'}}>
+                  <div style={{display:'flex', gap:15, alignItems:'center'}}>
+                    <div style={{width:50, height:50, borderRadius:12, background:T.oLo, color:T.ok, display:'flex', alignItems:'center', justifyContent:'center'}}>
+                      <TrendingUp size={24}/>
+                    </div>
+                    <div>
+                      <div style={{fontSize:18, fontWeight:800, color:T.txt}}>Salary & Performance</div>
+                      <div style={{fontSize:12, color:T.muted}}>Current Month: {now().slice(0, 7)}</div>
+                    </div>
+                  </div>
+                  <div style={{textAlign:'right'}}>
+                    {(function(){
+                       const base = w.baseSalary || 0;
+                       const deds = deductions.filter(d => d.month === now().slice(0, 7)).reduce((a, b) => a + (b.amount || 0), 0);
+                       const net = base - deds;
+                       return (
+                         <>
+                           <div style={{fontSize:22, fontWeight:900, color:T.ok}}>{fmt(net)}</div>
+                           <div style={{fontSize:11, color:T.muted, fontWeight:700}}>ESTIMATED NET PAYOUT</div>
+                         </>
+                       );
+                    })()}
+                  </div>
+              </div>
+              <div style={{padding:'0 20px 20px'}}>
+                  <div style={{background:T.surface, borderRadius:12, padding:15, border:`1px solid ${T.border}`}}>
+                    {(function(){
+                       const label = w.role === 'Collections Officer' ? 'Recovery Rate' : 'Onboarding Performance';
+                       const targetsForWorker = (targets || []).filter(t => t.worker_id === w.id && t.month === now().slice(0, 7));
+                       const targetVal = targetsForWorker[0]?.target || (w.onboardingTarget || 60);
+                       const actual = w.role === 'Collections Officer' ? 0 : wLeads.filter(l => l.status === 'Active' && l.date?.startsWith(now().slice(0, 7))).length;
+                       const rate = targetVal > 0 ? (actual / targetVal) * 100 : 0;
+                       
+                       const base = w.baseSalary || 0;
+                       const deds = deductions.filter(d => d.month === now().slice(0, 7)).reduce((a, b) => a + (b.amount || 0), 0);
+                       const net = base - deds;
+
+                       return (
+                    <>
+                       <div style={{display:'flex', justifyContent:'space-between', alignItems:'center'}}>
+                          <div style={{color:T.txt, fontSize:14, fontWeight:700}}>{label}</div>
+                          <Btn v="primary" icon={Zap} style={{background:T.ok, color:'#000'}} onClick={async () => {
+                               try {
+                                 if (!w.phone) { showToast('Worker has no phone number on profile.', 'danger'); return; }
+                                 const { initiateWorkerPayout } = await import('@/utils/mpesa');
+                                 await initiateWorkerPayout({ worker_id: w.id, amount: Math.round(net), phone: w.phone });
+                                 showToast(`🚀 B2C Payout Initiated for ${w.name}`, 'ok');
+                                 setTimeout(() => {
+                                   import('@/config/supabaseClient').then(({ supabase }) => {
+                                      if(supabase) {
+                                         supabase.from('salary_payments').select('*').eq('worker_id', w.id).order('created_at', { ascending: false })
+                                           .then(({ data }) => { if(data) setPayslips(data); });
+                                      }
+                                   });
+                                 }, 1000);
+                                 if (onNav) { setTimeout(() => { onNav('paymentshub'); }, 2000); }
+                               } catch (err) {
+                                 showToast('Payout failed: ' + err.message, 'danger');
+                               }
+                             }}>Initiate B2C Payout</Btn>
+                       </div>
+                       <div style={{height:8, background:T.border, borderRadius:99, marginTop:12, overflow:'hidden'}}>
+                          <div style={{height:'100%', background:T.accent, width: `${Math.min(rate, 100)}%`}}/>
+                       </div>
+                       <div style={{display:'flex', justifyContent:'space-between', marginTop:8, fontSize:11, fontWeight:700, color:T.dim}}>
+                          <span>{label}: {Math.round(rate)}%</span>
+                          <span>{w.role === 'Collections Officer' ? 'Step-Incentive Basis' : `Target: ${targetVal}`}</span>
+                       </div>
+                    </>
+                       );
+                    })()}
+                  </div>
+              </div>
+            </Card>
+
+            <Card style={{marginBottom:18}}>
+               <CH title="M-Pesa B2C Transaction History" icon={Landmark}/>
+               <div style={{padding:'0 4px 4px'}}>
+                  <DT 
+                    cols={[
+                      {k:'month', l:'Period'},
+                      {k:'amount', l:'Net Paid', r: v => <strong>{fmt(v)}</strong>},
+                      {k:'mpesa_receipt', l:'M-Pesa Receipt', r: v => <span style={{fontFamily:T.mono, fontSize:11, color:T.accent}}>{v}</span>},
+                      {k:'created_at', l:'Time', r: v => ts(v)},
+                      {k:'id', l:'Receipt', r: (v, row) => <Btn sm v="secondary" icon={Download} onClick={() => {
+                        const content = `TRANSACTION RECEIPT\n\nRecipient: ${w.name}\nPeriod: ${row.month}\nAmount: KES ${row.amount}\nReceipt: ${row.mpesa_receipt}\nPhone: ${row.recipient_phone}\nDate: ${ts(row.created_at)}\n\nThank you for your service.\nAdequate Capital LTD`;
+                        const blob = new Blob([content], { type: 'text/plain' });
+                        const url = URL.createObjectURL(blob);
+                        const a = document.createElement('a');
+                        a.href = url;
+                        a.download = `Receipt_${row.mpesa_receipt}.txt`;
+                        a.click();
+                        a.remove();
+                      }}>Download</Btn>}
+                    ]}
+                    rows={payslips}
+                    emptyMsg="No B2C transactions for this worker."
+                  />
+               </div>
+            </Card>
+
+            <Card>
+               <CH title="Deductions & Adjustments" icon={ShieldOff} right={<Btn sm v="secondary" icon={Plus} onClick={() => setShowAddDeduction(true)}>Add Deduction</Btn>}/>
+               <div style={{padding:'0 4px 4px'}}>
+                  <DT 
+                    cols={[
+                      {k:'month', l:'Month'},
+                      {k:'reason', l:'Description'},
+                      {k:'amount', l:'Amount', r:v=>fmt(v)},
+                      {k:'created_at', l:'Date', r:v=>ts(v)}
+                    ]}
+                    rows={deductions}
+                    emptyMsg="No deductions recorded for this worker."
+                  />
+               </div>
+            </Card>
+
+            {showAddDeduction && (
+              <Dialog title="Add Salary Deduction" onClose={() => setShowAddDeduction(false)} width={400}>
+                 <div style={{padding: '0 4px'}}>
+                    <div style={{marginBottom:14}}>
+                       <FI label="Amount (KES)" type="number" value={newDeduction.amount} onChange={e => setNewDeduction(p => ({...p, amount: e.target.value}))} placeholder="0.00"/>
+                    </div>
+                    <div style={{marginBottom:14}}>
+                       <FI label="Reason" value={newDeduction.reason} onChange={e => setNewDeduction(p => ({...p, reason: e.target.value}))} placeholder="e.g. Lost hardware, Cash discrepancy"/>
+                    </div>
+                    <div style={{display:'flex', gap:10, marginTop:10}}>
+                       <Btn full onClick={addDeduction}>Save Deduction</Btn>
+                       <Btn full v="secondary" onClick={() => setShowAddDeduction(false)}>Cancel</Btn>
+                    </div>
+                 </div>
+              </Dialog>
+            )}
+          </div>
+        )}
+
+
         {detailTab==='profile'&&(
           <div className="fu">
 
