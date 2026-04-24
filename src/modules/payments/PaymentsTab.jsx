@@ -54,33 +54,19 @@ const PaymentsTab = ({payments,setPayments,loans,setLoans,customers,setCustomers
 
     try {
       const { supabase } = await import('@/config/supabaseClient');
-      const { data: { session } } = await supabase.auth.getSession();
-      
-      // VULN-06 FIX: Route through the Express backend.
-      // Server will use allocate_manual_payment RPC to:
-      //   1. Verify payment status (must be Unallocated)
-      //   2. Identify admin via JWT (allocatedBy is NOT sent from client)
-      //   3. Perform atomic update of payment and loan balance
-      const response = await fetch(`${import.meta.env.VITE_API_URL || ''}/api/v1/payments/payments/allocate`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${session.access_token}`
-        },
-        body: JSON.stringify({
-          paymentId: showA.id,
-          loanId: af.loanId,
-          note: af.note || 'Manual allocation'
-        })
+      // Direct RPC call — no Express server needed
+      const { error } = await supabase.rpc('allocate_manual_payment', {
+        p_payment_id: showA.id,
+        p_loan_id: af.loanId,
+        p_note: af.note || 'Manual allocation'
       });
 
-      const result = await response.json();
-      if (!response.ok) throw new Error(result.error || 'Allocation rejected by server');
+      if (error) throw new Error(error.message);
 
       showToast(`✅ Payment allocated to ${af.loanId}`, 'ok');
       setShowA(null);
       setAf({ loanId: '', note: '' });
-      onRefresh?.(); // Trigger global refresh to sync ledger and loan balances
+      onRefresh?.();
     } catch (err) {
       showToast(err.message, 'danger');
     }

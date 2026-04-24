@@ -167,31 +167,23 @@ const SalariesTab = ({ workers = [], salaryPayments = [], setSalaryPayments, cus
   };
 
   const handleExecutePayout = async (worker) => {
+    if (!worker.phone) {
+      showToast('Cannot disburse — worker has no phone number on profile.', 'danger');
+      return;
+    }
     setLoading(true);
     try {
-      const { supabase } = await import('@/config/supabaseClient');
-      const { data: { session } } = await supabase.auth.getSession();
-      
-      // SECURITY (VULN-02): No amount or phone in the request body.
-      // The server computes both from verified DB records (worker.phone,
-      // base_salary, deductions, already-paid). Sending them from the
-      // client was an attack vector for redirecting funds.
-      const response = await fetch(`${import.meta.env.VITE_API_URL || ''}/api/v1/payments/payouts/worker/${worker.id}`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${session.access_token}`
-        },
-        body: JSON.stringify({}) // intentionally empty — no overrideable fields
+      const { initiateWorkerPayout } = await import('@/utils/mpesa');
+      await initiateWorkerPayout({
+        worker_id: worker.id,
+        amount: worker.netDue,
+        phone: worker.phone
       });
 
-      const result = await response.json();
-      if (!response.ok) throw new Error(result.error || 'M-Pesa Gateway rejected request');
-
-      showToast('B2C Disbursement Initiated successfully', 'success');
+      showToast('B2C Disbursement Initiated — funds en route via M-Pesa', 'success');
       setPayoutModal(null);
-      handleRefresh(); // Update ledger
-      addAudit('Salary Payout', worker.name, `Payout initiated via server-computed amount`);
+      handleRefresh();
+      addAudit('Salary Payout', worker.name, `KES ${worker.netDue} B2C via Edge Function`);
     } catch (err) {
       showToast(err.message, 'danger');
     } finally {
