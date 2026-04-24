@@ -220,7 +220,7 @@ export const registerC2BUrls = async () => {
     ValidationURL: MPESA_C2B_VALIDATION_URL
   };
 
-  return mpesaRequest('/mpesa/c2b/v1/registerurl', payload, {
+  return mpesaRequest('/mpesa/c2b/v2/registerurl', payload, {
     headers: { Authorization: `Bearer ${token}` }
   });
 };
@@ -239,7 +239,7 @@ export const simulateC2B = async (amount, phone, ref) => {
     BillRefNumber: ref
   };
 
-  return mpesaRequest('/mpesa/c2b/v1/simulate', payload, {
+  return mpesaRequest('/mpesa/c2b/v2/simulate', payload, {
     headers: { Authorization: `Bearer ${token}` }
   });
 };
