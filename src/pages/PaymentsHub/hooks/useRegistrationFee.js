@@ -113,7 +113,7 @@ export function useRegistrationFee(customerId) {
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || 'Failed to initiate STK Push');
       
-      setRequestId(data.CheckoutRequestID);
+      setRequestId(data.checkout_id);
       setWaitingForCallback(true);
       return data;
     } catch (err) {

@@ -81,7 +81,7 @@ export function useDisbursements() {
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || 'Disbursement failed');
       
-      setRequestId(data.ConversationID);
+      setRequestId(data.conversation_id);
       setWaitingForCallback(true);
       return data;
     } catch (err) {
