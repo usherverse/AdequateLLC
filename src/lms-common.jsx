@@ -12656,7 +12656,7 @@ export const fromSupabasePayment = (r) => ({
   customerId: r.customer_id,
   customer: r.customer_name,
   amount: Number(r.amount),
-  mpesa: r.mpesa,
+  mpesa: r.mpesa_code || r.mpesa,
   date: r.date,
   status: r.status,
   allocatedBy: r.allocated_by,

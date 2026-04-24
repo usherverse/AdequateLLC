@@ -57,36 +57,43 @@ const PaymentsHub = ({ customers, setCustomers, loans, payments, setLoans, setPa
     //   • Atomically decrement the loan balance via the apply_c2b_payment RPC
     //   • Flip mpesa_registered for registration fees
     //   • Write the audit log with the real admin identity
-    try {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session?.access_token) return showToast('Session expired — please log in again', 'danger');
+      // VULN-04 FIX: Route through Supabase RPC instead of Express backend.
+      // The RPC handles identity verification, canonical naming, and financial logic.
+      const { data: result, error: rpcErr } = await supabase.rpc('create_manual_payment', {
+        p_customer_id: cusId,
+        p_amount: amount,
+        p_payment_type: paymentType,
+        p_method: method,
+        p_reference: reference,
+        p_loan_id: manualLogData?.customer?.activeLoanId || null // Pass loan ID if available
+      });
 
-      const response = await fetch(
-        `${import.meta.env.VITE_API_URL || ''}/api/v1/payments/payments/manual-log`,
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type':  'application/json',
-            'Authorization': `Bearer ${session.access_token}`,
-          },
-          body: JSON.stringify({ customerId: cusId, amount, paymentType, method, reference }),
-        }
-      );
-
-      const result = await response.json();
-      if (!response.ok) {
-        showToast(result.error || 'Failed to log payment', 'danger');
+      if (rpcErr) {
+        showToast(rpcErr.message || 'Failed to log payment', 'danger');
         return;
       }
 
-      // Update local state with the server-returned payment record
+      // Update local state
       const isRegFee = paymentType === 'registration_fee';
       showToast(isRegFee ? 'Registration fee recorded ✓' : 'Payment logged manually');
 
       if (isRegFee && setCustomers) {
         setCustomers(prev => prev.map(c => c.id === cusId ? { ...c, mpesaRegistered: true } : c));
       }
-      if (setPayments) setPayments(prev => [fromSupabasePayment(result), ...prev]);
+      
+      // Map result back to expected payment format
+      if (setPayments) {
+        setPayments(prev => [{
+          id: result.payment_id,
+          customerId: cusId,
+          customer: result.customer_name,
+          amount,
+          date: new Date().toISOString().split('T')[0],
+          status: 'Allocated',
+          isRegFee,
+          note: reference ? `Manual Entry (${method}) - ${reference}` : `Manual Entry (${method})`
+        }, ...prev]);
+      }
       setManualLogData(null);
     } catch (err) {
       showToast('Network error: ' + err.message, 'danger');

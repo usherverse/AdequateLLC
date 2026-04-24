@@ -86,13 +86,19 @@ export function useRegistrationFee(customerId) {
     try {
       const { data: { session } } = await supabase.auth.getSession();
       const token = session?.access_token;
-      const response = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:3001'}/api/v1/payments/registration-fee/stk-push`, {
+      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+      
+      const response = await fetch(`${supabaseUrl}/functions/v1/mpesa-stk-push`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`
         },
-        body: JSON.stringify({ customerId, phone })
+        body: JSON.stringify({ 
+          phone_number: phone, 
+          amount: 500, 
+          customer_id: customerId 
+        }),
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || 'Failed to initiate STK Push');

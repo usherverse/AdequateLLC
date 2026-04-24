@@ -67,14 +67,16 @@ export function useDisbursements() {
       // SECURITY (VULN-01): No phone is sent in the request body.
       // The server resolves the recipient phone from the verified
       // customer record. Sending a phone here was an attack vector.
-      const response = await fetch(`${import.meta.env.VITE_API_URL || ''}/api/v1/payments/disbursements/${loanId}/disburse`, {
+      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+
+      const response = await fetch(`${supabaseUrl}/functions/v1/mpesa-b2c-disburse`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${session.access_token}`,
           'X-Idempotency-Key': `disburse-${loanId}-${Date.now()}`
         },
-        body: JSON.stringify({}) // intentionally empty — no overrideable fields
+        body: JSON.stringify({ loan_id: loanId })
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || 'Disbursement failed');

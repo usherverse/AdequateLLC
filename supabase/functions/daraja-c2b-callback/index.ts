@@ -76,7 +76,7 @@ serve(async (req) => {
             customer_id: matchedCustomer?.id || null,
             loan_id: targetLoanId,
             amount: amount,
-            mpesa: TransID, // Consistent with Shcemav4
+            mpesa_code: TransID, // Consistent with Shcemav4
             phone_number: MSISDN,
             status: targetLoanId ? "Allocated" : "Unallocated",
             allocated_by: targetLoanId ? "M-Pesa Edge C2B" : null,

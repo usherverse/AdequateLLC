@@ -86,7 +86,7 @@ serve(async (req: Request) => {
             customer_id: request.reference,
             loan_id: loan?.id || null,
             amount,
-            mpesa: mpesaReceipt,
+            mpesa_code: mpesaReceipt,
             status: loan ? 'Allocated' : 'Unallocated',
             note: `Edge Logic: STK Push Resolved for ${phone}`
         });
