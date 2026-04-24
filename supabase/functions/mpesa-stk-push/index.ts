@@ -87,7 +87,7 @@ serve(async (req) => {
       checkout_request_id: stkData.CheckoutRequestID,
       amount: Math.ceil(amount),
       phone_number: phoneStr,
-      reference: customer_id,
+      customer_id: customer_id,
       status: "Pending"
     });
 
