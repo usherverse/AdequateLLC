@@ -1,14 +1,15 @@
-import * as MpesaClient from './modules/payments/mpesa.client.js';
 import dotenv from 'dotenv';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-
 dotenv.config({ path: path.resolve(__dirname, '../.env') });
 
 async function run() {
+  // Dynamically import MpesaClient so dotenv has time to load vars
+  const MpesaClient = await import('./modules/payments/mpesa.client.js');
+  
   console.log('--- M-Pesa C2B Live Sync Test ---');
   
   try {

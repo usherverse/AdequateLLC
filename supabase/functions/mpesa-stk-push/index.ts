@@ -82,13 +82,13 @@ serve(async (req) => {
     }
 
     // 3. Record Pending Push
-    await supabaseClient.from("mpesa_collections").insert({
+    await supabaseClient.from("stk_requests").insert({
       merchant_request_id: stkData.MerchantRequestID,
       checkout_request_id: stkData.CheckoutRequestID,
       amount: Math.ceil(amount),
       phone_number: phoneStr,
-      account_number: customer_id,
-      status: "pending"
+      reference: customer_id,
+      status: "Pending"
     });
 
     return new Response(JSON.stringify({ 

@@ -47,10 +47,17 @@ serve(async (req) => {
         const { error } = await supabase.from("registration_fees").insert({
             customer_id: matchedCustomer.id,
             amount: amount,
-            mpesa_code: TransID,
-            status: 'verified'
+            paid_at: new Date().toISOString(),
+            status: 'paid'
         });
-        if (error) console.error("[Edge C2B] Reg Fee Error:", error.message);
+        
+        if (!error) {
+            await supabase.from('customers')
+                .update({ mpesa_registered: true })
+                .eq('id', matchedCustomer.id);
+        } else {
+            console.error("[Edge C2B] Reg Fee Error:", error.message);
+        }
     } else {
         // Handle Loan Payment
         let targetLoanId = null;

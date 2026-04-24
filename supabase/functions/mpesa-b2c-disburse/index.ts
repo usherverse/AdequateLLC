@@ -51,7 +51,7 @@ serve(async (req) => {
 
     // Check for existing pending/completed disbursement to prevent doubles
     const { data: existingDisb } = await supabaseClient
-      .from("mpesa_disbursements")
+      .from("b2c_disbursements")
       .select("id")
       .eq("loan_id", loan_id)
       .in("status", ["pending", "completed"])
@@ -119,7 +119,7 @@ serve(async (req) => {
     }
 
     // 4. Record to Database
-    await supabaseClient.from("mpesa_disbursements").insert({
+    await supabaseClient.from("b2c_disbursements").insert({
       conversation_id: b2cData.ConversationID,
       originator_conversation_id: b2cData.OriginatorConversationID,
       amount: loan.amount,

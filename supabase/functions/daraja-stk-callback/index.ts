@@ -58,14 +58,19 @@ serve(async (req: Request) => {
 
     // 4. Record the Payment (CONSISTENT WITH SCHEMAv4)
     // This insertion fires 'trg_apply_payment' or 'trg_auto_activate_cust'
-    if (amount === 500) {
+    if (request.description === 'Registration Fee') {
         // Registration Fee Logic
         await supabase.from('registration_fees').insert({
             customer_id: request.reference,
             amount: amount,
-            mpesa_code: mpesaReceipt,
-            status: 'verified'
+            paid_at: new Date().toISOString(),
+            status: 'paid'
         });
+
+        // Activate Customer
+        await supabase.from('customers')
+            .update({ mpesa_registered: true })
+            .eq('id', request.reference);
     } else {
         // Standard Loan Payment Logic
         // Find recent active loan for the customer

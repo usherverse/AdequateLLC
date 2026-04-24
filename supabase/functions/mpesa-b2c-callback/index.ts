@@ -28,7 +28,7 @@ serve(async (req) => {
 
     // 1. Find the pending disbursement record
     const { data: record, error: fetchErr } = await supabaseClient
-      .from("mpesa_disbursements")
+      .from("b2c_disbursements")
       .select("id, loan_id, customer_id")
       .eq("originator_conversation_id", origConvId)
       .eq("status", "pending")
@@ -41,7 +41,7 @@ serve(async (req) => {
 
     // 2. Update Disbursement Status
     await supabaseClient
-      .from("mpesa_disbursements")
+      .from("b2c_disbursements")
       .update({
         transaction_id: transactionId,
         status: finalStatus,
