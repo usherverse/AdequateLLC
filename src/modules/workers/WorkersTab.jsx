@@ -73,18 +73,27 @@ const WorkersTab = ({workers,setWorkers,loans,setLoans,payments,customers,setCus
 
   const addDeduction = async () => {
     if(!newDeduction.amount || !newDeduction.reason) return;
-    try { const { initiateWorkerPayout } = await import('@/utils/mpesa'); if (!w.phone) { showToast('Worker has no phone number', 'danger'); return; } await initiateWorkerPayout({ worker_id: w.id, amount: Math.round(net), phone: w.phone }); showToast(`B2C Payout Initiated for ${w.name}`, 'ok'); if (onNav) { setTimeout(() => { onNav('paymentshub'); }, 2000); } } catch (err) { showToast('Payout failed: ' + err.message, 'danger'); } }}>Initiate B2C Payout</Btn>
-                      </div>
-                      <div style={{height:8, background:T.border, borderRadius:99, marginTop:12, overflow:'hidden'}}>
-                         <div style={{height:'100%', background:T.accent, width: `${Math.min(rate, 100)}%`}}/>
-                      </div>
-                      <div style={{display:'flex', justifyContent:'space-between', marginTop:8, fontSize:11, fontWeight:700, color:T.dim}}>
-                         <span>{label}: {Math.round(rate)}%</span>
-                         <span>{w.role === 'Collections Officer' ? 'Step-Incentive Basis' : `Target: ${w.onboardingTarget || 60}`}</span>
-                      </div>
-                    </>
-                      );
-                    })()}
+    try {
+      const { supabase } = await import('@/config/supabaseClient');
+      if (!supabase) throw new Error('Supabase not initialized');
+      const payload = {
+        worker_id: sel.id,
+        amount: parseFloat(newDeduction.amount),
+        reason: newDeduction.reason,
+        month: newDeduction.month
+      };
+      const { error } = await supabase.from('worker_deductions').insert(payload);
+      if (error) throw error;
+      
+      setDeductions(p => [payload, ...p]);
+      setShowAddDeduction(false);
+      setNewDeduction({ amount: '', reason: '', month: now().slice(0, 7) });
+      showToast('Deduction added', 'ok');
+      addAudit('Deduction added', sel.id, `Amount: ${payload.amount}, Reason: ${payload.reason}`);
+    } catch (err) {
+      showToast('Failed to add deduction: ' + err.message, 'danger');
+    }
+  };
                   </div>
               </div>
             </Card>
