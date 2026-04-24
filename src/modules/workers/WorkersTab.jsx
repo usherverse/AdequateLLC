@@ -94,69 +94,8 @@ const WorkersTab = ({workers,setWorkers,loans,setLoans,payments,customers,setCus
       showToast('Failed to add deduction: ' + err.message, 'danger');
     }
   };
-                  </div>
-              </div>
-            </Card>
 
-            <Card style={{marginBottom:18}}>
-               <CH title="M-Pesa B2C Transaction History" icon={Landmark}/>
-               <div style={{padding:'0 4px 4px'}}>
-                  <DT 
-                    cols={[
-                      {k:'month', l:'Period'},
-                      {k:'amount', l:'Net Paid', r: v => <strong>{fmt(v)}</strong>},
-                      {k:'mpesa_receipt', l:'M-Pesa Receipt', r: v => <span style={{fontFamily:T.mono, fontSize:11, color:T.accent}}>{v}</span>},
-                      {k:'created_at', l:'Time', r: v => ts(v)},
-                      {k:'id', l:'Receipt', r: (v, row) => <Btn sm v="secondary" icon={Download} onClick={() => {
-                        const content = `TRANSACTION RECEIPT\n\nRecipient: ${w.name}\nPeriod: ${row.month}\nAmount: KES ${row.amount}\nReceipt: ${row.mpesa_receipt}\nPhone: ${row.recipient_phone}\nDate: ${ts(row.created_at)}\n\nThank you for your service.\nAdequate Capital LTD`;
-                        const blob = new Blob([content], { type: 'text/plain' });
-                        const url = URL.createObjectURL(blob);
-                        const a = document.createElement('a');
-                        a.href = url;
-                        a.download = `Receipt_${row.mpesa_receipt}.txt`;
-                        a.click();
-                      }}>Download</Btn>}
-                    ]}
-                    rows={payslips}
-                    emptyMsg="No B2C transactions for this worker."
-                  />
-               </div>
-            </Card>
-
-            <Card>
-               <CH title="Deductions & Adjustments" icon={ShieldOff} right={<Btn sm v="secondary" icon={Plus} onClick={() => setShowAddDeduction(true)}>Add Deduction</Btn>}/>
-               <div style={{padding:'0 4px 4px'}}>
-                  <DT 
-                    cols={[
-                      {k:'month', l:'Month'},
-                      {k:'reason', l:'Description'},
-                      {k:'amount', l:'Amount', r:v=>fmt(v)},
-                      {k:'created_at', l:'Date', r:v=>ts(v)}
-                    ]}
-                    rows={deductions}
-                    emptyMsg="No deductions recorded for this worker."
-                  />
-               </div>
-            </Card>
-
-            {showAddDeduction && (
-              <Dialog title="Add Salary Deduction" onClose={() => setShowAddDeduction(false)} width={400}>
-                 <div style={{padding: '0 4px'}}>
-                    <div style={{marginBottom:14}}>
-                       <FI label="Amount (KES)" type="number" value={newDeduction.amount} onChange={e => setNewDeduction(p => ({...p, amount: e.target.value}))} placeholder="0.00"/>
-                    </div>
-                    <div style={{marginBottom:14}}>
-                       <FI label="Reason" value={newDeduction.reason} onChange={e => setNewDeduction(p => ({...p, reason: e.target.value}))} placeholder="e.g. Lost hardware, Cash discrepancy"/>
-                    </div>
-                    <div style={{marginBottom:20}}>
-                       <FI label="Applicable Month" type="month" value={newDeduction.month} onChange={e => setNewDeduction(p => ({...p, month: e.target.value}))}/>
-                    </div>
-                    <Btn full onClick={addDeduction} disabled={!newDeduction.amount || !newDeduction.reason}>Save Deduction</Btn>
-                 </div>
-              </Dialog>
-            )}
-          </div>
-        )}
+}
 
         {detailTab==='compensation'&&(
           <div className="fu">
