@@ -1,4 +1,3 @@
-import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.0";
 
 const corsHeaders = {
@@ -6,7 +5,7 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-serve(async (req) => {
+Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
   try {
@@ -19,7 +18,7 @@ serve(async (req) => {
     const { data: { user }, error: userError } = await supabaseClient.auth.getUser(authHeader.replace('Bearer ', ''));
     if (userError || !user) throw new Error("Unauthorized");
 
-    const { amount, phone_number, customer_id } = await req.json();
+    const { amount, phone_number, customer_id, description } = await req.json();
 
     if (!amount || amount <= 0 || !phone_number || !customer_id) {
         throw new Error("Missing amount, phone_number, or customer_id");
@@ -63,7 +62,7 @@ serve(async (req) => {
       PhoneNumber: phoneStr,
       CallBackURL: Deno.env.get("MPESA_STK_CALLBACK_URL"),
       AccountReference: customer_id, // Important: binds to customer
-      TransactionDesc: `Adequate Capital Collection ${customer_id}`
+      TransactionDesc: description || `Adequate Capital Collection ${customer_id}`
     };
 
     const stkRes = await fetch(`https://${mpesaEnv}/mpesa/stkpush/v1/processrequest`, {
@@ -87,7 +86,8 @@ serve(async (req) => {
       checkout_request_id: stkData.CheckoutRequestID,
       amount: Math.ceil(amount),
       phone_number: phoneStr,
-      customer_id: customer_id,
+      reference: customer_id, // FIXED: was customer_id
+      description: description || 'Loan Payment',
       status: "Pending"
     });
 

@@ -106,7 +106,8 @@ export function useRegistrationFee(customerId) {
         body: JSON.stringify({ 
           phone_number: phone, 
           amount: 500, 
-          customer_id: customerId 
+          customer_id: customerId,
+          description: 'Registration Fee'
         }),
       });
       const data = await response.json();

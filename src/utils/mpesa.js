@@ -21,7 +21,7 @@ const getAuthToken = async () => {
  * initiateStkPush
  * Triggers an M-Pesa STK Push via the mpesa-stk-push Edge Function.
  */
-export async function initiateStkPush({ amount, phone_number, customer_id }) {
+export async function initiateStkPush({ amount, phone_number, customer_id, description }) {
   if (DEMO_MODE) {
     console.warn('[M-Pesa] STK Push simulated in Demo Mode');
     return { success: true, message: 'Demo Mode: Push simulated' };
@@ -35,7 +35,7 @@ export async function initiateStkPush({ amount, phone_number, customer_id }) {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${token}`
       },
-      body: JSON.stringify({ phone_number, amount, customer_id })
+      body: JSON.stringify({ phone_number, amount, customer_id, description })
     });
 
     const res = await response.json();

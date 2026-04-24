@@ -1,4 +1,3 @@
-import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.0";
 
 /**
@@ -11,7 +10,7 @@ const supabaseUrl = Deno.env.get('SUPABASE_URL') || '';
 const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') || '';
 const supabase = createClient(supabaseUrl, supabaseKey);
 
-serve(async (req: Request) => {
+Deno.serve(async (req: Request) => {
   if (req.method !== 'POST') return new Response("Method Not Allowed", { status: 405 });
 
   try {
@@ -52,14 +51,17 @@ serve(async (req: Request) => {
       .maybeSingle();
 
     if (!request || reqErr) {
-        console.error("[M-Pesa Edge] STK Request record not found for ID:", cb.CheckoutRequestID);
+        console.error("[M-Pesa Edge] STK Request record NOT FOUND for CheckoutRequestID:", cb.CheckoutRequestID);
+        console.error("[M-Pesa Edge] Potential cause: The initial STK push failed to record in 'stk_requests' table (check for column mismatches).");
         return new Response(JSON.stringify({ ResultCode: 0, ResultDesc: "Orphaned Success Logged" }));
     }
+
+    console.log(`[M-Pesa Edge] matched request: ${request.id}, reference: ${request.reference}, desc: ${request.description}`);
 
     // 4. Record the Payment (CONSISTENT WITH SCHEMAv4)
     // This insertion fires 'trg_apply_payment' or 'trg_auto_activate_cust'
     if (request.description === 'Registration Fee') {
-        // Registration Fee Logic
+        // 1. Registration Fee Record
         await supabase.from('registration_fees').insert({
             customer_id: request.reference,
             amount: amount,
@@ -67,7 +69,17 @@ serve(async (req: Request) => {
             status: 'paid'
         });
 
-        // Activate Customer
+        // 2. Also Record in Payments Ledger for frontend visibility
+        await supabase.from('payments').insert({
+            customer_id: request.reference,
+            amount: amount,
+            mpesa_code: mpesaReceipt,
+            status: 'Allocated',
+            is_reg_fee: true,
+            note: 'STK Registration Fee Verified'
+        });
+
+        // 3. Activate Customer
         await supabase.from('customers')
             .update({ mpesa_registered: true })
             .eq('id', request.reference);
