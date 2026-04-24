@@ -50,13 +50,8 @@ const PaymentsHub = ({ customers, setCustomers, loans, payments, setLoans, setPa
     if (!cusId)              return showToast('Please select a customer', 'warn');
     if (!amount || amount <= 0) return showToast('Invalid amount', 'warn');
 
-    // VULN-04 FIX: Route through the Express backend instead of inserting
-    // directly into Supabase from the browser.  The server will:
-    //   • Verify the customer exists (canonical name from DB)
-    //   • Set allocated_by from the JWT — cannot be spoofed by the client
-    //   • Atomically decrement the loan balance via the apply_c2b_payment RPC
-    //   • Flip mpesa_registered for registration fees
-    //   • Write the audit log with the real admin identity
+    // Route through Supabase RPC — no legacy Express dependency.
+    try {
       // VULN-04 FIX: Route through Supabase RPC instead of Express backend.
       // The RPC handles identity verification, canonical naming, and financial logic.
       const { data: result, error: rpcErr } = await supabase.rpc('create_manual_payment', {
