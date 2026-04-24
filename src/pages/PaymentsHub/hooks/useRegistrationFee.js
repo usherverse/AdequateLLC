@@ -11,6 +11,7 @@ export function useRegistrationFee(customerId) {
   const [error, setError] = useState(null);
 
   const fetchStatus = useCallback(async () => {
+    // Guard: do nothing if no customer is selected
     if (!customerId) return;
     try {
       const { data: cust } = await supabase
@@ -39,17 +40,24 @@ export function useRegistrationFee(customerId) {
         return;
       }
 
-      // 3) Check STK requests
+      // 3) Check STK requests (only poll if actively waiting for a push)
+      if (!waitingForCallback && !requestId) return;
+
       let query = supabase.from('stk_requests').select('status, result_desc').eq('reference', customerId);
       
-      // CRITICAL FIX: Only look for failures if we are actively waiting for a specific request
       if (waitingForCallback && requestId) {
          query = query.eq('checkout_request_id', requestId);
       } else {
-         query = query.eq('status', 'Completed'); // Only care about prior completions
+         query = query.eq('status', 'Completed');
       }
 
       const { data: stkReq, error: stkErr } = await query.order('created_at', { ascending: false }).limit(1).maybeSingle();
+
+      // Silently ignore errors from missing stk_requests table (42P01) or no rows (PGRST116)
+      if (stkErr && stkErr.code !== 'PGRST116' && stkErr.code !== '42P01') {
+        setError(stkErr.message);
+        return;
+      }
 
       if (stkReq) {
         const s = stkReq.status?.toLowerCase();
@@ -64,16 +72,17 @@ export function useRegistrationFee(customerId) {
            setFailureReason(stkReq.result_desc || 'Transaction failed or cancelled by user.');
         }
       }
-      if (stkErr && stkErr.code !== 'PGRST116') setError(stkErr.message);
     } catch (err) {
-      setError(err.message);
+      // Don't surface network errors during background polling
+      console.warn('[useRegistrationFee] poll error:', err.message);
     }
   }, [customerId, waitingForCallback, requestId]);
 
   useEffect(() => {
     fetchStatus();
+    // Only set up polling interval when we are actively waiting for a callback
+    if (!waitingForCallback && status !== 'pending') return;
     const interval = setInterval(() => {
-      // Only poll for status changes while we are waiting or if not yet paid
       if (waitingForCallback || status === 'pending') fetchStatus();
     }, 4000);
     return () => clearInterval(interval);

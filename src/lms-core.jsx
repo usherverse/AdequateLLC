@@ -1493,17 +1493,24 @@ export default function App() {
           supabase.from('b2c_disbursements').select('*').order('created_at', { ascending: false }).limit(500),
           supabase.from('mpesa_transactions').select('*').order('created_at', { ascending: false }).limit(1000),
         ]).then(async ([lFull, pFull, tFull, sFull, leadFull, intFull, assetFull, stkFull, b2cFull, mFull]) => {
-          if (!mFull.error && mFull.data) {
-            setMpesaTransactions(mFull.data);
-            setUnallocatedC2BCount(mFull.data.filter(tx => tx.allocation_status === 'unallocated').length);
+          if (!mFull.error || mFull.error?.code === '42P01') {
+            if (mFull.data) {
+              setMpesaTransactions(mFull.data);
+              setUnallocatedC2BCount(mFull.data.filter(tx => tx.allocation_status === 'unallocated').length);
+            }
           }
           if (!tFull.error && tFull.data) setTargets(tFull.data);
           if (!sFull.error && sFull.data) setSalaryPayments(sFull.data);
           if (!leadFull.error && leadFull.data) setLeads(leadFull.data.map(fromSupabaseLead));
           if (!intFull.error && intFull.data) setInteractions(intFull.data.map(fromSupabaseInteraction));
           if (!assetFull.error && assetFull.data) setRepossessedAssets(assetFull.data.map(fromSupabaseAsset));
-          if (!stkFull.error && stkFull.data) setStkRequests(stkFull.data);
-          if (!b2cFull.error && b2cFull.data) setB2cDisbursements(b2cFull.data);
+          // These are optional tables - silently skip if they don't exist yet (error code 42P01)
+          if (!stkFull.error || stkFull.error?.code === '42P01') {
+            if (stkFull.data) setStkRequests(stkFull.data);
+          } else { console.warn('[load stk_requests]', stkFull.error.message); }
+          if (!b2cFull.error || b2cFull.error?.code === '42P01') {
+            if (b2cFull.data) setB2cDisbursements(b2cFull.data);
+          } else { console.warn('[load b2c_disbursements]', b2cFull.error.message); }
           const nextLoans = (!lFull.error && lFull.data?.length) ? lFull.data.map(fromSupabaseLoan) : [];
           if (lFull.error) console.error('[load loans full]', lFull.error.message);
           const nextPayments = (!pFull.error && pFull.data?.length) ? pFull.data.map(fromSupabasePayment) : [];

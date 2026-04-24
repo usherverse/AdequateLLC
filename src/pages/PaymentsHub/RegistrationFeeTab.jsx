@@ -24,7 +24,8 @@ const RegistrationFeeTab = ({ customers = [], payments = [], showToast, onManual
   const [phone, setPhone] = useState('');
   const [query, setQuery] = useState('');
   const [loadingLocal, setLoadingLocal] = useState(false);
-  const { status, loading, waitingForCallback, isSuccess, failureReason, initiateStk, reset } = useRegistrationFee(customerIdParam);
+  // Only activate the hook (and its polling) when a specific customer is selected
+  const { status, loading, waitingForCallback, isSuccess, failureReason, initiateStk, reset } = useRegistrationFee(customerIdParam || null);
 
   useEffect(() => {
     if (customerIdParam) {
@@ -35,15 +36,16 @@ const RegistrationFeeTab = ({ customers = [], payments = [], showToast, onManual
         setPhone(localCust.phone);
         return;
       }
-      // If not populated in state (e.g. strict direct navigation link), query the server
-      supabase.from('customers').select('*').eq('id', customerIdParam).single().then(({ data, error }) => {
+      // If not populated in state (e.g. direct navigation link), query the server
+      // Use maybeSingle() to avoid 406 errors when the customerId in the URL is stale/invalid
+      supabase.from('customers').select('*').eq('id', customerIdParam).maybeSingle().then(({ data, error }) => {
         if (data) {
           setCustomer(data);
-          setPhone(data.phone);
+          setPhone(data.phone || '');
         } else {
-          // Break endless hang if fetching utterly fails
-          console.error('[RegistrationFeeTab] Could not load customer:', error);
-          setCustomer({ id: customerIdParam, name: 'Unknown/Unsynced Customer', phone: '' });
+          // Customer not found - show a graceful fallback instead of crashing
+          if (error) console.warn('[RegistrationFeeTab] Customer lookup issue:', error.message);
+          setCustomer({ id: customerIdParam, name: 'Customer Not Found', phone: '' });
         }
       });
     }
