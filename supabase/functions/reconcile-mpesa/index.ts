@@ -98,35 +98,55 @@ Deno.serve(async (req: Request) => {
           // SUCCESS CASE
           console.log(`[Reconcile] ✅ Finalizing successful STK for Request ${request.id}`);
           
-          await supabaseClient.from('stk_requests').update({ status: 'Completed', result_code: 0, result_desc: resultDesc }).eq('id', request.id);
+          await supabaseClient.from('stk_requests').update({ 
+            status: 'Completed', 
+            result_code: 0, 
+            result_desc: resultDesc,
+            mpesa_receipt: result.MpesaReceiptNumber || null
+          }).eq('id', request.id);
           
-          const { data: customer } = await supabaseClient.from('customers').select('name').eq('id', request.reference).single();
-          await supabaseClient.from('customers').update({ mpesa_registered: true }).eq('id', request.reference);
+          const { data: customer } = await supabaseClient.from('customers').select('name').eq('id', request.reference).maybeSingle();
+          const customerName = customer?.name || 'Unknown Customer';
+          const todayStr = new Date().toISOString().split('T')[0];
+
+          const isRegFee = request.description?.toLowerCase().includes('registration');
+          
+          if (isRegFee) {
+            await supabaseClient.from('customers').update({ mpesa_registered: true, status: 'Active' }).eq('id', request.reference);
+            await supabaseClient.from('registration_fees').insert([{
+               customer_id: request.reference,
+               amount: request.amount,
+               paid_at: new Date().toISOString(),
+               status: 'paid'
+            }]);
+          }
           
           await supabaseClient.from('payments').insert([{
             customer_id: request.reference,
-            customer_name: customer?.name || null,
+            customer_name: customerName,
             amount: request.amount || 500,
-            mpesa: result.MpesaReceiptNumber || null, // Capture receipt if available
+            mpesa: result.MpesaReceiptNumber || null,
+            date: todayStr,
             status: 'Allocated',
-            is_reg_fee: true,
-            note: 'Reconciled: M-Pesa STK Push Registration Fee'
+            is_reg_fee: isRegFee,
+            allocated_by: 'System (Reconciliation)',
+            note: `Reconciled: M-Pesa STK Push ${isRegFee ? 'Registration Fee' : 'Payment'}`
           }]);
           
-          await supabaseClient.from('audit_log').insert([{ // FIXED: audit_logs -> audit_log
-            user_name: 'System (Reconciliation)',
-            action: 'Payment Resolved',
-            detail: `STK push resolved via reconciliation job. ID: ${request.checkout_request_id}`
+          await supabaseClient.from('payment_audit_logs').insert([{ 
+            action: 'STK_RECONCILED',
+            entity_type: 'payment',
+            payload: { checkout_id: request.checkout_request_id, result_code: 0 }
           }]);
         } else if (resultCode === 1032 || resultCode === 1) {
           // FAILED CASE
           console.log(`[Reconcile] ❌ Marking failed STK for Request ${request.id} (Code: ${resultCode})`);
           await supabaseClient.from('stk_requests').update({ status: 'Failed', result_code: resultCode, result_desc: resultDesc }).eq('id', request.id);
           
-          await supabaseClient.from('audit_log').insert([{ // FIXED: audit_logs -> audit_log
-            user_name: 'System (Reconciliation)',
-            action: 'Payment Failed (Resolved)',
-            detail: `STK push marked failed via reconciliation. Code: ${resultCode}. Desc: ${resultDesc}`
+          await supabaseClient.from('payment_audit_logs').insert([{ 
+            action: 'STK_FAILED_RECONCILED',
+            entity_type: 'stk_request',
+            payload: { checkout_id: request.checkout_request_id, result_code: resultCode }
           }]);
         } else {
           console.warn(`[Reconcile] Unexpected ResultCode ${resultCode} for ${request.checkout_request_id}. Manual review may be needed.`);

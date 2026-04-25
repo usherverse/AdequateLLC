@@ -61,31 +61,43 @@ Deno.serve(async (req: Request) => {
       .maybeSingle();
 
     if (!request || reqErr) {
-        console.error("[M-Pesa Edge] STK Request record NOT FOUND for CheckoutRequestID:", cb.CheckoutRequestID);
-        console.error("[M-Pesa Edge] Potential cause: The initial STK push failed to record in 'stk_requests' table (check for column mismatches).");
+        console.error("[M-Pesa Edge] STK Request record NOT FOUND for CheckoutRequestID:", checkoutId);
         return new Response(JSON.stringify({ ResultCode: 0, ResultDesc: "Orphaned Success Logged" }));
     }
 
+    // 5. Fetch Customer Details for Ledger Consistency
+    const { data: customer } = await supabase
+        .from('customers')
+        .select('name')
+        .eq('id', request.reference)
+        .maybeSingle();
+
+    const customerName = customer?.name || 'Unknown Customer';
+    const todayStr = new Date().toISOString().split('T')[0];
+
     console.log(`[M-Pesa Edge] matched request: ${request.id}, reference: ${request.reference}, desc: ${request.description}`);
 
-    // 4. Record the Payment (CONSISTENT WITH SCHEMAv4)
-    // This insertion fires 'trg_apply_payment' or 'trg_auto_activate_cust'
+    // 6. Record the Payment (CONSISTENT WITH SCHEMAv4)
     if (request.description === 'Registration Fee') {
         // 1. Registration Fee Record
         const { error: regErr } = await supabase.from('registration_fees').insert({
             customer_id: request.reference,
             amount: amount,
             paid_at: new Date().toISOString(),
-            status: 'verified' // FIXED: status must be 'verified' to match DB constraints
+            status: 'paid' // FIXED: must be 'paid' to match registration_fee_status enum
         });
+        if (regErr) console.error("[M-Pesa Edge] Reg Fee Record Error:", regErr.message);
 
         // 2. Also Record in Payments Ledger for frontend visibility
         const { error: payErr } = await supabase.from('payments').insert({
             customer_id: request.reference,
+            customer_name: customerName,
             amount: amount,
-            mpesa: mpesaReceipt, // FIXED: mpesa_code -> mpesa
+            mpesa: mpesaReceipt, 
+            date: todayStr,
             status: 'Allocated',
             is_reg_fee: true,
+            allocated_by: 'M-Pesa STK Callback',
             note: 'STK Registration Fee Verified'
         });
 
@@ -100,7 +112,6 @@ Deno.serve(async (req: Request) => {
             .eq('id', request.reference);
     } else {
         // Standard Loan Payment Logic
-        // Find recent active loan for the customer
         const { data: loan } = await supabase.from('loans')
             .select('id')
             .eq('customer_id', request.reference)
@@ -111,11 +122,14 @@ Deno.serve(async (req: Request) => {
 
         const { error: payErr } = await supabase.from('payments').insert({
             customer_id: request.reference,
+            customer_name: customerName,
             loan_id: loan?.id || null,
             amount,
-            mpesa: mpesaReceipt, // FIXED: mpesa_code -> mpesa
+            mpesa: mpesaReceipt,
+            date: todayStr,
             status: loan ? 'Allocated' : 'Unallocated',
-            note: `Edge Logic: STK Push Resolved for ${phone}`
+            allocated_by: 'M-Pesa STK Callback',
+            note: `STK Push Resolved for ${phone}`
         });
 
         if (payErr) {
