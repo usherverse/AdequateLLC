@@ -66,30 +66,22 @@ const DatabaseTab = ({allState,setLoans,setCustomers,setPayments,setWorkers,setL
 
     import('@/config/supabaseClient').then(({supabase,DEMO_MODE})=>{
       if(DEMO_MODE||!supabase) return;
-      const tablesToWipe = ['loans','customers','payments','leads','interactions','audit_log', 'workers', 'monthly_targets', 'salary_payments', 'worker_deductions', 'repossessed_assets', 'mpesa_transactions', 'stk_requests', 'b2c_disbursements'];
-      const NIL_UUID = '00000000-0000-0000-0000-000000000000';
-      tablesToWipe.forEach(table => {
-        let query;
-        if (table === 'workers') {
-          query = supabase.from(table).delete().neq('role', 'Super Admin').neq('role', 'Admin');
-        } else {
-          query = supabase.from(table).delete().neq('id', NIL_UUID);
-        }
-
-        query.then(({error}) => { 
-            if(error) {
-              // Fallback for tables using non-UUID IDs
-              if (error.code === '22P02') {
-                let fallbackQuery = supabase.from(table).delete().neq('id', 'NON_EXISTENT_ID');
-                if (table === 'workers') fallbackQuery = supabase.from(table).delete().neq('role', 'Super Admin').neq('role', 'Admin');
-                
-                fallbackQuery.then(({error:e2}) => { if(e2) _sbErr('clear-retry', table, e2.message); });
-              } else {
-                _sbErr('clear', table, error.message); 
-              }
-            } 
-          });
-      });
+      
+      // Use the server-side RPC for a clean, atomic wipe
+      supabase.rpc('global_wipe', { include_workers: true })
+        .then(({ error }) => {
+          if (error) {
+            console.error('[Global Wipe RPC Error]', error.message);
+            // Fallback to parallel deletes if RPC doesn't exist yet
+            const tablesToWipe = ['loans','customers','payments','leads','interactions','audit_log', 'workers', 'monthly_targets', 'salary_payments', 'worker_deductions', 'repossessed_assets', 'mpesa_transactions', 'stk_requests', 'b2c_disbursements'];
+            const NIL_UUID = '00000000-0000-0000-0000-000000000000';
+            tablesToWipe.forEach(table => {
+              let query = supabase.from(table).delete().neq('id', NIL_UUID);
+              if (table === 'workers') query = supabase.from(table).delete().neq('role', 'Super Admin').neq('role', 'Admin');
+              query.then(({error:e2}) => { if(e2) _sbErr('wipe-fallback', table, e2.message); });
+            });
+          }
+        });
     }).catch(e=>_sbErr('import','doClear',e.message));
   };
 
