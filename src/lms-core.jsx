@@ -1412,7 +1412,7 @@ export default function App() {
       const [lFast, cFast, pFast, wR, mR, aR, iR, adR] = await Promise.all([
         supabase.from('loans').select('id,customer_id,customer_name,amount,balance,status,repayment_type,officer,collections_officer,risk,disbursed,mpesa,phone,days_overdue,created_at').order('created_at', { ascending: false }).range(0, 50),
         supabase.from('customers').select('id,name,phone,id_no,officer,loans,risk,blacklisted,joined,status,assigned_officer,mpesa_registered,n1_name,n1_phone,n2_name,n2_phone,n3_name,n3_phone').order('name', { ascending: true }).range(0, CUSTOMERS_FAST - 1),
-        supabase.from('payments').select('id,loan_id,customer_id,customer_name,amount,mpesa,date,status,allocated_by,is_reg_fee').order('date', { ascending: false }).range(0, 50),
+        supabase.from('payments').select('id,loan_id,customer_id,customer_name,amount,mpesa,date,status,allocated_by,is_reg_fee,created_at').order('date', { ascending: false }).range(0, 50),
         supabase.from('workers').select('id,name,email,phone,role,status,docs,id_no,avatar,base_salary,onboarding_target,collection_target').order('name'),
         supabase.from('mpesa_transactions').select('*').order('created_at', { ascending: false }).limit(200),
         supabase.from('leads').select('*').order('date', { ascending: false }).limit(50),
@@ -1517,7 +1517,7 @@ export default function App() {
         if (!supabase) return;
         Promise.all([
           supabase.from('loans').select('id,customer_id,customer_name,amount,balance,status,repayment_type,officer,collections_officer,risk,disbursed,mpesa,phone,days_overdue,created_at').order('created_at', { ascending: false }).range(0, LOANS_MAX - 1),
-          supabase.from('payments').select('id,loan_id,customer_id,customer_name,amount,mpesa,date,status,allocated_by,is_reg_fee').order('date', { ascending: false }).range(0, PAYMENTS_MAX - 1),
+          supabase.from('payments').select('id,loan_id,customer_id,customer_name,amount,mpesa,date,status,allocated_by,is_reg_fee,created_at').order('date', { ascending: false }).range(0, PAYMENTS_MAX - 1),
           supabase.from('monthly_targets').select('*'),
           supabase.from('salary_payments').select('*').order('created_at', { ascending: false }).limit(1000),
           supabase.from('leads').select('*').order('date', { ascending: false }).limit(1000),
