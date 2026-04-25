@@ -4164,12 +4164,13 @@ export const OnboardForm = ({ workers, onSave, onClose, prefill, leadId }) => {
     }
     delete finalData.customBusinessType;
 
+    const customerId = uid("CUS");
     return await onSave({
-      id: uid("CUS"),
+      id: customerId,
       ...finalData,
       idNumber: finalData.idNo,
-      accountNumber: finalData.idNo, // Auto-assign ID as account number for new customers
-      usesIdAsAccount: true,
+      accountNumber: customerId, // Auto-assign SYSTEM ID as account number
+      usesIdAsAccount: false,
       loans: 0,
       risk: "Low",
       joined: now(),
@@ -12589,7 +12590,7 @@ export const toSupabaseCustomer = (c) => ({
   joined: c.joined || c.createdAt || null,
   mpesa_registered: c.mpesaRegistered || false,
   // ── M-PESA C2B ADDITIONS ──
-  account_number: c.accountNumber || (c.usesIdAsAccount ? c.idNo : null),
+  account_number: c.accountNumber || c.id,
   id_number: c.idNumber || c.idNo,
   uses_id_as_account: c.usesIdAsAccount || false,
 });

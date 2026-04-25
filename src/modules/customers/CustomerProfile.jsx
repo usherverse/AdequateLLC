@@ -356,6 +356,7 @@ export default function CustomerProfile({
             <Card style={{ padding: 24, borderRadius: 20 }}>
               <h3 style={{ color: T.accent, fontSize: 12, fontWeight: 800, margin: '0 0 8px', textTransform: 'uppercase', letterSpacing: 1 }}>Identification & Origin</h3>
               <div className="grouped-list">
+                <div className="row-grouped"><span style={{ color: T.dim, fontSize: 13 }}>Paybill Account</span><span style={{ color: T.accent, fontWeight: 800, fontFamily: T.mono }}>{customer.accountNumber || customer.id}</span></div>
                 <div className="row-grouped"><span style={{ color: T.dim, fontSize: 13 }}>Phone</span><span style={{ color: T.txt, fontWeight: 700 }}>{customer.phone || '—'}</span></div>
                 <div className="row-grouped"><span style={{ color: T.dim, fontSize: 13 }}>Alt. Phone</span><span style={{ color: T.txt }}>{customer.altPhone || '—'}</span></div>
                 <div className="row-grouped"><span style={{ color: T.dim, fontSize: 13 }}>Gender</span><span style={{ color: T.txt }}>{customer.gender || '—'}</span></div>
