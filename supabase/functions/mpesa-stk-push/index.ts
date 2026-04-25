@@ -43,26 +43,35 @@ Deno.serve(async (req) => {
     const token = tokenData.access_token;
 
     // 2. STK Payload Definition (Lipa Na M-Pesa Online)
-    const shortcode = Deno.env.get("MPESA_SHORTCODE") || "4166191"; // Fallback to provided paybill
+    const shortcode = Deno.env.get("MPESA_SHORTCODE") || "4166191";
     const passkey = Deno.env.get("MPESA_PASSKEY");
     
-    // Timestamp for password generation (YYYYMMDDHHmmss)
     const now = new Date();
     const ts = now.toISOString().replace(/[^0-9]/g, '').slice(0, 14);
     const password = btoa(`${shortcode}${passkey}${ts}`);
+
+    // Sanitize AccountReference (Max 12 chars, no spaces)
+    const accRef = String(customer_id).substring(0, 12).replace(/\s/g, '');
+    
+    // Sanitize TransactionDesc (Max 13 chars)
+    // If it's a registration fee, we'll use "Reg: [ID]" 
+    const isReg = description?.toLowerCase().includes('registration');
+    const displayDesc = isReg 
+      ? `Reg:${accRef.replace('CUS-', '')}`.substring(0, 13) 
+      : description?.substring(0, 13) || `Pay:${accRef}`.substring(0, 13);
 
     const stkPayload = {
       BusinessShortCode: shortcode,
       Password: password,
       Timestamp: ts,
-      TransactionType: "CustomerPayBillOnline", // C2B Paybill
-      Amount: Math.ceil(amount), // Daraja prefers ints for STK
+      TransactionType: "CustomerPayBillOnline", 
+      Amount: Math.ceil(amount),
       PartyA: phoneStr,
       PartyB: shortcode,
       PhoneNumber: phoneStr,
       CallBackURL: Deno.env.get("MPESA_STK_CALLBACK_URL"),
-      AccountReference: customer_id, // Important: binds to customer
-      TransactionDesc: description || `Adequate Capital Collection ${customer_id}`
+      AccountReference: accRef, 
+      TransactionDesc: displayDesc
     };
 
     const stkRes = await fetch(`https://${mpesaEnv}/mpesa/stkpush/v1/processrequest`, {
