@@ -12648,7 +12648,6 @@ export const toSupabasePayment = (p) => ({
   date: p.date || null,
   status: p.status || "Unallocated",
   allocated_by: p.allocatedBy || null,
-  note: p.note || null,
   is_reg_fee: p.isRegFee || false,
 });
 export const fromSupabasePayment = (r) => ({
@@ -12661,7 +12660,6 @@ export const fromSupabasePayment = (r) => ({
   date: r.date,
   status: r.status,
   allocatedBy: r.allocated_by,
-  note: r.note,
   isRegFee: r.is_reg_fee || false,
 });
 export const toSupabaseLead = (l) => ({

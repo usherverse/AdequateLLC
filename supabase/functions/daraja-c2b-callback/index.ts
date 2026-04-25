@@ -10,6 +10,9 @@ const supabaseUrl = Deno.env.get('SUPABASE_URL') || '';
 const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') || '';
 const supabase = createClient(supabaseUrl, supabaseKey);
 
+/** Generate a PAY-XXXXXXX style ID matching the frontend format */
+const genPayId = () => 'PAY-' + crypto.randomUUID().replace(/-/g, '').substring(0, 7).toUpperCase();
+
 Deno.serve(async (req: Request) => {
   try {
     const payload = await req.json();
@@ -62,6 +65,7 @@ Deno.serve(async (req: Request) => {
         if (!error) {
             // Also record in central payments ledger for audit visibility
             await supabase.from('payments').insert({
+                id: genPayId(),
                 customer_id: matchedCustomer.id,
                 customer_name: customerName,
                 amount: amount,
@@ -93,6 +97,7 @@ Deno.serve(async (req: Request) => {
         }
 
         const { error: payErr } = await supabase.from("payments").insert({
+            id: genPayId(),
             customer_id: matchedCustomer?.id || null,
             customer_name: customerName,
             loan_id: targetLoanId,

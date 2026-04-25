@@ -10,6 +10,9 @@ const supabaseUrl = Deno.env.get('SUPABASE_URL') || '';
 const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') || '';
 const supabase = createClient(supabaseUrl, supabaseKey);
 
+/** Generate a PAY-XXXXXXX style ID matching the frontend format */
+const genPayId = () => 'PAY-' + crypto.randomUUID().replace(/-/g, '').substring(0, 7).toUpperCase();
+
 Deno.serve(async (req: Request) => {
   if (req.method !== 'POST') return new Response("Method Not Allowed", { status: 405 });
 
@@ -97,6 +100,7 @@ Deno.serve(async (req: Request) => {
 
         // 2. Also Record in Payments Ledger for frontend visibility
         const { error: payErr } = await supabase.from('payments').insert({
+            id: genPayId(),
             customer_id: request.reference,
             customer_name: customerName,
             amount: amount,
@@ -127,6 +131,7 @@ Deno.serve(async (req: Request) => {
             .maybeSingle();
 
         const { error: payErr } = await supabase.from('payments').insert({
+            id: genPayId(),
             customer_id: request.reference,
             customer_name: customerName,
             loan_id: loan?.id || null,
