@@ -69,8 +69,7 @@ Deno.serve(async (req: Request) => {
                 date: todayStr,
                 status: 'Allocated',
                 is_reg_fee: true,
-                allocated_by: 'M-Pesa Edge C2B',
-                note: 'C2B Registration Fee Verified'
+                allocated_by: 'M-Pesa Edge C2B'
             });
 
             await supabase.from('customers')
@@ -101,8 +100,7 @@ Deno.serve(async (req: Request) => {
             mpesa: TransID,
             date: todayStr,
             status: targetLoanId ? "Allocated" : "Unallocated",
-            allocated_by: targetLoanId ? "M-Pesa Edge C2B" : null,
-            note: `C2B Feed: ${payload.FirstName || ''} ${payload.LastName || ''}`.trim()
+            allocated_by: targetLoanId ? "M-Pesa Edge C2B" : null
         });
         if (payErr) console.error("[Edge C2B] Payment Log Error:", payErr.message);
     }

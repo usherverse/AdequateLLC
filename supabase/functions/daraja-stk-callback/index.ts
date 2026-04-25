@@ -104,8 +104,7 @@ Deno.serve(async (req: Request) => {
             date: todayStr,
             status: 'Allocated',
             is_reg_fee: true,
-            allocated_by: 'M-Pesa STK Callback',
-            note: 'STK Registration Fee Verified'
+            allocated_by: 'M-Pesa STK Callback'
         });
 
         if (payErr) {
@@ -135,8 +134,7 @@ Deno.serve(async (req: Request) => {
             mpesa: mpesaReceipt,
             date: todayStr,
             status: loan ? 'Allocated' : 'Unallocated',
-            allocated_by: 'M-Pesa STK Callback',
-            note: `STK Push Resolved for ${phone}`
+            allocated_by: loan ? 'M-Pesa STK Callback' : null
         });
 
         if (payErr) {
