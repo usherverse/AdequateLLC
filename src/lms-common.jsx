@@ -12690,6 +12690,7 @@ export const fromSupabasePayment = (r) => ({
   status: r.status,
   allocatedBy: r.allocated_by,
   isRegFee: r.is_reg_fee || false,
+  created_at: r.created_at,
 });
 export const toSupabaseLead = (l) => ({
   id: l.id,
