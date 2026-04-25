@@ -11,9 +11,9 @@ export function useRegistrationFee(customerId) {
   const [error, setError] = useState(null);
 
   const fetchStatus = useCallback(async () => {
-    // Guard: do nothing if no customer is selected
     if (!customerId) return;
     try {
+      // 1) Primary: Check if already registered
       const { data: cust } = await supabase
         .from('customers')
         .select('mpesa_registered')
@@ -23,10 +23,11 @@ export function useRegistrationFee(customerId) {
       if (cust?.mpesa_registered === true) {
         setStatus('paid');
         setWaitingForCallback(false);
+        setRequestId(null); // Clear request once confirmed
         return;
       }
 
-      // 2) Check payments ledger
+      // 2) Secondary: Check payments ledger for specific registration fee record
       const { data: regPayment } = await supabase
         .from('payments')
         .select('id')
@@ -37,56 +38,61 @@ export function useRegistrationFee(customerId) {
       if (regPayment) {
         setStatus('paid');
         setWaitingForCallback(false);
+        setRequestId(null);
         return;
       }
 
-      // 3) Check STK requests (only poll if actively waiting for a push)
-      if (!waitingForCallback && !requestId) return;
+      // 3) Polling: Only check STK requests if actively waiting for a push
+      if (!waitingForCallback || !requestId) return;
 
-      let query = supabase.from('stk_requests').select('status, result_desc').eq('reference', customerId);
-      
-      if (waitingForCallback && requestId) {
-         query = query.eq('checkout_request_id', requestId);
-      } else {
-         query = query.eq('status', 'Completed');
-      }
+      const { data: stkReq, error: stkErr } = await supabase
+        .from('stk_requests')
+        .select('status, result_desc')
+        .eq('checkout_request_id', requestId)
+        .maybeSingle();
 
-      const { data: stkReq, error: stkErr } = await query.order('created_at', { ascending: false }).limit(1).maybeSingle();
-
-      // Silently ignore errors from missing stk_requests table (42P01) or no rows (PGRST116)
-      if (stkErr && stkErr.code !== 'PGRST116' && stkErr.code !== '42P01') {
-        setError(stkErr.message);
+      if (stkErr) {
+        // Silently ignore table/row errors during background polling
+        if (stkErr.code !== 'PGRST116' && stkErr.code !== '42P01') {
+           console.warn('[useRegistrationFee] Query error:', stkErr.message);
+        }
         return;
       }
 
       if (stkReq) {
         const s = stkReq.status?.toLowerCase();
-        if (s === 'completed') {
-           setStatus('paid');
-           setWaitingForCallback(false);
-           setIsSuccess(true);
-           setFailureReason(null);
-        } else if (waitingForCallback && (s === 'failed' || s === 'cancelled')) {
-           setStatus('failed');
-           setWaitingForCallback(false);
-           setFailureReason(stkReq.result_desc || 'Transaction failed or cancelled by user.');
+        if (s === 'completed' || s === 'success') {
+          setStatus('paid');
+          setWaitingForCallback(false);
+          setIsSuccess(true);
+          setFailureReason(null);
+          setRequestId(null);
+        } else if (s === 'failed' || s === 'cancelled' || s === 'rejected') {
+          setStatus('failed');
+          setWaitingForCallback(false);
+          setFailureReason(stkReq.result_desc || 'Transaction was cancelled or failed.');
+          setRequestId(null);
         }
+        // If 'Pending', we just let the next interval run
       }
     } catch (err) {
-      // Don't surface network errors during background polling
       console.warn('[useRegistrationFee] poll error:', err.message);
     }
   }, [customerId, waitingForCallback, requestId]);
 
+  // Handle Initial Check and Polling
   useEffect(() => {
+    if (!customerId) return;
+    
+    // Always do one immediate check on mount/customer change
     fetchStatus();
-    // Only set up polling interval when we are actively waiting for a callback
-    if (!waitingForCallback && status !== 'pending') return;
-    const interval = setInterval(() => {
-      if (waitingForCallback || status === 'pending') fetchStatus();
-    }, 4000);
-    return () => clearInterval(interval);
-  }, [fetchStatus, status, waitingForCallback]);
+
+    // Set up polling ONLY when waiting for a callback
+    if (waitingForCallback && requestId) {
+      const interval = setInterval(fetchStatus, 4000);
+      return () => clearInterval(interval);
+    }
+  }, [customerId, waitingForCallback, requestId, fetchStatus]);
 
   const initiateStk = async (phone) => {
     setLoading(true);
@@ -125,9 +131,9 @@ export function useRegistrationFee(customerId) {
   };
 
   const reset = useCallback(() => {
-    setStatus('pending');
     setWaitingForCallback(false);
     setRequestId(null);
+    setStatus('pending');
     setIsSuccess(false);
     setFailureReason(null);
     setError(null);
