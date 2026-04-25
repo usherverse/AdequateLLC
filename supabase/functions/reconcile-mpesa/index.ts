@@ -5,7 +5,7 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-Deno.serve(async (req) => {
+Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
   try {
@@ -97,15 +97,15 @@ Deno.serve(async (req) => {
             customer_id: request.reference,
             customer_name: customer?.name || null,
             amount: request.amount || 500,
+            mpesa: result.MpesaReceiptNumber || null, // Capture receipt if available
             status: 'Allocated',
             is_reg_fee: true,
             note: 'Reconciled: M-Pesa STK Push Registration Fee'
           }]);
           
-          await supabaseClient.from('audit_logs').insert([{
+          await supabaseClient.from('audit_log').insert([{ // FIXED: audit_logs -> audit_log
             user_name: 'System (Reconciliation)',
             action: 'Payment Resolved',
-            target: request.reference,
             detail: `STK push resolved via reconciliation job. ID: ${request.checkout_request_id}`
           }]);
         } else if (resultCode === 1032 || resultCode === 1) {
@@ -113,10 +113,9 @@ Deno.serve(async (req) => {
           console.log(`[Reconcile] ❌ Marking failed STK for Request ${request.id} (Code: ${resultCode})`);
           await supabaseClient.from('stk_requests').update({ status: 'Failed', result_code: resultCode, result_desc: resultDesc }).eq('id', request.id);
           
-          await supabaseClient.from('audit_logs').insert([{
+          await supabaseClient.from('audit_log').insert([{ // FIXED: audit_logs -> audit_log
             user_name: 'System (Reconciliation)',
             action: 'Payment Failed (Resolved)',
-            target: request.reference,
             detail: `STK push marked failed via reconciliation. Code: ${resultCode}. Desc: ${resultDesc}`
           }]);
         } else {

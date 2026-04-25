@@ -70,18 +70,23 @@ Deno.serve(async (req: Request) => {
         });
 
         // 2. Also Record in Payments Ledger for frontend visibility
-        await supabase.from('payments').insert({
+        const { error: payErr } = await supabase.from('payments').insert({
             customer_id: request.reference,
             amount: amount,
-            mpesa_code: mpesaReceipt,
+            mpesa: mpesaReceipt, // FIXED: mpesa_code -> mpesa
             status: 'Allocated',
             is_reg_fee: true,
             note: 'STK Registration Fee Verified'
         });
 
+        if (payErr) {
+            console.error("[M-Pesa Edge] Registration Payment Log Error:", payErr.message);
+            throw new Error(`Payment insertion failed: ${payErr.message}`);
+        }
+
         // 3. Activate Customer
         await supabase.from('customers')
-            .update({ mpesa_registered: true })
+            .update({ mpesa_registered: true, status: 'Active' })
             .eq('id', request.reference);
     } else {
         // Standard Loan Payment Logic
@@ -94,14 +99,19 @@ Deno.serve(async (req: Request) => {
             .limit(1)
             .maybeSingle();
 
-        await supabase.from('payments').insert({
+        const { error: payErr } = await supabase.from('payments').insert({
             customer_id: request.reference,
             loan_id: loan?.id || null,
             amount,
-            mpesa_code: mpesaReceipt,
+            mpesa: mpesaReceipt, // FIXED: mpesa_code -> mpesa
             status: loan ? 'Allocated' : 'Unallocated',
             note: `Edge Logic: STK Push Resolved for ${phone}`
         });
+
+        if (payErr) {
+            console.error("[M-Pesa Edge] Loan Payment Log Error:", payErr.message);
+            throw new Error(`Payment insertion failed: ${payErr.message}`);
+        }
     }
 
     return new Response(JSON.stringify({ ResultCode: 0, ResultDesc: "Success" }), {

@@ -10,7 +10,7 @@ const supabaseUrl = Deno.env.get('SUPABASE_URL') || '';
 const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') || '';
 const supabase = createClient(supabaseUrl, supabaseKey);
 
-Deno.serve(async (req) => {
+Deno.serve(async (req: Request) => {
   try {
     const payload = await req.json();
     const TransID = payload.TransID;
@@ -25,7 +25,7 @@ Deno.serve(async (req) => {
     if (BillRefNumber) {
         const { data: cust } = await supabase.from('customers')
           .select('id, name, status')
-          .or(`id.eq."${BillRefNumber}",id_number.eq."${BillRefNumber}",account_number.eq."${BillRefNumber}"`)
+          .or(`id.eq.${BillRefNumber},id_no.eq.${BillRefNumber},account_number.eq.${BillRefNumber}`) // FIXED: id_number -> id_no
           .maybeSingle();
         if (cust) matchedCustomer = cust;
     }
@@ -41,7 +41,7 @@ Deno.serve(async (req) => {
     }
 
     // 2. Logic Split: Registration vs Loan Payment
-    if (matchedCustomer && amount === 500 && matchedCustomer.status === 'Pending') {
+    if (matchedCustomer && amount === 500 && (matchedCustomer.status === 'Pending' || matchedCustomer.status === 'pending')) {
         // Handle Registration Fee
         const { error } = await supabase.from("registration_fees").insert({
             customer_id: matchedCustomer.id,
@@ -52,7 +52,7 @@ Deno.serve(async (req) => {
         
         if (!error) {
             await supabase.from('customers')
-                .update({ mpesa_registered: true })
+                .update({ mpesa_registered: true, status: 'Active' })
                 .eq('id', matchedCustomer.id);
         } else {
             console.error("[Edge C2B] Reg Fee Error:", error.message);
@@ -71,17 +71,16 @@ Deno.serve(async (req) => {
             if (loan) targetLoanId = loan.id;
         }
 
-        const { error } = await supabase.from("payments").insert({
+        const { error: payErr } = await supabase.from("payments").insert({
             customer_id: matchedCustomer?.id || null,
             loan_id: targetLoanId,
             amount: amount,
-            mpesa_code: TransID, // Consistent with Shcemav4
-            phone_number: MSISDN,
+            mpesa: TransID, // FIXED: mpesa_code -> mpesa
             status: targetLoanId ? "Allocated" : "Unallocated",
             allocated_by: targetLoanId ? "M-Pesa Edge C2B" : null,
             note: `C2B Feed: ${payload.FirstName || ''} ${payload.LastName || ''}`.trim()
         });
-        if (error) console.error("[Edge C2B] Payment Log Error:", error.message);
+        if (payErr) console.error("[Edge C2B] Payment Log Error:", payErr.message);
     }
 
     return new Response(JSON.stringify({ ResultCode: 0, ResultDesc: "Accepted" }), {
