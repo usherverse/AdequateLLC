@@ -22,25 +22,35 @@ Deno.serve(async (req: Request) => {
        console.warn("Reconciliation triggered without Service Role Key.");
     }
 
-    console.log('[Reconcile] Checking for pending STK requests...');
-
-    // 2. Fetch STK requests pending for > 5 minutes
-    const fiveMinsAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString();
+    // 2. Determine target requests
+    const { checkout_request_id } = await req.json().catch(() => ({}));
     
-    const { data: pendingRequests, error } = await supabaseClient
-      .from('stk_requests')
-      .select('*')
-      .eq('status', 'Pending')
-      .lt('created_at', fiveMinsAgo);
-
-    if (error) {
-      throw new Error(`Error fetching pending STK: ${error.message}`);
+    let pendingRequests;
+    if (checkout_request_id) {
+       console.log(`[Reconcile] Targeted check for: ${checkout_request_id}`);
+       const { data, error: fetchErr } = await supabaseClient
+         .from('stk_requests')
+         .select('*')
+         .eq('checkout_request_id', checkout_request_id)
+         .maybeSingle();
+       if (fetchErr) throw fetchErr;
+       pendingRequests = data ? [data] : [];
+    } else {
+       console.log('[Reconcile] Checking all pending STK requests...');
+       const fiveMinsAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString();
+       const { data, error: fetchErr } = await supabaseClient
+         .from('stk_requests')
+         .select('*')
+         .eq('status', 'Pending')
+         .lt('created_at', fiveMinsAgo);
+       if (fetchErr) throw fetchErr;
+       pendingRequests = data || [];
     }
 
-    console.log(`[Reconcile] Found ${pendingRequests?.length || 0} hung STK requests.`);
+    console.log(`[Reconcile] Found ${pendingRequests.length} requests to verify.`);
     let processed = 0;
 
-    for (const request of (pendingRequests || [])) {
+    for (const request of pendingRequests) {
       try {
         console.log(`[Reconcile] Querying Safaricom for CheckoutRequestID: ${request.checkout_request_id}`);
         

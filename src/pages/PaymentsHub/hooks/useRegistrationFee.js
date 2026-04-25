@@ -87,11 +87,38 @@ export function useRegistrationFee(customerId) {
     // 1. Initial check on mount
     fetchStatus();
 
-    // 2. Set up Realtime Subscription if waiting for a push
+    // 2. Set up Polling Fallback (Every 5 seconds)
+    // This handles cases where Realtime is blocked or missed
+    const pollInterval = setInterval(() => {
+      if (waitingForCallback && requestId) {
+        console.log('[useRegistrationFee] Polling for update...');
+        fetchStatus();
+      }
+    }, 5000);
+
+    // 3. Set up Targeted Reconciliation Fallback (After 20 seconds)
+    // If we've waited 20s and still Pending, force a Safaricom query
+    const reconTimeout = setTimeout(async () => {
+      if (waitingForCallback && requestId) {
+        console.log('[useRegistrationFee] Triggering targeted reconciliation for:', requestId);
+        try {
+          await supabase.functions.invoke('reconcile-mpesa', {
+            body: { checkout_request_id: requestId }
+          });
+          // After calling reconcile, fetchStatus will see the DB update if Safaricom confirms success
+          fetchStatus();
+        } catch (err) {
+          console.warn('[useRegistrationFee] Recon trigger failed:', err.message);
+        }
+      }
+    }, 20000);
+
+    // 4. Set up Realtime Subscription if waiting for a push
+    let channel = null;
     if (waitingForCallback && requestId) {
       console.log('[useRegistrationFee] Subscribing to Realtime for:', requestId);
       
-      const channel = supabase
+      channel = supabase
         .channel(`stk-${requestId}`)
         .on(
           'postgres_changes',
@@ -122,7 +149,7 @@ export function useRegistrationFee(customerId) {
         )
         .subscribe();
 
-      // Safety Timeout (Fallback)
+      // Safety Timeout (Total Fallback)
       const safetyTimeout = setTimeout(() => {
         if (waitingForCallback) {
           console.warn('[useRegistrationFee] Realtime fallback timeout');
@@ -134,10 +161,17 @@ export function useRegistrationFee(customerId) {
       }, 90000);
 
       return () => {
-        supabase.removeChannel(channel);
+        if (channel) supabase.removeChannel(channel);
+        clearInterval(pollInterval);
+        clearTimeout(reconTimeout);
         clearTimeout(safetyTimeout);
       };
     }
+
+    return () => {
+      clearInterval(pollInterval);
+      clearTimeout(reconTimeout);
+    };
   }, [customerId, waitingForCallback, requestId, fetchStatus]);
 
   const [abortController, setAbortController] = useState(null);
