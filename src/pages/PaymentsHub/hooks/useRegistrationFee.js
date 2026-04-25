@@ -80,30 +80,61 @@ export function useRegistrationFee(customerId) {
     }
   }, [customerId, waitingForCallback, requestId]);
 
-  // Handle Initial Check and Polling with Safety Timeout
+  // Handle Realtime Updates for Instantaneous Feedback
   useEffect(() => {
     if (!customerId) return;
     
-    // Always do one immediate check on mount/customer change
+    // 1. Initial check on mount
     fetchStatus();
 
-    // Set up polling ONLY when waiting for a callback
+    // 2. Set up Realtime Subscription if waiting for a push
     if (waitingForCallback && requestId) {
-      const pollInterval = setInterval(fetchStatus, 4000);
+      console.log('[useRegistrationFee] Subscribing to Realtime for:', requestId);
       
-      // Safety Timeout: If no response after 90 seconds, force stop
+      const channel = supabase
+        .channel(`stk-${requestId}`)
+        .on(
+          'postgres_changes',
+          {
+            event: 'UPDATE',
+            schema: 'public',
+            table: 'stk_requests',
+            filter: `checkout_request_id=eq.${requestId}`
+          },
+          (payload) => {
+            const row = payload.new;
+            console.log('[useRegistrationFee] Realtime Update Received:', row.status);
+            
+            const s = row.status?.toLowerCase();
+            if (s === 'completed' || s === 'success') {
+              setStatus('paid');
+              setWaitingForCallback(false);
+              setIsSuccess(true);
+              setFailureReason(null);
+              setRequestId(null);
+            } else if (s === 'failed' || s === 'cancelled' || s === 'rejected') {
+              setStatus('failed');
+              setWaitingForCallback(false);
+              setFailureReason(row.result_desc || 'Transaction was cancelled.');
+              setRequestId(null);
+            }
+          }
+        )
+        .subscribe();
+
+      // Safety Timeout (Fallback)
       const safetyTimeout = setTimeout(() => {
         if (waitingForCallback) {
-          console.warn('[useRegistrationFee] Polling timed out after 90s');
+          console.warn('[useRegistrationFee] Realtime fallback timeout');
           setWaitingForCallback(false);
           setStatus('failed');
-          setFailureReason('The request timed out. Please check your phone or try again.');
+          setFailureReason('The request timed out. Please check your phone.');
           setRequestId(null);
         }
       }, 90000);
 
       return () => {
-        clearInterval(pollInterval);
+        supabase.removeChannel(channel);
         clearTimeout(safetyTimeout);
       };
     }
