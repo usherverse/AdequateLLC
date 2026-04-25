@@ -32,8 +32,8 @@ Deno.serve(async (req: Request) => {
     const registerPayload = {
       ShortCode: shortcode,
       ResponseType: "Completed",
-      ConfirmationURL: `${projectUrl}/functions/v1/daraja-c2b-callback`,
-      ValidationURL: `${projectUrl}/functions/v1/daraja-c2b-callback`,
+      ConfirmationURL: `${projectUrl}/functions/v1/daraja-c2b-callback?v=2`,
+      ValidationURL: `${projectUrl}/functions/v1/daraja-c2b-callback?v=2`,
     };
 
     const regRes = await fetch(`https://${mpesaEnv}/mpesa/c2b/v2/registerurl`, {

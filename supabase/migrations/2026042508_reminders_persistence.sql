@@ -1,4 +1,3 @@
-
 CREATE TABLE IF NOT EXISTS reminders (
     id TEXT PRIMARY KEY,
     title TEXT NOT NULL,
