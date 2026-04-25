@@ -108,7 +108,7 @@ const PaybillReceiptsTab = ({ payments = [], loans = [], customers = [], addAudi
       _suggestedId:   u.suggested_customer_id   || null,
       _suggestedName: u.suggested_customer_name || null,
     })),
-    ...(ledgerUnallocated || []).map(p => ({ ...p, _type: 'ledger', _date: p.date, _amount: p.amount, _ref: p.mpesa || p.id, _sender: p.customerName || p.customer }))
+    ...(ledgerUnallocated || []).map(p => ({ ...p, _type: 'ledger', _date: p.created_at || p.date, _amount: p.amount, _ref: p.mpesa || p.id, _sender: p.customerName || p.customer }))
   ].sort((a, b) => new Date(b._date || 0) - new Date(a._date || 0));
 
   return (
