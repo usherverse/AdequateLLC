@@ -73,9 +73,16 @@ Deno.serve(async (req: Request) => {
         .maybeSingle();
 
     const customerName = customer?.name || 'Unknown Customer';
-    const todayStr = new Date().toISOString().split('T')[0];
+    
+    // Use Africa/Nairobi time for the date string to ensure consistency with the frontend dashboard "Today" filter
+    const todayStr = new Intl.DateTimeFormat('en-CA', { 
+        timeZone: 'Africa/Nairobi',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit' 
+    }).format(new Date());
 
-    console.log(`[M-Pesa Edge] matched request: ${request.id}, reference: ${request.reference}, desc: ${request.description}`);
+    console.log(`[M-Pesa Edge] matched request: ${request.id}, reference: ${request.reference}, desc: ${request.description}, date: ${todayStr}`);
 
     // 6. Record the Payment (CONSISTENT WITH SCHEMAv4)
     if (request.description === 'Registration Fee') {

@@ -200,7 +200,7 @@ const PaymentsHub = ({ customers, setCustomers, loans, payments, setLoans, setPa
       <Card style={{ padding: 0, overflow: 'hidden', border: `1px solid ${T.border}`, width: '100%' }}>
         <div style={{ padding: 'clamp(12px, 2.5vw, 24px)' }}>
           {currentTab === 'disbursements' && <DisbursementsTab loans={loans} customers={customers} payments={payments} setLoans={setLoans} addAudit={addAudit} showToast={showToast} onManualLog={(c) => setManualLogData({ customer: c, type: 'loan_repayment' })} />}
-          {currentTab === 'registration-fee' && <RegistrationFeeTab customers={customers} loans={loans} payments={payments} setPayments={setPayments} addAudit={addAudit} showToast={showToast} onManualLog={(c) => setManualLogData({ customer: c, type: 'registration_fee' })} />}
+          {currentTab === 'registration-fee' && <RegistrationFeeTab customers={customers} setCustomers={setCustomers} loans={loans} payments={payments} setPayments={setPayments} addAudit={addAudit} showToast={showToast} onManualLog={(c) => setManualLogData({ customer: c, type: 'registration_fee' })} />}
           { currentTab === 'paybill' && <PaybillReceiptsTab loans={loans} payments={payments} customers={customers} addAudit={addAudit} showToast={showToast} setPayments={setPayments} setUnallocatedC2BCount={setUnallocatedC2BCount} /> }
           { currentTab === 'salaries' && <SalariesTab workers={workers || []} salaryPayments={salaryPayments} setSalaryPayments={setSalaryPayments} customers={customers} loans={loans} addAudit={addAudit} showToast={showToast} onNav={onNav} workerDeductions={workerDeductions} setWorkerDeductions={setWorkerDeductions} payments={payments} theme={theme} /> }
           { currentTab === 'audit' && <AuditTab /> }

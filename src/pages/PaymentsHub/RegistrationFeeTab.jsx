@@ -15,7 +15,7 @@ const customerHasPaidRegFee = (c, payments = []) =>
         (p.note.toLowerCase().includes('registration') || p.note.toLowerCase().includes('reg fee'))))
   );
 
-const RegistrationFeeTab = ({ customers = [], payments = [], showToast, onManualLog }) => {
+const RegistrationFeeTab = ({ customers = [], setCustomers, payments = [], setPayments, showToast, onManualLog }) => {
 
   const [searchParams, setSearchParams] = useSearchParams();
   const customerIdParam = searchParams.get('customerId');
@@ -26,6 +26,34 @@ const RegistrationFeeTab = ({ customers = [], payments = [], showToast, onManual
   const [loadingLocal, setLoadingLocal] = useState(false);
   // Only activate the hook (and its polling) when a specific customer is selected
   const { status, loading, waitingForCallback, isSuccess, failureReason, initiateStk, reset } = useRegistrationFee(customerIdParam || null);
+
+  // Sync with global state upon success
+  useEffect(() => {
+    if (isSuccess && customer) {
+      const today = new Date().toISOString().split('T')[0];
+      
+      // 1. Update Global Customers List
+      if (setCustomers) {
+        setCustomers(prev => prev.map(c => c.id === customer.id ? { ...c, mpesaRegistered: true } : c));
+      }
+
+      // 2. Update Global Payments Ledger
+      if (setPayments) {
+        // We create a local representation of the payment that Safaricom just confirmed
+        const newPayment = {
+          id: `STK-${Date.now()}`,
+          customerId: customer.id,
+          customer: customer.name,
+          amount: 1, // Matches the test amount
+          date: today,
+          status: 'Allocated',
+          isRegFee: true,
+          note: 'M-Pesa STK Push Verified'
+        };
+        setPayments(prev => [newPayment, ...prev]);
+      }
+    }
+  }, [isSuccess, customer, setCustomers, setPayments]);
 
   useEffect(() => {
     if (customerIdParam) {
