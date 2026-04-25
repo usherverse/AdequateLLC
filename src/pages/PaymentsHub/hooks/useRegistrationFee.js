@@ -140,7 +140,13 @@ export function useRegistrationFee(customerId) {
     }
   }, [customerId, waitingForCallback, requestId, fetchStatus]);
 
+  const [abortController, setAbortController] = useState(null);
+
   const initiateStk = async (phone) => {
+    // Create a new controller for this specific request
+    const controller = new AbortController();
+    setAbortController(controller);
+    
     setLoading(true);
     setError(null);
     setFailureReason(null);
@@ -151,6 +157,7 @@ export function useRegistrationFee(customerId) {
       
       const response = await fetch(`${supabaseUrl}/functions/v1/mpesa-stk-push`, {
         method: 'POST',
+        signal: controller.signal, // Connect the abort signal
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`
@@ -169,21 +176,34 @@ export function useRegistrationFee(customerId) {
       setWaitingForCallback(true);
       return data;
     } catch (err) {
+      if (err.name === 'AbortError') {
+        console.log('[useRegistrationFee] Request aborted by user');
+        return;
+      }
       setError(err.message);
       throw err;
     } finally {
       setLoading(false);
+      setAbortController(null);
     }
   };
 
   const reset = useCallback(() => {
+    // 1. Instantly kill any active network request
+    if (abortController) {
+      abortController.abort();
+    }
+    
+    // 2. Clear all states
     setWaitingForCallback(false);
     setRequestId(null);
     setStatus('pending');
     setIsSuccess(false);
     setFailureReason(null);
     setError(null);
-  }, []);
+    setLoading(false);
+    setAbortController(null);
+  }, [abortController]);
 
   return { status, loading, waitingForCallback, isSuccess, failureReason, error, initiateStk, reset, refresh: fetchStatus };
 }

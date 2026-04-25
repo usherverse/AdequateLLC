@@ -322,11 +322,11 @@ const RegistrationFeeTab = ({ customers = [], payments = [], showToast, onManual
         )}
       </div>
 
-      {waitingForCallback && (
+      {(waitingForCallback || loading) && (
         <WaitingOverlay 
-          title="Processing" 
-          message={`Sent to ${customer?.name || "phone"}`} 
-          sub="Verifying PIN entry..."
+          title={loading ? "Connecting" : "Processing"} 
+          message={loading ? "Establishing secure link with Safaricom..." : `Sent to ${customer?.name || "phone"}`} 
+          sub={loading ? "Please wait..." : "Verifying PIN entry..."}
           onClose={reset}
         />
       )}
