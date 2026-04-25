@@ -64,24 +64,70 @@ const DatabaseTab = ({allState,setLoans,setCustomers,setPayments,setWorkers,setL
     setRestoreStatus('');setUploadProgress(0);
     if (onGlobalReset) onGlobalReset();
 
-    import('@/config/supabaseClient').then(({supabase,DEMO_MODE})=>{
+    import('@/config/supabaseClient').then(async ({supabase,DEMO_MODE})=>{
       if(DEMO_MODE||!supabase) return;
       
-      // Use the server-side RPC for a clean, atomic wipe
-      supabase.rpc('global_wipe', { include_workers: true })
-        .then(({ error }) => {
-          if (error) {
-            console.error('[Global Wipe RPC Error]', error.message);
-            // Fallback to parallel deletes if RPC doesn't exist yet
-            const tablesToWipe = ['registration_fees', 'loans','customers','payments','leads','interactions','audit_log', 'workers', 'monthly_targets', 'salary_payments', 'worker_deductions', 'repossessed_assets', 'mpesa_transactions', 'stk_requests', 'b2c_disbursements'];
-            const NIL_UUID = '00000000-0000-0000-0000-000000000000';
-            tablesToWipe.forEach(table => {
-              let query = supabase.from(table).delete().neq('id', NIL_UUID);
-              if (table === 'workers') query = supabase.from(table).delete().neq('role', 'Super Admin').neq('role', 'Admin');
-              query.then(({error:e2}) => { if(e2) _sbErr('wipe-fallback', table, e2.message); });
-            });
+      // Try the server-side RPC first (atomic, FK-safe, bypasses RLS)
+      const { error: rpcErr } = await supabase.rpc('global_wipe', { include_workers: true });
+      
+      if (!rpcErr) {
+        console.log('[Global Wipe] RPC succeeded — all tables cleared atomically.');
+        return;
+      }
+      
+      console.warn('[Global Wipe RPC Error]', rpcErr.message, '— falling back to sequential deletes');
+      
+      // Fallback: SEQUENTIAL deletes in FK-safe order (children before parents)
+      // ORDER MATTERS: registration_fees must go before customers, loans before customers, etc.
+      const sequence = [
+        'registration_fees',  // FK → customers
+        'stk_requests',       // FK → customers  
+        'mpesa_transactions',
+        'b2c_disbursements',
+        'payments',           // FK → loans, customers
+        'loans',              // FK → customers
+        'interactions',       // FK → customers
+        'repossessed_assets', // FK → loans
+        'monthly_targets',
+        'salary_payments',
+        'worker_deductions',
+        'leads',
+        'customers',          // parent — must be last after all children
+        'workers',            // selective — keep admins
+      ];
+      
+      for (const table of sequence) {
+        try {
+          let q;
+          if (table === 'workers') {
+            q = supabase.from(table).delete().not('role', 'in', '("Super Admin","Admin","Director")');
+          } else {
+            // Handle both UUID and string ID columns
+            q = supabase.from(table).delete().neq('id', '00000000-0000-0000-0000-000000000000');
           }
-        });
+          const { error: e } = await q;
+          if (e) {
+            // Try string ID fallback for non-UUID tables
+            if (e.code === '22P02') {
+              await supabase.from(table).delete().neq('id', '__NONE__');
+            } else {
+              _sbErr('wipe-seq', table, e.message);
+            }
+          } else {
+            console.log(`[Global Wipe] ✓ ${table} cleared`);
+          }
+        } catch(ex) {
+          _sbErr('wipe-seq-catch', table, ex.message);
+        }
+      }
+      
+      // Also try audit_log separately (may have RLS - log errors silently)
+      try {
+        await supabase.from('audit_log').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+      } catch(ex) {
+        console.warn('[Global Wipe] audit_log skip (RLS):', ex.message);
+      }
+      
     }).catch(e=>_sbErr('import','doClear',e.message));
   };
 

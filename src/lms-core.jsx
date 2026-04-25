@@ -1519,8 +1519,11 @@ export default function App() {
           const cache2 = readCache();
           const hasWarm2 = !!(cache2?.customers?.length || cache2?.loans?.length || cache2?.payments?.length);
           const anyErrorFull = !!(lFull.error || pFull.error);
-          const allEmptyFull = nextLoans.length === 0 && nextPayments.length === 0;
-          if (!anyErrorFull && !(hasWarm2 && allEmptyFull)) {
+          // Only guard against empty-DB overwrite if cache has data AND DB genuinely has data
+          // (not a post-wipe empty state). This fixes ghost customer persistence after global wipe.
+          const cacheHasData = hasWarm2;
+          const dbAlsoHasData = nextLoans.length > 0 || nextPayments.length > 0;
+          if (!anyErrorFull && (!cacheHasData || dbAlsoHasData)) {
             setLoans(nextLoans);
             setPayments(nextPayments);
             writeCache({
@@ -1612,8 +1615,9 @@ export default function App() {
       if (Array.isArray(cache.payments)) setPayments(cache.payments);
       if ((cache.loans?.length || cache.customers?.length || cache.payments?.length)) setDataLoaded(true);
       
-      // If cache is fresh (less than 3 mins old), skip the background eager load.
-      const CACHE_TTL = 180000;
+      // If cache is fresh (less than 30 seconds old), skip the background eager load.
+      // NOTE: Keep this SHORT so M-Pesa payments appear promptly after callbacks fire.
+      const CACHE_TTL = 30000; // 30 seconds
       if (cache.ts && (Date.now() - cache.ts < CACHE_TTL)) {
         isStale = false;
         console.log('[load] Cache is warm. Skipping background eager sync.');
