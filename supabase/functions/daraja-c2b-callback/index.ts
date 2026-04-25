@@ -40,6 +40,15 @@ Deno.serve(async (req: Request) => {
         if (phoneMatch) matchedCustomer = phoneMatch;
     }
 
+    // Fetch customer name for the ledger
+    const customerName = matchedCustomer?.name || 'Unknown Paybill User';
+    
+    // Get current date in Nairobi time for the dashboard filter
+    const todayStr = new Intl.DateTimeFormat('en-CA', { 
+        timeZone: 'Africa/Nairobi',
+        year: 'numeric', month: '2-digit', day: '2-digit' 
+    }).format(new Date());
+
     // 2. Logic Split: Registration vs Loan Payment
     if (matchedCustomer && amount === 500 && (matchedCustomer.status === 'Pending' || matchedCustomer.status === 'pending')) {
         // Handle Registration Fee
@@ -47,17 +56,20 @@ Deno.serve(async (req: Request) => {
             customer_id: matchedCustomer.id,
             amount: amount,
             paid_at: new Date().toISOString(),
-            status: 'verified' // FIXED: status must be 'verified' to match DB constraints
+            status: 'paid' 
         });
         
         if (!error) {
             // Also record in central payments ledger for audit visibility
             await supabase.from('payments').insert({
                 customer_id: matchedCustomer.id,
+                customer_name: customerName,
                 amount: amount,
                 mpesa: TransID,
+                date: todayStr,
                 status: 'Allocated',
                 is_reg_fee: true,
+                allocated_by: 'M-Pesa Edge C2B',
                 note: 'C2B Registration Fee Verified'
             });
 
@@ -83,9 +95,11 @@ Deno.serve(async (req: Request) => {
 
         const { error: payErr } = await supabase.from("payments").insert({
             customer_id: matchedCustomer?.id || null,
+            customer_name: customerName,
             loan_id: targetLoanId,
             amount: amount,
-            mpesa: TransID, // FIXED: mpesa_code -> mpesa
+            mpesa: TransID,
+            date: todayStr,
             status: targetLoanId ? "Allocated" : "Unallocated",
             allocated_by: targetLoanId ? "M-Pesa Edge C2B" : null,
             note: `C2B Feed: ${payload.FirstName || ''} ${payload.LastName || ''}`.trim()

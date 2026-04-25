@@ -73,7 +73,7 @@ const DatabaseTab = ({allState,setLoans,setCustomers,setPayments,setWorkers,setL
           if (error) {
             console.error('[Global Wipe RPC Error]', error.message);
             // Fallback to parallel deletes if RPC doesn't exist yet
-            const tablesToWipe = ['loans','customers','payments','leads','interactions','audit_log', 'workers', 'monthly_targets', 'salary_payments', 'worker_deductions', 'repossessed_assets', 'mpesa_transactions', 'stk_requests', 'b2c_disbursements'];
+            const tablesToWipe = ['registration_fees', 'loans','customers','payments','leads','interactions','audit_log', 'workers', 'monthly_targets', 'salary_payments', 'worker_deductions', 'repossessed_assets', 'mpesa_transactions', 'stk_requests', 'b2c_disbursements'];
             const NIL_UUID = '00000000-0000-0000-0000-000000000000';
             tablesToWipe.forEach(table => {
               let query = supabase.from(table).delete().neq('id', NIL_UUID);
@@ -254,7 +254,7 @@ const DatabaseTab = ({allState,setLoans,setCustomers,setPayments,setWorkers,setL
       } else {
         // 1. Clear phase
         setRestoreStatus('warn:🗑️ Overwriting current database state...');
-        const tablesToDelete = ['audit_log', 'interactions', 'payments', 'loans', 'customers', 'leads', 'monthly_targets', 'salary_payments', 'worker_deductions', 'repossessed_assets', 'workers', 'mpesa_transactions', 'stk_requests', 'b2c_disbursements'];
+        const tablesToDelete = ['registration_fees', 'audit_log', 'interactions', 'payments', 'loans', 'customers', 'leads', 'monthly_targets', 'salary_payments', 'worker_deductions', 'repossessed_assets', 'workers', 'mpesa_transactions', 'stk_requests', 'b2c_disbursements'];
         const NIL_UUID = '00000000-0000-0000-0000-000000000000';
         for(const t of tablesToDelete) {
           let query;
