@@ -121,16 +121,16 @@ const PaybillReceiptsTab = ({ payments = [], loans = [], customers = [], addAudi
         <Btn onClick={fetchUnallocated} v="blue" sm>🔄 Refresh</Btn>
       </div>
 
-      <div style={{ overflowX: 'auto', border: `1px solid ${T.border}`, borderRadius: 16, background: T.card, width: '100%' }}>
+      <div style={{ overflowX: 'auto', overflowY: 'auto', maxHeight: 'calc(100vh - 380px)', border: `1px solid ${T.border}`, borderRadius: 16, background: T.card, width: '100%' }}>
         <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', minWidth: 900 }}>
           <thead>
-            <tr style={{ background: T.surface, borderBottom: `1px solid ${T.border}` }}>
-              <th style={{ padding: '14px 20px', color: T.muted, fontSize: 11, fontWeight: 800, textTransform: 'uppercase' }}>Source</th>
-              <th style={{ padding: '14px 20px', color: T.muted, fontSize: 11, fontWeight: 800, textTransform: 'uppercase' }}>Date</th>
-              <th style={{ padding: '14px 20px', color: T.muted, fontSize: 11, fontWeight: 800, textTransform: 'uppercase' }}>Amount</th>
-              <th style={{ padding: '14px 20px', color: T.muted, fontSize: 11, fontWeight: 800, textTransform: 'uppercase' }}>Sender / Customer</th>
-              <th style={{ padding: '14px 20px', color: T.muted, fontSize: 11, fontWeight: 800, textTransform: 'uppercase' }}>Receipt No</th>
-              <th style={{ padding: '14px 20px', color: T.muted, fontSize: 11, fontWeight: 800, textTransform: 'uppercase', textAlign: 'right' }}>Action</th>
+            <tr style={{ background: T.surface }}>
+              <th style={{ position: 'sticky', top: 0, zIndex: 10, background: T.surface, borderBottom: `1px solid ${T.border}`, padding: '14px 20px', color: T.muted, fontSize: 11, fontWeight: 800, textTransform: 'uppercase' }}>Source</th>
+              <th style={{ position: 'sticky', top: 0, zIndex: 10, background: T.surface, borderBottom: `1px solid ${T.border}`, padding: '14px 20px', color: T.muted, fontSize: 11, fontWeight: 800, textTransform: 'uppercase' }}>Date</th>
+              <th style={{ position: 'sticky', top: 0, zIndex: 10, background: T.surface, borderBottom: `1px solid ${T.border}`, padding: '14px 20px', color: T.muted, fontSize: 11, fontWeight: 800, textTransform: 'uppercase' }}>Amount</th>
+              <th style={{ position: 'sticky', top: 0, zIndex: 10, background: T.surface, borderBottom: `1px solid ${T.border}`, padding: '14px 20px', color: T.muted, fontSize: 11, fontWeight: 800, textTransform: 'uppercase' }}>Sender / Customer</th>
+              <th style={{ position: 'sticky', top: 0, zIndex: 10, background: T.surface, borderBottom: `1px solid ${T.border}`, padding: '14px 20px', color: T.muted, fontSize: 11, fontWeight: 800, textTransform: 'uppercase' }}>Receipt No</th>
+              <th style={{ position: 'sticky', top: 0, zIndex: 10, background: T.surface, borderBottom: `1px solid ${T.border}`, padding: '14px 20px', color: T.muted, fontSize: 11, fontWeight: 800, textTransform: 'uppercase', textAlign: 'right' }}>Action</th>
             </tr>
           </thead>
           <tbody>

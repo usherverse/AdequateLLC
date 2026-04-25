@@ -46,16 +46,16 @@ const AuditTab = () => {
         </Btn>
       </div>
 
-      <div style={{ overflowX: 'auto', border: `1px solid ${T.border}`, borderRadius: 12, background: T.card, width: '100%' }}>
+      <div style={{ overflowX: 'auto', overflowY: 'auto', maxHeight: 'calc(100vh - 350px)', border: `1px solid ${T.border}`, borderRadius: 12, background: T.card, width: '100%' }}>
         <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', minWidth: 800 }}>
           <thead>
-            <tr style={{ background: T.surface, borderBottom: `1px solid ${T.border}` }}>
-              <th style={{ padding: '14px clamp(12px, 2vw, 20px)', color: T.muted, fontSize: 11, fontWeight: 800, textTransform: 'uppercase', letterSpacing: 1 }}>Timestamp</th>
-              <th style={{ padding: '14px clamp(12px, 2vw, 20px)', color: T.muted, fontSize: 11, fontWeight: 800, textTransform: 'uppercase', letterSpacing: 1 }}>Source</th>
-              <th style={{ padding: '14px clamp(12px, 2vw, 20px)', color: T.muted, fontSize: 11, fontWeight: 800, textTransform: 'uppercase', letterSpacing: 1 }}>Customer</th>
-              <th style={{ padding: '14px clamp(12px, 2vw, 20px)', color: T.muted, fontSize: 11, fontWeight: 800, textTransform: 'uppercase', letterSpacing: 1 }}>Amount</th>
-              <th style={{ padding: '14px clamp(12px, 2vw, 20px)', color: T.muted, fontSize: 11, fontWeight: 800, textTransform: 'uppercase', letterSpacing: 1 }}>Receipt Number</th>
-              <th style={{ padding: '14px clamp(12px, 2vw, 20px)', color: T.muted, fontSize: 11, fontWeight: 800, textTransform: 'uppercase', letterSpacing: 1 }}>Status</th>
+            <tr style={{ background: T.surface }}>
+              <th style={{ position: 'sticky', top: 0, zIndex: 10, background: T.surface, borderBottom: `1px solid ${T.border}`, padding: '14px clamp(12px, 2vw, 20px)', color: T.muted, fontSize: 11, fontWeight: 800, textTransform: 'uppercase', letterSpacing: 1 }}>Timestamp</th>
+              <th style={{ position: 'sticky', top: 0, zIndex: 10, background: T.surface, borderBottom: `1px solid ${T.border}`, padding: '14px clamp(12px, 2vw, 20px)', color: T.muted, fontSize: 11, fontWeight: 800, textTransform: 'uppercase', letterSpacing: 1 }}>Source</th>
+              <th style={{ position: 'sticky', top: 0, zIndex: 10, background: T.surface, borderBottom: `1px solid ${T.border}`, padding: '14px clamp(12px, 2vw, 20px)', color: T.muted, fontSize: 11, fontWeight: 800, textTransform: 'uppercase', letterSpacing: 1 }}>Customer</th>
+              <th style={{ position: 'sticky', top: 0, zIndex: 10, background: T.surface, borderBottom: `1px solid ${T.border}`, padding: '14px clamp(12px, 2vw, 20px)', color: T.muted, fontSize: 11, fontWeight: 800, textTransform: 'uppercase', letterSpacing: 1 }}>Amount</th>
+              <th style={{ position: 'sticky', top: 0, zIndex: 10, background: T.surface, borderBottom: `1px solid ${T.border}`, padding: '14px clamp(12px, 2vw, 20px)', color: T.muted, fontSize: 11, fontWeight: 800, textTransform: 'uppercase', letterSpacing: 1 }}>Receipt Number</th>
+              <th style={{ position: 'sticky', top: 0, zIndex: 10, background: T.surface, borderBottom: `1px solid ${T.border}`, padding: '14px clamp(12px, 2vw, 20px)', color: T.muted, fontSize: 11, fontWeight: 800, textTransform: 'uppercase', letterSpacing: 1 }}>Status</th>
             </tr>
           </thead>
           <tbody>
