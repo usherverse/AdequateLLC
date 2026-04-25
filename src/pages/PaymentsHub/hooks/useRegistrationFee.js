@@ -164,7 +164,7 @@ export function useRegistrationFee(customerId) {
         },
         body: JSON.stringify({ 
           phone_number: phone, 
-          amount: 500, 
+          amount: 1, 
           customer_id: customerId,
           description: 'Registration Fee'
         }),
