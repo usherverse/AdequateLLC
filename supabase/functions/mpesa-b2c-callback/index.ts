@@ -54,10 +54,11 @@ Deno.serve(async (req: Request) => {
         .from("loans")
         .update({ 
           status: "Active", 
-          disbursed_at: new Date().toISOString() 
+          disbursed_at: new Date().toISOString(),
+          balance: record.amount // Ensure balance is set to the disbursed amount
         })
         .eq("id", record.loan_id)
-        .eq("status", "Approved"); // Only update if it hasn't mutated
+        .eq("status", "Approved");
 
       await supabaseClient.from("audit_log").insert({
         ts: new Date().toISOString(),
@@ -65,7 +66,7 @@ Deno.serve(async (req: Request) => {
         action: "Daraja Disbursed",
         target_table: "loans",
         target_id: record.loan_id,
-        detail: `M-Pesa System Auto Disbursement OK. Receipt: ${transactionId}`
+        detail: `M-Pesa System Auto Disbursement OK. Receipt: ${transactionId}. Amount: KES ${record.amount}`
       });
     } else {
       // Failed callback logic

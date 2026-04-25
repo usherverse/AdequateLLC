@@ -62,11 +62,11 @@ Deno.serve(async (req: Request) => {
     // This insertion fires 'trg_apply_payment' or 'trg_auto_activate_cust'
     if (request.description === 'Registration Fee') {
         // 1. Registration Fee Record
-        await supabase.from('registration_fees').insert({
+        const { error: regErr } = await supabase.from('registration_fees').insert({
             customer_id: request.reference,
             amount: amount,
             paid_at: new Date().toISOString(),
-            status: 'paid'
+            status: 'verified' // FIXED: status must be 'verified' to match DB constraints
         });
 
         // 2. Also Record in Payments Ledger for frontend visibility

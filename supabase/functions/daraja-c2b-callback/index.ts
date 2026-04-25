@@ -25,7 +25,7 @@ Deno.serve(async (req: Request) => {
     if (BillRefNumber) {
         const { data: cust } = await supabase.from('customers')
           .select('id, name, status')
-          .or(`id.eq.${BillRefNumber},id_no.eq.${BillRefNumber},account_number.eq.${BillRefNumber}`) // FIXED: id_number -> id_no
+          .or(`id.eq."${BillRefNumber}",id_no.eq."${BillRefNumber}",account_number.eq."${BillRefNumber}"`) // FIXED: quotes added for robustness
           .maybeSingle();
         if (cust) matchedCustomer = cust;
     }
@@ -47,10 +47,20 @@ Deno.serve(async (req: Request) => {
             customer_id: matchedCustomer.id,
             amount: amount,
             paid_at: new Date().toISOString(),
-            status: 'paid'
+            status: 'verified' // FIXED: status must be 'verified' to match DB constraints
         });
         
         if (!error) {
+            // Also record in central payments ledger for audit visibility
+            await supabase.from('payments').insert({
+                customer_id: matchedCustomer.id,
+                amount: amount,
+                mpesa: TransID,
+                status: 'Allocated',
+                is_reg_fee: true,
+                note: 'C2B Registration Fee Verified'
+            });
+
             await supabase.from('customers')
                 .update({ mpesa_registered: true, status: 'Active' })
                 .eq('id', matchedCustomer.id);
