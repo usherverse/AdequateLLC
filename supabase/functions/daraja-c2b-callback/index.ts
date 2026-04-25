@@ -16,12 +16,27 @@ const genPayId = () => 'PAY-' + crypto.randomUUID().replace(/-/g, '').substring(
 Deno.serve(async (req: Request) => {
   try {
     const payload = await req.json();
+    
+    // RAW AUDIT LOGGING (Captures even if logic below fails)
+    await supabase.from('raw_mpesa_logs').insert({ 
+        payload, 
+        source: 'daraja-c2b-callback' 
+    });
+
+    // FAST RESPONSE FOR MPESA VALIDATION/CONFIRMATION
+    // Respond immediately to prevent Safaricom timeout (2s limit)
+    const fastResponse = new Response(JSON.stringify({ ResultCode: 0, ResultDesc: "Accepted" }), {
+        headers: { "Content-Type": "application/json" }
+    });
+
+
     const TransID = payload.TransID;
     const amount = Number(payload.TransAmount);
     const MSISDN = payload.MSISDN;
     const BillRefNumber = (payload.BillRefNumber || "").trim();
 
     console.log(`[M-Pesa Edge C2B] Received TxID: ${TransID}, Amount: ${amount}, Ref: ${BillRefNumber}`);
+
 
     // 1. Identification: Match Customer by BillRef or Phone
     let matchedCustomer = null;

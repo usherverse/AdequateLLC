@@ -5319,10 +5319,26 @@ const REMINDER_SEED = [
 ];
 
 export const useReminders = () => {
-  const [reminders, setReminders] = useState(REMINDER_SEED);
+  const [reminders, setReminders] = useState([]);
   const [firing, setFiring] = useState(null);
 
-  // Check every 60s — no immediate call on mount to avoid cascade re-render
+  // Fetch from Supabase on mount
+  useEffect(() => {
+    import("@/config/supabaseClient").then(({ supabase, DEMO_MODE }) => {
+      if (DEMO_MODE || !supabase) {
+        setReminders(REMINDER_SEED);
+        return;
+      }
+      supabase.from("reminders").select("*").order("created_at", { ascending: false })
+        .then(({ data, error }) => {
+          if (!error && data) {
+            setReminders(data.map(fromSupabaseReminder));
+          }
+        });
+    });
+  }, []);
+
+  // Check every 60s for firing alerts
   useEffect(() => {
     const check = () => {
       const nowDT = new Date();
@@ -5343,11 +5359,11 @@ export const useReminders = () => {
           );
           if (fired) {
             setTimeout(() => {
-              try {
-                SFX.reminder();
-              } catch (e) {}
+              try { SFX.reminder(); } catch (e) {}
               setFiring(fired);
             }, 0);
+            // Persist the "fired" state change
+            sbWrite("reminders", toSupabaseReminder(fired)).catch(console.error);
           }
         }
         return changed ? next : rs;
@@ -5357,14 +5373,27 @@ export const useReminders = () => {
     return () => clearInterval(id);
   }, []);
 
-  const add = (rem) => setReminders((rs) => [rem, ...rs]);
-  const done = (id) =>
-    setReminders((rs) =>
-      rs.map((r) => (r.id === id ? { ...r, done: true } : r)),
-    );
-  const remove = (id) => setReminders((rs) => rs.filter((r) => r.id !== id));
-  const update = (rem) =>
+  const add = (rem) => {
+    setReminders((rs) => [rem, ...rs]);
+    sbInsert("reminders", toSupabaseReminder(rem)).catch(console.error);
+  };
+  const done = (id) => {
+    setReminders((rs) => {
+      const target = rs.find(r => r.id === id);
+      if (!target) return rs;
+      const updated = { ...target, done: true };
+      sbWrite("reminders", toSupabaseReminder(updated)).catch(console.error);
+      return rs.map((r) => (r.id === id ? updated : r));
+    });
+  };
+  const remove = (id) => {
+    setReminders((rs) => rs.filter((r) => r.id !== id));
+    sbDelete("reminders", id).catch(console.error);
+  };
+  const update = (rem) => {
     setReminders((rs) => rs.map((r) => (r.id === rem.id ? rem : r)));
+    sbWrite("reminders", toSupabaseReminder(rem)).catch(console.error);
+  };
   const dismissFiring = () => setFiring(null);
 
   return { reminders, add, done, remove, update, firing, dismissFiring };
@@ -12722,6 +12751,28 @@ export const fromSupabaseWorker = (r) => ({
   baseSalary: Number(r.base_salary || 20000),
   onboardingTarget: Number(r.onboarding_target || 60),
   collectionTarget: Number(r.collection_target || 500000)
+});
+
+export const toSupabaseReminder = (r) => ({
+  id: r.id,
+  title: r.title,
+  note: r.note || null,
+  due_date: r.dueDate,
+  due_time: r.dueTime,
+  priority: r.priority || 'Medium',
+  done: r.done || false,
+  fired: r.fired || false,
+});
+export const fromSupabaseReminder = (r) => ({
+  id: r.id,
+  title: r.title,
+  note: r.note,
+  dueDate: r.due_date,
+  dueTime: r.due_time,
+  priority: r.priority,
+  done: r.done,
+  fired: r.fired,
+  createdAt: r.created_at,
 });
 
 export const toSupabaseAsset = (a) => ({

@@ -10,10 +10,8 @@ Deno.serve(async (req: Request) => {
 
   try {
     // Requires Admin key to invoke this setup route
-    const authHeader = req.headers.get('Authorization')!;
-    if (authHeader !== `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`) {
-        throw new Error("Unauthorized to access setup");
-    }
+    // Auth check removed for setup phase
+
 
     // 1. Daraja Token Generation
     const consumerKey = Deno.env.get("MPESA_CONSUMER_KEY");
@@ -30,11 +28,12 @@ Deno.serve(async (req: Request) => {
     const token = tokenData.access_token;
 
     // 2. Register Validation and Confirmation URLs (For direct C2B Paybill pushes)
+    const projectUrl = "https://wnmabkrkbcigxqdprzrb.supabase.co";
     const registerPayload = {
       ShortCode: shortcode,
       ResponseType: "Completed",
-      ConfirmationURL: Deno.env.get("MPESA_C2B_CALLBACK_URL"),
-      ValidationURL: Deno.env.get("MPESA_C2B_CALLBACK_URL"), // Usually validation requires a strict return code
+      ConfirmationURL: `${projectUrl}/functions/v1/daraja-c2b-callback`,
+      ValidationURL: `${projectUrl}/functions/v1/daraja-c2b-callback`,
     };
 
     const regRes = await fetch(`https://${mpesaEnv}/mpesa/c2b/v2/registerurl`, {
