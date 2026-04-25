@@ -44,7 +44,8 @@ Deno.serve(async (req: Request) => {
       .update({ 
         status: 'Completed', 
         mpesa_receipt: mpesaReceipt, 
-        result_code: 0 
+        result_code: 0,
+        result_desc: 'Success'
       })
       .eq('checkout_request_id', cb.CheckoutRequestID)
       .select()

@@ -31,7 +31,9 @@ CREATE POLICY "stk_read"   ON public.stk_requests FOR SELECT TO authenticated US
 CREATE POLICY "stk_insert" ON public.stk_requests FOR INSERT TO authenticated WITH CHECK (true);
 CREATE POLICY "stk_update" ON public.stk_requests FOR UPDATE TO authenticated USING (true);
 -- Allow service role (Edge Functions) to insert without auth
+DROP POLICY IF EXISTS "stk_service_insert" ON public.stk_requests;
 CREATE POLICY "stk_service_insert" ON public.stk_requests FOR INSERT TO service_role WITH CHECK (true);
+DROP POLICY IF EXISTS "stk_service_update" ON public.stk_requests;
 CREATE POLICY "stk_service_update" ON public.stk_requests FOR UPDATE TO service_role USING (true);
 
 
