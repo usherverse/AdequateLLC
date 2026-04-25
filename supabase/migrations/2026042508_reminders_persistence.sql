@@ -16,6 +16,8 @@ CREATE TABLE IF NOT EXISTS reminders (
 ALTER TABLE reminders ENABLE ROW LEVEL SECURITY;
 
 -- Simple policy for now (public access for the demo app, same as other tables)
+-- Use drop first to avoid "already exists" errors during re-runs
+DROP POLICY IF EXISTS "Public Reminders Access" ON reminders;
 CREATE POLICY "Public Reminders Access" ON reminders FOR ALL USING (true);
 
 -- Grant access to roles
