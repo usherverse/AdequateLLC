@@ -4854,7 +4854,7 @@ export const LoanForm = ({
   };
 
   const save = async () => {
-    if (!f.cid || Number(f.amount) < 500) {
+    if (!f.cid || Number(f.amount) < 5000) {
       setShowVal(true);
       return false;
     }
@@ -4944,7 +4944,7 @@ export const LoanForm = ({
 
       {showVal && (
         <ValidationPopup
-          fields={["Customer selection", "Loan amount (min KES 500)"]}
+          fields={["Customer selection", "Loan amount (min KES 5000)"]}
           onClose={() => setShowVal(false)}
         />
       )}
@@ -5153,9 +5153,9 @@ export const LoanForm = ({
           type="number"
           value={f.amount}
           onChange={s("amount")}
-          hint="Min KES 500"
+          hint="Min KES 5000"
           required
-          error={Number(f.amount) < 500}
+          error={Number(f.amount) < 5000}
           half
         />
         <FI
@@ -5167,7 +5167,7 @@ export const LoanForm = ({
           half
         />
       </div>
-      {Number(f.amount) >= 500 && (
+      {Number(f.amount) >= 5000 && (
         <div
           style={{
             background: T.surface,
