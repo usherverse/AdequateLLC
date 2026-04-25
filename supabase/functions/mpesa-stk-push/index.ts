@@ -24,6 +24,15 @@ Deno.serve(async (req) => {
         throw new Error("Missing amount, phone_number, or customer_id");
     }
 
+    // Fetch the customer's National ID (id_no) to use as the AccountReference
+    const { data: customer, error: custError } = await supabaseClient
+      .from('customers')
+      .select('id_no, account_number')
+      .eq('id', customer_id)
+      .maybeSingle();
+
+    const accountRef = customer?.id_no || customer?.account_number || customer_id;
+
     // Process Phone Number (Kenyan Format 2547XXXXXXXX)
     let phoneStr = String(phone_number).replace(/\D/g, "");
     if (phoneStr.startsWith("0")) phoneStr = "254" + phoneStr.substring(1);
@@ -51,7 +60,7 @@ Deno.serve(async (req) => {
     const password = btoa(`${shortcode}${passkey}${ts}`);
 
     // Sanitize AccountReference (Max 12 chars, no spaces)
-    const accRef = String(customer_id).substring(0, 12).replace(/\s/g, '');
+    const accRef = String(accountRef).substring(0, 12).replace(/\s/g, '');
     
     // Sanitize TransactionDesc (Max 13 chars)
     // If it's a registration fee, we'll use "Reg: [ID]" 

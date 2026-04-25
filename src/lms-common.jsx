@@ -12590,7 +12590,7 @@ export const toSupabaseCustomer = (c) => ({
   joined: c.joined || c.createdAt || null,
   mpesa_registered: c.mpesaRegistered || false,
   // ── M-PESA C2B ADDITIONS ──
-  account_number: c.accountNumber || c.id,
+  account_number: c.idNo || c.idNumber || c.accountNumber || c.id,
   id_number: c.idNumber || c.idNo,
   uses_id_as_account: c.usesIdAsAccount || false,
 });
