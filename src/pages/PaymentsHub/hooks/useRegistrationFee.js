@@ -80,7 +80,7 @@ export function useRegistrationFee(customerId) {
     }
   }, [customerId, waitingForCallback, requestId]);
 
-  // Handle Initial Check and Polling
+  // Handle Initial Check and Polling with Safety Timeout
   useEffect(() => {
     if (!customerId) return;
     
@@ -89,8 +89,23 @@ export function useRegistrationFee(customerId) {
 
     // Set up polling ONLY when waiting for a callback
     if (waitingForCallback && requestId) {
-      const interval = setInterval(fetchStatus, 4000);
-      return () => clearInterval(interval);
+      const pollInterval = setInterval(fetchStatus, 4000);
+      
+      // Safety Timeout: If no response after 90 seconds, force stop
+      const safetyTimeout = setTimeout(() => {
+        if (waitingForCallback) {
+          console.warn('[useRegistrationFee] Polling timed out after 90s');
+          setWaitingForCallback(false);
+          setStatus('failed');
+          setFailureReason('The request timed out. Please check your phone or try again.');
+          setRequestId(null);
+        }
+      }, 90000);
+
+      return () => {
+        clearInterval(pollInterval);
+        clearTimeout(safetyTimeout);
+      };
     }
   }, [customerId, waitingForCallback, requestId, fetchStatus]);
 
