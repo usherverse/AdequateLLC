@@ -723,6 +723,19 @@ const WorkerPortal = ({workers,setWorkers,loans,setLoans,customers,setCustomers,
 
   const [loading,setLoading]=useState(false);
 
+  // Auto-login logic: Instantly trigger if PIN matches the worker's local hash
+  useEffect(() => {
+    if (pw.length < 4 || loading || loggedIn || !email) return;
+    
+    const candidate = workers.find(x => x.email === email.trim() && x.status === 'Active');
+    if (candidate) {
+      const isCorrect = _checkPw(pw, candidate.pwHash || candidate.pw || '');
+      if (isCorrect) {
+        login();
+      }
+    }
+  }, [pw, email, loading, loggedIn, workers]);
+
   const login=()=>{
     if(!email||!pw){setErr('Enter your email and password.');return;}
     setLoading(true);
@@ -998,6 +1011,20 @@ const AdminLogin = ({onLogin,onWorkerPortal}) => {
   // if(secCfg.otpEnabled) enabledSteps.push('OTP');
   if(enabledSteps.length===0) enabledSteps.push('Password');
 
+  // Auto-login logic: Instantly trigger if password/PIN matches the local hash
+  useEffect(() => {
+    if (pw.length < 4 || loading || locked || step !== 1) return;
+    
+    const stored = secCfg.adminPwHash;
+    const isCorrect = stored 
+      ? _checkPw(pw, stored) 
+      : pw === DEFAULT_ADMIN_PW;
+
+    if (isCorrect) {
+      stepPw();
+    }
+  }, [pw, loading, locked, step, secCfg.adminPwHash]);
+
   const stepPw=()=>{
     if(locked)return;
     if(pw.length<4){setErr('Password too short.');return;}
@@ -1100,6 +1127,13 @@ const AdminLogin = ({onLogin,onWorkerPortal}) => {
     if (step === 3 && enabledSteps[2] === 'OTP') sendOtp();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [step]);
+
+  // Auto-submit for 6-digit OTP
+  useEffect(() => {
+    if (otpInput.length === 6 && !loading) {
+      stepTotp();
+    }
+  }, [otpInput, loading]);
 
   const steps = enabledSteps;
   return (
