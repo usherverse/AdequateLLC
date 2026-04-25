@@ -37,7 +37,7 @@ Deno.serve(async (req: Request) => {
       ValidationURL: Deno.env.get("MPESA_C2B_CALLBACK_URL"), // Usually validation requires a strict return code
     };
 
-    const regRes = await fetch(`https://${mpesaEnv}/mpesa/c2b/v1/registerurl`, {
+    const regRes = await fetch(`https://${mpesaEnv}/mpesa/c2b/v2/registerurl`, {
       method: "POST",
       headers: {
         Authorization: `Bearer ${token}`,
