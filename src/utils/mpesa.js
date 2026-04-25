@@ -106,3 +106,34 @@ export async function initiateWorkerPayout({ worker_id, amount, phone }) {
     throw err;
   }
 }
+
+/**
+ * checkAccountBalance
+ * Triggers the Daraja Account Balance API.
+ * The result is sent asynchronously to the mpesa-balance-callback.
+ */
+export async function checkAccountBalance() {
+  if (DEMO_MODE) {
+    console.warn('[M-Pesa] Account balance simulated in Demo Mode');
+    return { success: true, message: 'Demo Mode: Balance check simulated' };
+  }
+
+  try {
+    const token = await getAuthToken();
+    const response = await fetch(getEdgeUrl('trigger-account-balance'), {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`
+      }
+    });
+
+    const res = await response.json();
+    if (!response.ok) throw new Error(res.error || 'Failed to initiate balance check');
+    return { success: true, ...res };
+  } catch (err) {
+    console.error('[M-Pesa] Balance check failed:', err.message);
+    throw err;
+  }
+}
+

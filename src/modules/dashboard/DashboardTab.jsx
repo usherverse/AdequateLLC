@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect } from 'react';
-import { Home, TrendingUp, AlertTriangle, CheckCircle, BarChart, HardHat, User, UserPlus, Clock, Target, Activity } from 'lucide-react';
+import { Home, TrendingUp, AlertTriangle, CheckCircle, BarChart, HardHat, User, UserPlus, Clock, Target, Activity, Wallet, RefreshCw } from 'lucide-react';
 import { T, SC, RC, SFX, Card, CH, KPI, DT, Btn, Badge, Av, Bar, BackBtn, RefreshBtn,
   FI, PhoneInput, NumericInput, Search, Pills, Alert, Dialog, ConfirmDialog, ToastContainer,
   LoanModal, LoanForm, RepayTracker, LivePortfolioChart, WeeklyCollectionsChart,
@@ -56,6 +56,43 @@ const DashboardTab = ({adminUser,loans,setLoans,customers,setCustomers,payments,
   const [savingTarget, setSavingTarget] = useState(false);
   const setSelLoan = (l) => { setSelLoanRaw(l); if(l) setTimeout(()=>{ try{scrollTop?.();}catch(e){} },10); };
   const setSelCust = (c) => onOpenCustomerProfile?.(c.id);
+
+  const [paybillBalance, setPaybillBalance] = useState({ working: 0, utility: 0, lastUpdate: null, updating: false });
+
+  useEffect(() => {
+    const fetchBalance = async () => {
+      try {
+        const { supabase } = await import('@/config/supabaseClient');
+        const { data } = await supabase.from('paybill_balance').select('*').eq('id', 1).single();
+        if (data) {
+          setPaybillBalance(prev => ({ ...prev, working: data.working_balance, utility: data.utility_balance, lastUpdate: data.last_updated }));
+        }
+      } catch (e) { }
+    };
+    fetchBalance();
+
+    let sub;
+    import('@/config/supabaseClient').then(({ supabase }) => {
+      sub = supabase.channel('balance_sub')
+        .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'paybill_balance' }, (p) => {
+           setPaybillBalance(prev => ({ ...prev, working: p.new.working_balance, utility: p.new.utility_balance, lastUpdate: p.new.last_updated, updating: false }));
+        }).subscribe();
+    });
+
+    return () => { if (sub) sub.unsubscribe(); };
+  }, []);
+
+  const handleCheckBalance = async () => {
+    setPaybillBalance(prev => ({ ...prev, updating: true }));
+    try {
+      const { checkAccountBalance } = await import('@/utils/mpesa');
+      await checkAccountBalance();
+      // Real-time sub will clear 'updating'
+    } catch (e) {
+      setPaybillBalance(prev => ({ ...prev, updating: false }));
+      alert('Failed to trigger balance check: ' + e.message);
+    }
+  };
 
   const dashDerived = useMemo(() => {
     const d = deriveDashboardMetrics(loans, payments, customers);
@@ -387,6 +424,21 @@ const DashboardTab = ({adminUser,loans,setLoans,customers,setCustomers,payments,
             <RefreshBtn onRefresh={() => { onRefresh?.(); setDrill(null); }} style={{ padding: '12px 20px', borderRadius: 16, background: T.accent, color: '#000', border: 'none' }} />
           </div>
         </div>
+      </div>
+
+      {/* Live Paybill Balance Banner */}
+      <div className="glass-card" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: `${T.accent}05`, padding: '20px 28px', borderRadius: 24, border: `1px solid ${T.accent}20`, marginBottom: 16 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+          <div style={{ width: 56, height: 56, borderRadius: 16, background: `${T.accent}15`, display: 'flex', alignItems: 'center', justifyContent: 'center', color: T.accent }}>
+            <Wallet size={28} />
+          </div>
+          <div>
+            <div style={{ fontSize: 11, fontWeight: 900, color: T.dim, textTransform: 'uppercase', letterSpacing: 1.5, marginBottom: 4 }}>Live M-Pesa Paybill Liquidity</div>
+            <div style={{ fontSize: 32, fontWeight: 950, color: T.txt, fontFamily: T.head, letterSpacing: '-0.02em', lineHeight: 1 }}>{fmt(paybillBalance.utility || 0)}</div>
+            {paybillBalance.lastUpdate && <div style={{ fontSize: 11, color: T.muted, marginTop: 6, fontWeight: 600 }}>Last sync: {new Date(paybillBalance.lastUpdate).toLocaleString('en-KE')}</div>}
+          </div>
+        </div>
+        <Btn v="accent" style={{ background: `linear-gradient(135deg, ${T.accent}, #00a884)`, color: '#000', height: 44, borderRadius: 12, fontWeight: 900, border: 'none', padding: '0 20px' }} loading={paybillBalance.updating} onClick={handleCheckBalance} icon={RefreshCw}>Live Sync</Btn>
       </div>
 
       {/* KPI Row 1 */}
