@@ -20,25 +20,34 @@ Deno.serve(async (req: Request) => {
     const cb = payload.Body?.stkCallback;
     if (!cb) throw new Error("Invalid STK Callback payload");
 
-    // 1. Handle Failures (User cancelled, Timeout, etc.)
+    const checkoutId = cb.CheckoutRequestID;
+    console.log(`[M-Pesa Edge] Processing Callback for: ${checkoutId}`);
+
+    // 1. IMMEDIATE DIAGNOSTIC UPDATE: Mark as 'Processing' so we know the callback reached us
+    await supabase.from('stk_requests').update({ 
+        status: 'Processing',
+        result_desc: `Callback received at ${new Date().toISOString()}`
+    }).eq('checkout_request_id', checkoutId);
+
+    // 2. Handle Failures (User cancelled, Timeout, etc.)
     if (cb.ResultCode !== 0) {
       console.warn(`[M-Pesa Edge] STK Failed: ${cb.ResultDesc} (${cb.ResultCode})`);
       await supabase.from('stk_requests').update({ 
         status: 'Failed', 
         result_code: cb.ResultCode, 
         result_desc: cb.ResultDesc 
-      }).eq('checkout_request_id', cb.CheckoutRequestID);
+      }).eq('checkout_request_id', checkoutId);
       
       return new Response(JSON.stringify({ ResultCode: 0, ResultDesc: "Failure Acknowledged" }));
     }
 
-    // 2. Extract Success Data
+    // 3. Extract Success Data
     const meta = cb.CallbackMetadata?.Item || [];
     const mpesaReceipt = meta.find((i: any) => i.Name === 'MpesaReceiptNumber')?.Value;
     const amount = parseFloat(meta.find((i: any) => i.Name === 'Amount')?.Value);
     const phone = meta.find((i: any) => i.Name === 'PhoneNumber')?.Value;
 
-    // 3. Match Request in DB
+    // 4. Match and Update Request in DB
     const { data: request, error: reqErr } = await supabase
       .from('stk_requests')
       .update({ 
@@ -47,7 +56,7 @@ Deno.serve(async (req: Request) => {
         result_code: 0,
         result_desc: 'Success'
       })
-      .eq('checkout_request_id', cb.CheckoutRequestID)
+      .eq('checkout_request_id', checkoutId)
       .select()
       .maybeSingle();
 
@@ -121,6 +130,21 @@ Deno.serve(async (req: Request) => {
 
   } catch (err: any) {
     console.error("[M-Pesa Edge] Critical Error:", err.message);
+    
+    // Attempt to log the error to the database if we have a CheckoutID
+    try {
+        const payload = await req.clone().json().catch(() => ({}));
+        const checkoutId = payload.Body?.stkCallback?.CheckoutRequestID;
+        if (checkoutId) {
+            await supabase.from('stk_requests').update({
+                status: 'Failed',
+                result_desc: `Internal Processing Error: ${err.message}`
+            }).eq('checkout_request_id', checkoutId);
+        }
+    } catch (loggingErr) {
+        console.error("Failed to log error to DB:", loggingErr.message);
+    }
+
     return new Response(JSON.stringify({ ResultCode: 0, ResultDesc: "Acknowledged Error" }));
   }
 });
