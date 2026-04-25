@@ -66,7 +66,7 @@ const DatabaseTab = ({allState,setLoans,setCustomers,setPayments,setWorkers,setL
 
     import('@/config/supabaseClient').then(({supabase,DEMO_MODE})=>{
       if(DEMO_MODE||!supabase) return;
-      const tablesToWipe = ['loans','customers','payments','leads','interactions','audit_log', 'workers', 'monthly_targets', 'salary_payments', 'worker_deductions', 'repossessed_assets'];
+      const tablesToWipe = ['loans','customers','payments','leads','interactions','audit_log', 'workers', 'monthly_targets', 'salary_payments', 'worker_deductions', 'repossessed_assets', 'mpesa_transactions', 'stk_requests', 'b2c_disbursements'];
       const NIL_UUID = '00000000-0000-0000-0000-000000000000';
       tablesToWipe.forEach(table => {
         let query;
@@ -262,7 +262,7 @@ const DatabaseTab = ({allState,setLoans,setCustomers,setPayments,setWorkers,setL
       } else {
         // 1. Clear phase
         setRestoreStatus('warn:🗑️ Overwriting current database state...');
-        const tablesToDelete = ['audit_log', 'interactions', 'payments', 'loans', 'customers', 'leads', 'monthly_targets', 'salary_payments', 'worker_deductions', 'repossessed_assets', 'workers'];
+        const tablesToDelete = ['audit_log', 'interactions', 'payments', 'loans', 'customers', 'leads', 'monthly_targets', 'salary_payments', 'worker_deductions', 'repossessed_assets', 'workers', 'mpesa_transactions', 'stk_requests', 'b2c_disbursements'];
         const NIL_UUID = '00000000-0000-0000-0000-000000000000';
         for(const t of tablesToDelete) {
           let query;
