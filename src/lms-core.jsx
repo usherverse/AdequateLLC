@@ -1369,6 +1369,7 @@ const CUSTOMERS_PAGE = 200;
 
 export default function App() {
 
+  const { session, worker, signOut } = useAuth();
   const [mode, _setMode] = useState(() => localStorage.getItem('acl_mode') || 'admin-login');
   const setMode = useCallback((m) => {
     _setMode(m);
@@ -1412,6 +1413,13 @@ export default function App() {
     try {
       const { supabase, DEMO_MODE } = await import('@/config/supabaseClient');
       if (DEMO_MODE || !supabase) { setDataLoaded(true); return; }
+
+      // Use current session from useAuth if possible, otherwise get it
+      const { data: { session: currentSession } } = await supabase.auth.getSession();
+      if (!currentSession) {
+        setDataLoaded(true);
+        return;
+      }
 
       // Load all data with constants in scope
 
@@ -1644,38 +1652,15 @@ export default function App() {
 
   useEffect(() => {
     if (_hasLoadedDataGlobal) return;
-    _hasLoadedDataGlobal = true;
-
-    // Hydrate from cache immediately.
-    const cache = readCache();
-    let isStale = true;
-    if (cache) {
-      if (Array.isArray(cache.loans)) setLoans(cache.loans);
-      if (Array.isArray(cache.customers)) setCustomers(cache.customers);
-      if (Array.isArray(cache.payments)) setPayments(cache.payments);
-      if ((cache.loans?.length || cache.customers?.length || cache.payments?.length)) setDataLoaded(true);
-      
-      // If cache is fresh (less than 30 seconds old), skip the background eager load.
-      // NOTE: Keep this SHORT so M-Pesa payments appear promptly after callbacks fire.
-      const CACHE_TTL = 30000; // 30 seconds
-      if (cache.ts && (Date.now() - cache.ts < CACHE_TTL)) {
-        isStale = false;
-        console.log('[load] Cache is warm. Skipping background eager sync.');
-      }
+    
+    if (session) {
+      _hasLoadedDataGlobal = true;
+      loadAllData();
+    } else {
+      setDataLoaded(true); // Allow login screen to show
     }
+  }, [session, loadAllData]);
 
-    if (isStale) {
-      import('@/config/supabaseClient').then(({ supabase, DEMO_MODE }) => {
-        if (DEMO_MODE) { loadAllData(); return; }
-        supabase.auth.getSession().then(({ data: { session } }) => {
-          if (session) loadAllData();
-          else setDataLoaded(true); // Don't block UI if not logged in
-        });
-      });
-    }
-  }, [loadAllData]);
-
-  const { session, worker, signOut } = useAuth();
   const ADMIN_ROLES = ['admin', 'Admin', 'Super Admin', 'Director'];
 
   // ── Sync mode from AuthContext session ──────────────────────────────────────
