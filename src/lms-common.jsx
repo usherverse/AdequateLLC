@@ -4730,7 +4730,7 @@ export const LoanForm = ({
   // Autosave draft
   useEffect(() => {
     try {
-      if (f.cid || f.amount !== 5000) {
+      if (f.cid || f.amount !== 1) {
         localStorage.setItem(
           LOAN_DRAFT_KEY,
           JSON.stringify({
@@ -4758,7 +4758,7 @@ export const LoanForm = ({
   };
 
   const startFresh = () => {
-    setF({ cid: "", repayType: "Monthly", amount: 5000 });
+    setF({ cid: "", repayType: "Monthly", amount: 1 });
     setCustSearch("");
     clearDraft();
     setDraftPrompt(null);
