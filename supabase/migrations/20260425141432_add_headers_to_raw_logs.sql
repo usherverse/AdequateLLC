@@ -1,0 +1,1 @@
+ALTER TABLE IF EXISTS raw_mpesa_logs ADD COLUMN IF NOT EXISTS headers JSONB;
