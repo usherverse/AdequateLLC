@@ -28,7 +28,7 @@ Deno.serve(async (req: Request) => {
     // 1. Find the pending disbursement record
     const { data: record, error: fetchErr } = await supabaseClient
       .from("b2c_disbursements")
-      .select("id, loan_id, customer_id")
+      .select("id, loan_id, customer_id, amount")
       .eq("originator_conversation_id", origConvId)
       .eq("status", "pending")
       .maybeSingle();
@@ -44,21 +44,26 @@ Deno.serve(async (req: Request) => {
       .update({
         transaction_id: transactionId,
         status: finalStatus,
+        result_desc: result.ResultDesc,
         updated_at: new Date().toISOString()
       })
       .eq("id", record.id);
 
     // 3. Update Loan Status if Success
     if (finalStatus === "completed") {
-      await supabaseClient
+      const { error: loanUpdateErr } = await supabaseClient
         .from("loans")
         .update({ 
           status: "Active", 
-          disbursed_at: new Date().toISOString(),
-          balance: record.amount // Ensure balance is set to the disbursed amount
+          disbursed: new Date().toISOString(),
+          balance: record.amount // Now record.amount is correctly selected
         })
         .eq("id", record.loan_id)
         .eq("status", "Approved");
+
+      if (loanUpdateErr) {
+        console.error("Loan update failed:", loanUpdateErr);
+      }
 
       await supabaseClient.from("audit_log").insert({
         ts: new Date().toISOString(),

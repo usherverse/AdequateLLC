@@ -23,7 +23,7 @@ export function AuthProvider({ children }) {
     let { data, error } = await supabase
       .from('workers')
       .select('*')
-      .or(`id.eq.${userId},email.eq.${userEmail}`)
+      .or(`auth_user_id.eq.${userId},email.eq.${userEmail}`)
       .maybeSingle();
 
     if (error) {
@@ -47,9 +47,9 @@ export function AuthProvider({ children }) {
       return;
     }
 
-    supabase.auth.getSession().then(({ data: { session } }) => {
+    supabase.auth.getSession().then(async ({ data: { session } }) => {
       setSession(session);
-      if (session?.user) loadWorker(session.user.id, session.user.email);
+      if (session?.user) await loadWorker(session.user.id, session.user.email);
       setLoading(false);
     });
 

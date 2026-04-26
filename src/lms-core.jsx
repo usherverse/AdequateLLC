@@ -186,6 +186,7 @@ export {
 
 import { useSearchParams } from "react-router-dom"; // MODIFIED: Support parameterized redirects
 import { useTheme } from "@/context/ThemeContext";
+import { useAuth } from "@/context/AuthContext";
 
 const AdminPanel = ({onLogout,loans,setLoans,customers,setCustomers,workers,setWorkers,payments,setPayments,leads,setLeads,interactions,setInteractions,repossessedAssets,setRepossessedAssets,stkRequests,setStkRequests,b2cDisbursements,setB2cDisbursements,mpesaTransactions,setMpesaTransactions,targets,setTargets,salaryPayments,setSalaryPayments,workerDeductions,setWorkerDeductions,auditLog,setAuditLog,unallocatedC2BCount,setUnallocatedC2BCount,onOpenCustomerProfile,onRefresh, initialScreen}) => {
   const { theme, toggleTheme } = useTheme();
@@ -1368,7 +1369,12 @@ const CUSTOMERS_PAGE = 200;
 
 export default function App() {
 
-  const [mode,setMode] = useState('admin-login');
+  const [mode, _setMode] = useState(() => localStorage.getItem('acl_mode') || 'admin-login');
+  const setMode = useCallback((m) => {
+    _setMode(m);
+    if (m) localStorage.setItem('acl_mode', m);
+    else localStorage.removeItem('acl_mode');
+  }, []);
   const [dataLoaded,setDataLoaded] = useState(false);
   const [adminStartScreen, setAdminStartScreen] = useState(null);
 
@@ -1411,7 +1417,7 @@ export default function App() {
 
       const [lFast, cFast, pFast, wR, mR, aR, iR, adR] = await Promise.all([
         supabase.from('loans').select('id,customer_id,customer_name,amount,balance,status,repayment_type,officer,collections_officer,risk,disbursed,mpesa,phone,days_overdue,created_at').order('created_at', { ascending: false }).range(0, 50),
-        supabase.from('customers').select('id,name,phone,id_no,officer,loans,risk,blacklisted,joined,status,assigned_officer,mpesa_registered,n1_name,n1_phone,n2_name,n2_phone,n3_name,n3_phone').order('name', { ascending: true }).range(0, CUSTOMERS_FAST - 1),
+        supabase.from('customers').select('id,name,phone,alt_phone,id_no,business,location,business_name,business_type,business_location,residence,officer,loans,risk,gender,dob,blacklisted,bl_reason,n1_name,n1_phone,n1_relation,n2_name,n2_phone,n2_relation,n3_name,n3_phone,n3_relation,joined,status,assigned_officer,mpesa_registered,documents,gps_coordinates,from_lead').order('name', { ascending: true }).range(0, CUSTOMERS_FAST - 1),
         supabase.from('payments').select('id,loan_id,customer_id,customer_name,amount,mpesa,date,status,allocated_by,is_reg_fee,created_at').order('date', { ascending: false }).range(0, 50),
         supabase.from('workers').select('id,name,email,phone,role,status,docs,id_no,avatar,base_salary,onboarding_target,collection_target').order('name'),
         supabase.from('mpesa_transactions').select('*').order('created_at', { ascending: false }).limit(200),
@@ -1608,7 +1614,7 @@ export default function App() {
                 page.forEach(c => {
                   const idx = next.findIndex(x => x.id === c.id);
                   if (idx >= 0) {
-                    if (next[idx]._isSynthesized) next[idx] = c;
+                    if (next[idx]._isSynthesized || Object.keys(c).length > Object.keys(next[idx]).length) next[idx] = c;
                   } else {
                     next.push(c);
                   }
@@ -1669,7 +1675,40 @@ export default function App() {
     }
   }, [loadAllData]);
 
+  const { session, worker, signOut } = useAuth();
   const ADMIN_ROLES = ['admin', 'Admin', 'Super Admin', 'Director'];
+
+  // ── Sync mode from AuthContext session ──────────────────────────────────────
+  useEffect(() => {
+    if (session) {
+      if (mode === 'admin-login') {
+        if (worker) {
+          const isAdmin = ADMIN_ROLES.includes(worker.role);
+          setMode(isAdmin ? 'admin' : 'worker');
+        } else if (session.user?.email) {
+          const email = session.user.email.toLowerCase();
+          const isEmailAdmin = 
+            email.includes('admin') || 
+            email.includes('usher') || 
+            email.includes('director') || 
+            email.endsWith('@adequatecapital.co.ke');
+            
+          if (isEmailAdmin) setMode('admin');
+        }
+      }
+    } else if (mode !== 'admin-login' && mode !== 'welcome') {
+      // If session is lost, force back to login
+      setMode('admin-login');
+    }
+  }, [session, worker, mode, setMode]);
+
+  const handleLogout = () => {
+    signOut();
+    setMode('admin-login');
+    localStorage.removeItem('acl_mode');
+    localStorage.removeItem(CACHE_KEY);
+  };
+
   const handleLogin = (email) => {
     SFX.login();
     import('@/config/supabaseClient').then(({supabase,DEMO_MODE})=>{
@@ -1722,8 +1761,8 @@ export default function App() {
           <div style={{width:32,height:32,border:'3px solid #1A2234',borderTop:'3px solid #00D4AA',borderRadius:'50%',animation:'spin .8s linear infinite'}}/>
           <div style={{color:T.muted,fontSize:13,fontFamily:T.body,fontWeight:500}}>Hydro-syncing workspace…</div>
         </div>
-      ) : <AdminPanel {...shared} onLogout={()=>setMode('admin-login')} initialScreen={adminStartScreen}/>)}
-      {mode==='worker'&&<WorkerPortal {...shared} dataLoaded={dataLoaded} onBack={()=>setMode('admin-login')}/>}
+      ) : <AdminPanel {...shared} onLogout={handleLogout} initialScreen={adminStartScreen}/>)}
+      {mode==='worker'&&<WorkerPortal {...shared} dataLoaded={dataLoaded} onBack={handleLogout}/>}
       {mode === 'welcome' && (
         <WelcomeExperience 
           onStartSetup={(targetScreen) => {
@@ -1731,7 +1770,7 @@ export default function App() {
             setMode('admin'); 
             setDataLoaded(true);
           }} 
-          onLogout={() => setMode('admin-login')} 
+          onLogout={handleLogout} 
         />
       )}
 

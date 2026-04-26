@@ -204,7 +204,7 @@ const DisbursementsTab = ({ loans = [], customers = [], payments = [], setLoans,
       {isSuccess && (
         <WaitingOverlay type="success" title="Capital Dispatched" message={`The funds for ${sel?.customer} have been released successfully.`} onClose={reset} />
       )}
-      {disbStatus === 'Failed' && failureReason && (
+      {disbStatus === 'failed' && failureReason && (
         <WaitingOverlay type="danger" title="Disbursement Failed" message={failureReason} onClose={reset} />
       )}
       <style>{`

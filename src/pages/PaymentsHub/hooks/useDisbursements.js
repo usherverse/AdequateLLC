@@ -22,7 +22,7 @@ export function useDisbursements() {
       if (waitingForCallback && requestId) {
         query = query.eq('conversation_id', requestId);
       } else {
-        query = query.eq('status', 'Completed');
+        query = query.eq('status', 'completed');
       }
 
       const { data, error: sbErr } = await query.order('created_at', { ascending: false }).limit(1).maybeSingle();
@@ -30,13 +30,13 @@ export function useDisbursements() {
       if (sbErr) throw sbErr;
       if (data) {
         setStatus(data.status);
-        if (data.status === 'Completed') {
+        if (data.status === 'completed') {
           setWaitingForCallback(false);
           setIsSuccess(true);
           setFailureReason(null);
-        } else if (waitingForCallback && data.status === 'Failed') {
+        } else if (waitingForCallback && data.status === 'failed') {
           setWaitingForCallback(false);
-          setFailureReason(data.error_message || 'B2C Disbursement failed.');
+          setFailureReason(data.result_desc || data.error_message || 'B2C Disbursement failed.');
         }
       }
     } catch (err) {
@@ -59,7 +59,9 @@ export function useDisbursements() {
     setLoading(true);
     setError(null);
     setFailureReason(null);
-    setStatus('Pending');
+    setIsSuccess(false);
+    setWaitingForCallback(false);
+    setStatus('pending');
     setActiveLoanId(loanId);
     setRequestId(null);
 
