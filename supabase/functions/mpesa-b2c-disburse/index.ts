@@ -3,7 +3,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.0";
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers":
-    "authorization, x-client-info, apikey, content-type",
+    "authorization, x-client-info, apikey, content-type, x-idempotency-key",
 };
 
 Deno.serve(async (req: Request) => {
@@ -85,6 +85,7 @@ Deno.serve(async (req: Request) => {
     const cert = Deno.env.get("MPESA_B2C_SECURITY_CREDENTIAL"); // Base64 encoded encrypted initiator password
 
     const b2cPayload = {
+      OriginatorConversationID: `LMS-${loan_id}-${Date.now()}`.substring(0, 32),
       InitiatorName: Deno.env.get("MPESA_B2C_INITIATOR_NAME"),
       SecurityCredential: cert,
       CommandID: "BusinessPayment",

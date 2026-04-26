@@ -31,7 +31,9 @@ serve(async (req) => {
     // In production, ResultURL must be HTTPS
     const resultUrl = "https://wnmabkrkbcigxqdprzrb.supabase.co/functions/v1/mpesa-balance-callback";
     
+    const origId = `BAL-${Date.now()}`.substring(0, 32);
     const payload = {
+      OriginatorConversationID: origId,
       Initiator: InitiatorName,
       SecurityCredential: SecurityCredential,
       CommandID: "AccountBalance",
@@ -57,6 +59,7 @@ serve(async (req) => {
     const supabase = createClient(Deno.env.get('SUPABASE_URL') || "", Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') || "");
     const { error: insertErr } = await supabase.from("raw_mpesa_logs").insert({
       source: "trigger-account-balance",
+      originator_conversation_id: origId,
       payload: data
     });
     if (insertErr) console.error("Log insert failed:", insertErr);
@@ -69,7 +72,7 @@ serve(async (req) => {
       });
     }
 
-    return new Response(JSON.stringify(data), {
+    return new Response(JSON.stringify({ ...data, OriginatorConversationID: origId }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       status: balanceRes.ok ? 200 : 400
     });

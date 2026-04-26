@@ -94,12 +94,13 @@ const DisbursementsTab = ({ loans = [], customers = [], payments = [], setLoans,
       />
 
       {sel && (() => {
-        const cust = customers.find(c => c.id === sel.customerId);
+        // Fallback: Check both ID and Name (useful if customers were wiped/re-created)
+        const cust = customers.find(c => c.id === sel.customerId || c.id === sel.customer_id || c.name === sel.customer);
         const feeOk = hasRegFee(cust, payments);
         return (
           <Dialog title={`Authorize Disbursement · ${sel.id}`} onClose={() => setSel(null)} width={580}>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-              <div style={{ background: T.card2, padding: '16px 20px', borderRadius: 16, border: `1px solid ${T.border}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+              <div style={{ background: T.card2, padding: '12px 16px', borderRadius: 16, border: `1px solid ${T.border}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <div>
                         <div style={{ color: T.muted, fontSize: 11, fontWeight: 800, textTransform: 'uppercase' }}>Target Entity</div>
                         <div style={{ color: T.txt, fontSize: 18, fontWeight: 900, marginTop: 2 }}>{sel.customer}</div>
@@ -110,38 +111,61 @@ const DisbursementsTab = ({ loans = [], customers = [], payments = [], setLoans,
                     </div>
               </div>
 
-              {!feeOk && (
+              {!cust && (
+                <Alert type="danger">
+                  <b>Customer Record Missing:</b> The profile for this borrower could not be found. 
+                  Live M-Pesa disbursement is disabled as the recipient phone number is unknown.
+                </Alert>
+              )}
+
+              {cust && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-                  <Alert type='danger'>
-                    <div style={{display: 'flex', alignItems: 'flex-start', gap: 10, lineHeight: 1.4}}>
-                      <ShieldAlert size={20} style={{marginTop: 2}} /> 
-                      <div>
-                        <b>Security Block: M-Pesa Registration Required.</b><br/>
-                        This customer has not paid their mandatory registration fee. Disbursement engine is locked.
+                  {!feeOk && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                      <Alert type='danger'>
+                        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, lineHeight: 1.4 }}>
+                          <ShieldAlert size={20} style={{ marginTop: 2 }} />
+                          <div>
+                            <b>Security Block: M-Pesa Registration Required.</b><br />
+                            This customer has not paid their mandatory registration fee. Disbursement engine is locked.
+                          </div>
+                        </div>
+                      </Alert>
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                        <Btn v='gold' onClick={() => setSearchParams({ tab: 'registration-fee', customerId: cust.id })} full icon={ExternalLink}>Go to Registry</Btn>
+                        <Btn v='secondary' onClick={() => onManualLog(cust)} full icon={Plus} style={{ border: `1px dashed ${T.border}` }}>Log Fee Manually</Btn>
                       </div>
                     </div>
-                  </Alert>
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-                    <Btn v='gold' onClick={() => setSearchParams({ tab: 'registration-fee', customerId: sel.customerId })} full icon={ExternalLink}>Go to Registry</Btn>
-                    <Btn v='secondary' onClick={() => onManualLog(cust)} full icon={Plus} style={{ border: `1px dashed ${T.border}` }}>Log Fee Manually</Btn>
+                  )}
+
+                  <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+                    <div style={{ flex: 1, minWidth: 200, display: 'flex', gap: 8 }}>
+                      <Badge color={RC[cust.risk]}>{cust.risk} Risk</Badge>
+                      <Badge color={cust.blacklisted ? T.danger : T.ok}>{cust.blacklisted ? 'Blacklisted' : 'Active'}</Badge>
+                      {cust.mpesa_registered && <Badge color={T.ok} icon={BadgeCheck}>M-Pesa Verified</Badge>}
+                    </div>
+                    <div style={{ display: 'flex', gap: 8 }}>
+                      <Btn v='secondary' sm onClick={() => downloadLoanDoc(generateLoanAgreementHTML(sel, cust, sel.officer), 'loan-agreement-' + sel.id + '.html')} icon={ClipboardSignature}>Agreement</Btn>
+                      <Btn v='secondary' sm onClick={() => downloadLoanDoc(generateAssetListHTML(sel, cust, sel.officer), 'asset-list-' + sel.id + '.html')} icon={PackageOpen}>Assets</Btn>
+                    </div>
                   </div>
                 </div>
               )}
 
-              <div style={{ background: T.surface, padding: 18, borderRadius: 16, border: `1px solid ${T.border}` }}>
-                <div style={{ fontSize: 11, fontWeight: 850, color: T.dim, marginBottom: 14, textTransform: 'uppercase', letterSpacing: 1.5 }}>Configuration</div>
+              <div style={{ background: T.surface, padding: 14, borderRadius: 16, border: `1px solid ${T.border}` }}>
+                <div style={{ fontSize: 10, fontWeight: 850, color: T.dim, marginBottom: 10, textTransform: 'uppercase', letterSpacing: 1.5 }}>Configuration</div>
                 <FI label='M-Pesa Reference / TXN Code' value={disbF.mpesa} onChange={v => setDisbF(f => ({ ...f, mpesa: v }))} required placeholder='OAB1234567' />
-                <div style={{ height: 12 }} />
+                <div style={{ height: 8 }} />
                 {/* SECURITY (VULN-01): Phone is READ-ONLY — shown for transparency but
                     cannot be edited. The server resolves it from the customer record. */}
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
                   <div style={{ fontSize: 11, fontWeight: 700, color: T.dim, textTransform: 'uppercase', letterSpacing: 0.8 }}>Recipient Phone (Verified)</div>
                   <div style={{
                     display: 'flex', alignItems: 'center', gap: 10,
-                    padding: '10px 14px', borderRadius: 10,
+                    padding: '8px 12px', borderRadius: 10,
                     background: `${T.ok}12`,
                     border: `1px solid ${T.ok}40`,
-                    fontFamily: T.mono, fontSize: 14, fontWeight: 700, color: T.ok,
+                    fontFamily: T.mono, fontSize: 13, fontWeight: 700, color: T.ok,
                     letterSpacing: '0.04em'
                   }}>
                     <ShieldAlert size={14} color={T.ok} />
@@ -158,10 +182,10 @@ const DisbursementsTab = ({ loans = [], customers = [], payments = [], setLoans,
                   <Btn v='secondary' sm onClick={() => downloadLoanDoc(generateLoanAgreementHTML(sel, cust || { name: sel.customer }, sel.officer), 'loan-agreement-' + sel.id + '.html')} icon={ClipboardSignature}>Agreement</Btn>
                   <Btn v='secondary' sm onClick={() => downloadLoanDoc(generateAssetListHTML(sel, cust || { name: sel.customer }, sel.officer), 'asset-list-' + sel.id + '.html')} icon={PackageOpen}>Assets</Btn>
                 </div>
-              </div>
+              )}
 
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 10, paddingTop: 16, borderTop: `1px solid ${T.border}`, marginTop: 8 }}>
-                <Btn onClick={doMpesaDisburse} v='primary' full disabled={!feeOk || disburseLoading} icon={Rocket}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10, paddingTop: 12, borderTop: `1px solid ${T.border}`, marginTop: 4 }}>
+                <Btn onClick={doMpesaDisburse} v='primary' full disabled={!cust || !feeOk || disburseLoading} icon={Rocket}>
                   {disburseLoading ? 'Sending API Request...' : 'Trigger M-Pesa B2C Payout'}
                 </Btn>
                 <div style={{ display: 'flex', gap: 12 }}>

@@ -88,16 +88,16 @@ const DashboardTab = ({adminUser,loans,setLoans,customers,setCustomers,payments,
       const { checkAccountBalance } = await import('@/utils/mpesa');
       const res = await checkAccountBalance();
       // If Daraja fails synchronously, it will throw.
-      // Otherwise, we wait for the webhook, but we add a 15-second safety timeout.
+      // Otherwise, we wait for the webhook, but we add a 30-second safety timeout.
       setTimeout(() => {
         setPaybillBalance(prev => {
           if (prev.updating) {
-            alert('Safaricom Daraja timed out or returned an error silently. Check logs.');
+            console.warn('Daraja balance sync timed out after 30s');
             return { ...prev, updating: false };
           }
           return prev;
         });
-      }, 15000);
+      }, 30000);
     } catch (e) {
       setPaybillBalance(prev => ({ ...prev, updating: false }));
       alert('Failed to trigger balance check: ' + e.message);

@@ -197,7 +197,7 @@ const PaymentsHub = ({ customers, setCustomers, loans, payments, setLoans, setPa
       </div>
 
       {/* Tab Content */}
-      <Card style={{ padding: 0, overflow: 'hidden', border: `1px solid ${T.border}`, width: '100%' }}>
+      <Card style={{ padding: 0, border: `1px solid ${T.border}`, width: '100%' }}>
         <div style={{ padding: 'clamp(12px, 2.5vw, 24px)' }}>
           {currentTab === 'disbursements' && <DisbursementsTab loans={loans} customers={customers} payments={payments} setLoans={setLoans} addAudit={addAudit} showToast={showToast} onManualLog={(c) => setManualLogData({ customer: c, type: 'loan_repayment' })} />}
           {currentTab === 'registration-fee' && <RegistrationFeeTab customers={customers} setCustomers={setCustomers} loans={loans} payments={payments} setPayments={setPayments} addAudit={addAudit} showToast={showToast} onManualLog={(c) => setManualLogData({ customer: c, type: 'registration_fee' })} />}

@@ -7,6 +7,7 @@ import React, {
   useCallback,
   memo,
 } from "react";
+import { createPortal } from "react-dom";
 import {
   Search as SearchIcon, ChevronLeft, ChevronRight, RotateCcw, User, ShieldCheck, 
   AlertCircle, CheckCircle, Info, Clock, MoreHorizontal,
@@ -2160,15 +2161,17 @@ const getAge = (dob) => {
 
 // useToast defined in SOUND ENGINE above
 
-export const ToastContainer = ({ toasts }) => (
-  <div
-    role="status"
-    aria-live="polite"
-    aria-atomic="false"
-    aria-label="Notifications"
-    style={{
-      position: "fixed",
-      top: 16,
+export const ToastContainer = ({ toasts }) => {
+  if (typeof document === 'undefined') return null;
+  return createPortal(
+    <div
+      role="status"
+      aria-live="polite"
+      aria-atomic="false"
+      aria-label="Notifications"
+      style={{
+        position: "fixed",
+        top: 16,
       left: 0,
       right: 0,
       zIndex: 999999,
@@ -2233,8 +2236,10 @@ export const ToastContainer = ({ toasts }) => (
         </div>
       );
     })}
-  </div>
-);
+  </div>,
+  document.body
+  );
+};
 export const Alert = ({ type = "warn", children }) => {
   const m = {
     warn: ['#F59E0B', 'rgba(245, 158, 11, 0.08)'],
@@ -2368,7 +2373,9 @@ export const Dialog = ({
     return () => document.removeEventListener("keydown", onKey);
   }, []); // ← empty deps: registers once, reads latest onClose via ref
 
-  return (
+  if (typeof document === 'undefined') return null;
+
+  return createPortal(
     <div
       className="dialog-backdrop"
       style={{
@@ -2469,16 +2476,18 @@ export const Dialog = ({
           {children}
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 };
 
 export const WaitingOverlay = ({ title, message, sub, type = 'info', onClose }) => {
   useModalLock();
+  if (typeof document === 'undefined') return null;
   const isErr = type === 'danger';
   const isOk = type === 'success';
   
-  return (
+  return createPortal(
     <div style={{ 
       position: 'fixed', inset: 0, zIndex: 99999, 
       background: 'rgba(2, 4, 8, 0.82)', backdropFilter: 'blur(16px)', 
@@ -2547,7 +2556,8 @@ export const WaitingOverlay = ({ title, message, sub, type = 'info', onClose }) 
       <style>{`
         @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
       `}</style>
-    </div>
+    </div>,
+    document.body
   );
 };
 
@@ -4712,7 +4722,7 @@ export const LoanForm = ({
     }
   });
 
-  const [f, setF] = useState({ cid: "", repayType: "Monthly", amount: 5000 });
+  const [f, setF] = useState({ cid: "", repayType: "Monthly", amount: 1 });
   const [showVal, setShowVal] = useState(false);
   const [custSearch, setCustSearch] = useState("");
   const [showCustDrop, setShowCustDrop] = useState(false);
@@ -4854,7 +4864,7 @@ export const LoanForm = ({
   };
 
   const save = async () => {
-    if (!f.cid || Number(f.amount) < 5000) {
+    if (!f.cid || Number(f.amount) < 1) {
       setShowVal(true);
       return false;
     }
@@ -4944,7 +4954,7 @@ export const LoanForm = ({
 
       {showVal && (
         <ValidationPopup
-          fields={["Customer selection", "Loan amount (min KES 5000)"]}
+          fields={["Customer selection", "Loan amount (min KES 1)"]}
           onClose={() => setShowVal(false)}
         />
       )}
@@ -5153,9 +5163,9 @@ export const LoanForm = ({
           type="number"
           value={f.amount}
           onChange={s("amount")}
-          hint="Min KES 5000"
+          hint="Min KES 1"
           required
-          error={Number(f.amount) < 5000}
+          error={Number(f.amount) < 1}
           half
         />
         <FI
@@ -5167,7 +5177,7 @@ export const LoanForm = ({
           half
         />
       </div>
-      {Number(f.amount) >= 5000 && (
+      {Number(f.amount) >= 1 && (
         <div
           style={{
             background: T.surface,
