@@ -182,7 +182,7 @@ const DisbursementsTab = ({ loans = [], customers = [], payments = [], setLoans,
                   <Btn v='secondary' sm onClick={() => downloadLoanDoc(generateLoanAgreementHTML(sel, cust || { name: sel.customer }, sel.officer), 'loan-agreement-' + sel.id + '.html')} icon={ClipboardSignature}>Agreement</Btn>
                   <Btn v='secondary' sm onClick={() => downloadLoanDoc(generateAssetListHTML(sel, cust || { name: sel.customer }, sel.officer), 'asset-list-' + sel.id + '.html')} icon={PackageOpen}>Assets</Btn>
                 </div>
-              )}
+              </div>
 
               <div style={{ display: 'flex', flexDirection: 'column', gap: 10, paddingTop: 12, borderTop: `1px solid ${T.border}`, marginTop: 4 }}>
                 <Btn onClick={doMpesaDisburse} v='primary' full disabled={!cust || !feeOk || disburseLoading} icon={Rocket}>
