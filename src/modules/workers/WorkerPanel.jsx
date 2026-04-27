@@ -10,7 +10,7 @@ import MultiCalculator from '@/modules/tools/MultiCalculator';
 import { 
   T, SC, RC, SFX, Card, CH, KPI, DT, Btn, Badge, Av, 
   Dialog, Alert, LoanForm, DocViewer, 
-  fmt, fmtM, now, uid, ts, sbWrite, toSupabaseWorker, compressImage
+  fmt, fmtM, now, uid, ts, sbWrite, toSupabaseWorker, compressImage, calculateLoanStatus
 } from '@/lms-common';
 import ALeads from '@/modules/leads/LeadsTab';
 import AssetRecoveryDashboard from './AssetRecoveryDashboard';

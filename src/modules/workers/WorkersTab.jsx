@@ -4,7 +4,7 @@ import { T, SC, RC, SFX, Card, CH, KPI, DT, Btn, Badge, Av, Bar, BackBtn, Refres
   FI, PhoneInput, NumericInput, Search, Pills, Alert, Dialog, ConfirmDialog, ToastContainer,
   LoanModal, LoanForm, RepayTracker, DocViewer, hashPwAsync, ModuleHeader,
   fmt, fmtM, now, uid, ts, escHtml, toCSV, dlCSV, buildFullBackup,
-  calculateLoanStatus,
+  calculateLoanStatus, DOC_SLOTS,
   sbWrite, sbInsert, toSupabaseWorker,
   toSupabaseLoan, toSupabaseCustomer, toSupabasePayment, toSupabaseInteraction,
   generateLoanAgreementHTML, generateAssetListHTML, downloadLoanDoc,

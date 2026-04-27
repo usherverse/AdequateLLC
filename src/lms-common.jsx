@@ -3346,7 +3346,7 @@ export const DocViewer = ({ doc, onClose }) => {
 };
 
 // ── Structured Document Upload (4 fixed slots) ────────────────
-const DOC_SLOTS = [
+export const DOC_SLOTS = [
   {
     key: "id_front",
     label: "ID — Front",
