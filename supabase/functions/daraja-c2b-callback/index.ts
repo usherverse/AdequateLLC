@@ -65,6 +65,7 @@ Deno.serve(async (req: Request) => {
       const MSISDN        = String(payload.MSISDN || payload.msisdn || '').trim();
       // BillRefNumber is what the customer typed as their "account number" at the paybill prompt.
       // Adequate Capital instructs customers to use their National ID number here.
+      // NOTE: Itouch VAS sends 'account' which may be the transaction_id — we still use it for matching.
       const BillRefNumber = String(payload.BillRefNumber || payload.account || '').trim();
 
       console.log(`[C2B ${requestId}] TransID=${TransID} Amount=${amount} BillRef="${BillRefNumber}" MSISDN=${MSISDN}`);
@@ -121,7 +122,19 @@ Deno.serve(async (req: Request) => {
 
       console.log(`[C2B ${requestId}] Customer match: method="${matchMethod}" id="${matchedCustomer?.id}" name="${matchedCustomer?.name}"`);
 
-      const customerName = matchedCustomer?.name || payload.FirstName || `Paybill (${BillRefNumber || MSISDN})`;
+      // Build payer name — handle both Safaricom format (FirstName) and Itouch VAS format (first_name)
+      // Itouch VAS also sends invoice_number which sometimes contains the payer's full name
+      const mpesaName = [
+        payload.FirstName  || payload.first_name,
+        payload.MiddleName || payload.middle_name,
+        payload.LastName   || payload.last_name
+      ].filter(Boolean).join(' ').trim()
+        || String(payload.invoice_number || '').trim();
+
+      // Use matched customer name first, then M-Pesa sender name, then phone as last resort
+      const customerName = matchedCustomer?.name
+        || mpesaName
+        || (MSISDN ? `M-Pesa (${MSISDN})` : `Paybill (${BillRefNumber})`);
       const todayStr = new Intl.DateTimeFormat('en-CA', {
         timeZone: 'Africa/Nairobi',
         year: 'numeric', month: '2-digit', day: '2-digit'
