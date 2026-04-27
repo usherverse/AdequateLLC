@@ -407,16 +407,16 @@ const DashboardTab = ({adminUser,loans,setLoans,customers,setCustomers,payments,
             }}>
             {(() => {
               const hr = new Date().getHours();
-              let greeting = "Good afternoon";
-              if (hr >= 5 && hr < 12) greeting = "Good morning";
-              else if (hr >= 12 && hr < 17) greeting = "Good afternoon";
-              else if (hr >= 17 && hr < 21) greeting = "Good evening";
-              else greeting = "Good night";
-              return `${greeting}, ${adminUser?.name || 'Don'}!`;
+              let greeting = "Good Afternoon";
+              if (hr >= 5 && hr < 12) greeting = "Good Morning";
+              else if (hr >= 12 && hr < 17) greeting = "Good Afternoon";
+              else if (hr >= 17 && hr < 21) greeting = "Good Evening";
+              else greeting = "Good Night";
+              return `${greeting}, ${adminUser?.name || 'Don'}`;
             })()}
           </div>
           <div style={{ color: T.dim, fontSize: 15, marginTop: 10, fontWeight: 500, maxWidth: 450, lineHeight: 1.5 }}>
-            Welcome back to your command center. You have <b>{pendingApprovals}</b> loans awaiting your approval today.
+            Overview of your current portfolio performance. You have <b>{pendingApprovals}</b> loans awaiting your approval today.
           </div>
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 16 }}>
