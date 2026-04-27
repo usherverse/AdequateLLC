@@ -299,7 +299,7 @@ const LoansTab = ({ loans, setLoans, customers, setCustomers, payments, setPayme
                       <span style={{ color: T.dim }}>Bal: {fmt(e.totalAmountDue)}</span>
                       <span style={{ color: T.accent }}>{Math.round(progress)}%</span>
                     </div>
-                    <Bar percent={progress} color={e.totalAmountDue > 0 ? T.accent : T.ok} height={6} />
+                    <Bar value={progress} max={100} color={e.totalAmountDue > 0 ? T.accent : T.ok} />
                     <div style={{ marginTop: 4, fontSize: 10, color: T.muted }}>
                       Principal: {fmt(v)}
                     </div>
