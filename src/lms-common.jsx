@@ -12630,10 +12630,12 @@ export const toSupabaseCustomer = (c) => ({
   // and will silently ignore or overwrite whatever we supply.
   joined: c.joined || c.createdAt || null,
   mpesa_registered: c.mpesaRegistered || false,
-  // ── M-PESA C2B ADDITIONS ──
-  account_number: c.idNo || c.idNumber || c.accountNumber || c.id,
-  id_number: c.idNumber || c.idNo,
-  uses_id_as_account: c.usesIdAsAccount || false,
+  // ── M-PESA C2B: National ID is the canonical Paybill account number ──
+  // Customers type their National ID at the paybill "account" prompt.
+  // This must always equal id_no so daraja-c2b-callback can match correctly.
+  account_number: c.idNo || c.idNumber || null,
+  id_number: c.idNo || c.idNumber || null,
+  uses_id_as_account: true,
 });
 export const fromSupabaseCustomer = (r) => ({
   id: r.id,

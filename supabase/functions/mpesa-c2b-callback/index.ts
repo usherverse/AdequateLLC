@@ -2,8 +2,11 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.0";
 
 /**
  * PRODUCTION-READY M-PESA C2B (PAYBILL) CALLBACK HANDLER
- * Centralizes multiple validation/confirmation logic into a 
- * single trigger-safe ingestion point.
+ *
+ * Account Number Matching Priority:
+ *   1. id_no  (National ID) — this is the canonical "account number" customers use at paybill
+ *   2. id     (numeric customer record ID) — numeric fallback
+ *   3. MSISDN (phone number) — last resort when account field is missing
  */
 
 const supabaseUrl = Deno.env.get('SUPABASE_URL') || '';
@@ -14,133 +17,183 @@ const supabase = createClient(supabaseUrl, supabaseKey);
 const genPayId = () => 'PAY-' + crypto.randomUUID().replace(/-/g, '').substring(0, 7).toUpperCase();
 
 Deno.serve(async (req: Request) => {
-  // 1. FAST CORS/OPTIONS handling
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: { "Access-Control-Allow-Origin": "*" } });
   }
 
   const requestId = crypto.randomUUID();
-  
-  // 1. READ BODY INSTANTLY BEFORE CONNECTION CLOSES
+
+  // READ BODY INSTANTLY BEFORE CONNECTION CLOSES
   let bodyText = "";
   try {
     bodyText = await req.text();
   } catch (err) {
-    console.error("Failed to read body", err);
+    console.error(`[C2B ${requestId}] Failed to read body`, err);
   }
 
-  // 2. Respond to Safaricom/IntouchVAS IMMEDIATELY
+  // Respond to Safaricom IMMEDIATELY — must be within 5 seconds
   const response = new Response(JSON.stringify({ ResultCode: 0, ResultDesc: "Accepted" }), {
     headers: { "Content-Type": "application/json" }
   });
 
-  // Start background processing
+  // Background processing (non-blocking)
   (async () => {
     let payload: any = {};
 
     try {
-      console.log(`[C2B Callback ${requestId}] Raw Body: ${bodyText}`);
+      console.log(`[C2B ${requestId}] Raw Body: ${bodyText}`);
 
       try {
         payload = JSON.parse(bodyText);
       } catch (e) {
-        console.warn(`[C2B Callback ${requestId}] JSON parse failed.`);
+        console.warn(`[C2B ${requestId}] JSON parse failed — raw body stored.`);
       }
 
-      // ALWAYS Log to Raw Audit
-      await supabase.from('raw_mpesa_logs').insert({ 
-          payload: payload && Object.keys(payload).length > 0 ? payload : { rawText: bodyText }, 
-          source: 'daraja-c2b-callback'
+      // Always log raw payload for audit/debugging
+      await supabase.from('raw_mpesa_logs').insert({
+        payload: payload && Object.keys(payload).length > 0 ? payload : { rawText: bodyText },
+        source: 'mpesa-c2b-callback'
       });
 
       const TransID = payload.TransID || payload.reference;
-      if (!payload || !TransID) return;
+      if (!TransID) {
+        console.warn(`[C2B ${requestId}] No TransID found — skipping.`);
+        return;
+      }
 
-      const amount = Number(payload.TransAmount || payload.amount);
-      const MSISDN = payload.MSISDN || payload.msisdn;
-      const BillRefNumber = String(payload.BillRefNumber || payload.account || "").trim();
+      const amount        = Number(payload.TransAmount || payload.amount || 0);
+      const MSISDN        = String(payload.MSISDN || payload.msisdn || '').trim();
+      // BillRefNumber is what the customer typed as their "account number" at the paybill prompt.
+      // Adequate Capital instructs customers to use their National ID number here.
+      const BillRefNumber = String(payload.BillRefNumber || payload.account || '').trim();
 
-      // 1. Identification: Match Customer
-      let matchedCustomer = null;
+      console.log(`[C2B ${requestId}] TransID=${TransID} Amount=${amount} BillRef="${BillRefNumber}" MSISDN=${MSISDN}`);
+
+      // ── Step 1: Match customer ─────────────────────────────────────────────
+      // Priority: National ID (id_no) → Customer record ID (id) → Phone (MSISDN)
+      let matchedCustomer: any = null;
+      let matchMethod = 'none';
+
       if (BillRefNumber) {
-          const { data: cust } = await supabase.from('customers')
+        // FIX: PostgREST .or() does NOT use embedded quotes around values.
+        // Use separate .eq() calls with maybeSingle() instead to be explicit and safe.
+
+        // Try id_no first (National ID = the canonical account number)
+        const { data: byIdNo } = await supabase
+          .from('customers')
+          .select('id, name, status, mpesa_registered')
+          .eq('id_no', BillRefNumber)
+          .maybeSingle();
+
+        if (byIdNo) {
+          matchedCustomer = byIdNo;
+          matchMethod = 'id_no';
+        } else {
+          // Fallback: try matching numeric customer record ID
+          const { data: byId } = await supabase
+            .from('customers')
             .select('id, name, status, mpesa_registered')
-            .or(`id.eq."${BillRefNumber}",id_no.eq."${BillRefNumber}",account_number.eq."${BillRefNumber}"`)
+            .eq('id', BillRefNumber)
             .maybeSingle();
-          if (cust) matchedCustomer = cust;
+
+          if (byId) {
+            matchedCustomer = byId;
+            matchMethod = 'customer_id';
+          }
+        }
       }
 
+      // Last resort: match by phone number suffix
       if (!matchedCustomer && MSISDN) {
-          const phoneSuffix = String(MSISDN).slice(-9);
-          const { data: phoneMatch } = await supabase.from('customers')
-            .select('id, name, status, mpesa_registered')
-            .like('phone', `%${phoneSuffix}`)
-            .limit(1)
-            .maybeSingle();
-          if (phoneMatch) matchedCustomer = phoneMatch;
+        const phoneSuffix = MSISDN.slice(-9);
+        const { data: byPhone } = await supabase
+          .from('customers')
+          .select('id, name, status, mpesa_registered')
+          .like('phone', `%${phoneSuffix}`)
+          .limit(1)
+          .maybeSingle();
+
+        if (byPhone) {
+          matchedCustomer = byPhone;
+          matchMethod = 'phone';
+        }
       }
 
-      const customerName = matchedCustomer?.name || payload.invoice_number || payload.FirstName || 'Paybill';
-      const todayStr = new Intl.DateTimeFormat('en-CA', { 
-          timeZone: 'Africa/Nairobi',
-          year: 'numeric', month: '2-digit', day: '2-digit' 
+      console.log(`[C2B ${requestId}] Customer match: method="${matchMethod}" id="${matchedCustomer?.id}" name="${matchedCustomer?.name}"`);
+
+      const customerName = matchedCustomer?.name || payload.FirstName || `Paybill (${BillRefNumber || MSISDN})`;
+      const todayStr = new Intl.DateTimeFormat('en-CA', {
+        timeZone: 'Africa/Nairobi',
+        year: 'numeric', month: '2-digit', day: '2-digit'
       }).format(new Date());
 
-      // 2. Logic Split: Registration Fee (500) vs Loan Payment
+      // ── Step 2: Registration fee (KES 500) vs loan repayment ──────────────
       if (matchedCustomer && amount === 500 && !matchedCustomer.mpesa_registered) {
-          await supabase.from("registration_fees").insert({
-              customer_id: matchedCustomer.id,
-              amount: amount,
-              paid_at: new Date().toISOString(),
-              status: 'paid' 
-          });
-          
-          await supabase.from('payments').insert({
-              id: genPayId(),
-              customer_id: matchedCustomer.id,
-              customer_name: customerName,
-              amount: amount,
-              mpesa: TransID,
-              date: todayStr,
-              status: 'Allocated',
-              is_reg_fee: true,
-              allocated_by: 'M-Pesa Edge C2B'
-          });
+        // Registration fee path
+        console.log(`[C2B ${requestId}] Processing as registration fee for customer ${matchedCustomer.id}`);
 
-          await supabase.from('customers')
-              .update({ mpesa_registered: true, status: 'Active' })
-              .eq('id', matchedCustomer.id);
-              
+        await supabase.from("registration_fees").insert({
+          customer_id: matchedCustomer.id,
+          amount,
+          paid_at: new Date().toISOString(),
+          status: 'paid'
+        });
+
+        await supabase.from('payments').insert({
+          id: genPayId(),
+          customer_id: matchedCustomer.id,
+          customer_name: customerName,
+          amount,
+          mpesa: TransID,
+          date: todayStr,
+          status: 'Allocated',
+          is_reg_fee: true,
+          allocated_by: 'M-Pesa C2B Auto'
+        });
+
+        await supabase.from('customers')
+          .update({ mpesa_registered: true, status: 'Active' })
+          .eq('id', matchedCustomer.id);
+
+        console.log(`[C2B ${requestId}] Registration fee processed for customer ${matchedCustomer.id}`);
+
       } else {
-          let targetLoanId = null;
-          if (matchedCustomer) {
-              const { data: loan } = await supabase.from("loans")
-                  .select("id")
-                  .eq("customer_id", matchedCustomer.id)
-                  .in("status", ["Overdue", "Active"])
-                  .order("days_overdue", { ascending: false })
-                  .limit(1)
-                  .maybeSingle();
-              if (loan) targetLoanId = loan.id;
-          }
+        // Loan repayment path — find most overdue active loan
+        let targetLoanId: string | null = null;
 
-          await supabase.from('payments').insert({
-              id: genPayId(),
-              customer_id: matchedCustomer?.id || null,
-              customer_name: customerName,
-              loan_id: targetLoanId,
-              amount: amount,
-              mpesa: TransID,
-              date: todayStr,
-              status: targetLoanId ? "Allocated" : "Unallocated",
-              allocated_by: targetLoanId ? "M-Pesa Edge C2B" : null
-          });
+        if (matchedCustomer) {
+          const { data: loan } = await supabase
+            .from("loans")
+            .select("id")
+            .eq("customer_id", matchedCustomer.id)
+            .in("status", ["Overdue", "Active"])
+            .order("days_overdue", { ascending: false })
+            .limit(1)
+            .maybeSingle();
+
+          if (loan) targetLoanId = loan.id;
+        }
+
+        const status = targetLoanId ? "Allocated" : "Unallocated";
+        console.log(`[C2B ${requestId}] Inserting payment: status=${status} loan_id=${targetLoanId}`);
+
+        await supabase.from('payments').insert({
+          id: genPayId(),
+          customer_id: matchedCustomer?.id || null,
+          customer_name: customerName,
+          loan_id: targetLoanId,
+          amount,
+          mpesa: TransID,
+          date: todayStr,
+          status,
+          allocated_by: targetLoanId ? `M-Pesa C2B Auto (${matchMethod})` : null
+        });
       }
 
-      console.log(`[C2B Callback ${requestId}] Background processing complete.`);
+      console.log(`[C2B ${requestId}] Processing complete.`);
 
     } catch (err: any) {
-      console.error(`[C2B Callback ${requestId}] Background Fatal:`, err.message);
+      console.error(`[C2B ${requestId}] Fatal error:`, err.message);
     }
   })();
 
