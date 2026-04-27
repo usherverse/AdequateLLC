@@ -36,6 +36,14 @@ BEGIN
         ALTER TABLE public.payments ADD COLUMN status TEXT DEFAULT 'Unallocated'; 
     END IF;
 
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='payments' AND column_name='note') THEN 
+        ALTER TABLE public.payments ADD COLUMN note TEXT; 
+    END IF;
+
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='payments' AND column_name='is_reg_fee') THEN 
+        ALTER TABLE public.payments ADD COLUMN is_reg_fee BOOLEAN DEFAULT false; 
+    END IF;
+
 END $$;
 
 -- Reload schema cache
