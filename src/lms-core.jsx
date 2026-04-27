@@ -1012,19 +1012,35 @@ const AdminLogin = ({onLogin,onWorkerPortal}) => {
   // if(secCfg.otpEnabled) enabledSteps.push('OTP');
   if(enabledSteps.length===0) enabledSteps.push('Password');
 
-  // Auto-login logic: Instantly trigger if password/PIN matches the local hash
-  useEffect(() => {
-    if (pw.length < 4 || loading || locked || step !== 1) return;
-    
-    const stored = secCfg.adminPwHash;
-    const isCorrect = stored 
-      ? _checkPw(pw, stored) 
-      : pw === DEFAULT_ADMIN_PW;
+  // ── Auto-login logic ────────────────────────────────────────
+  // Track 1 — Offline / local-hash: fire instantly when pw matches stored hash.
+  // Track 2 — Supabase: debounce 600ms after the user stops typing so we don't
+  //           spam the auth API on every keystroke. Triggers once email + pw are set.
+  const autoSubmitTimer = useRef(null);
 
-    if (isCorrect) {
+  useEffect(() => {
+    if (loading || locked || step !== 1) return;
+
+    // Track 1: instant local-hash check
+    const stored = secCfg.adminPwHash;
+    if (pw.length >= 4 && stored && _checkPw(pw, stored)) {
       stepPw();
+      return;
     }
-  }, [pw, loading, locked, step, secCfg.adminPwHash]);
+
+    // Track 2: debounced Supabase submit — requires email + minimum pw length
+    clearTimeout(autoSubmitTimer.current);
+    if (pw.length >= 6 && loginEmail.trim().includes('@')) {
+      autoSubmitTimer.current = setTimeout(() => {
+        // Re-check guards in case state changed during the delay
+        if (!loading && !locked) stepPw();
+      }, 600);
+    }
+
+    return () => clearTimeout(autoSubmitTimer.current);
+  // stepPw is defined below this effect; eslint-disable to avoid stale-closure warning
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pw, loginEmail, loading, locked, step, secCfg.adminPwHash]);
 
   const stepPw=()=>{
     if(locked)return;
@@ -1369,7 +1385,7 @@ const CUSTOMERS_PAGE = 200;
 
 export default function App() {
 
-  const { session, worker, signOut } = useAuth();
+  const { session, worker, loading: authLoading, signOut } = useAuth();
   const [mode, _setMode] = useState(() => localStorage.getItem('acl_mode') || 'admin-login');
   const setMode = useCallback((m) => {
     _setMode(m);
@@ -1651,20 +1667,26 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    if (authLoading) return; // Don't act until Supabase has finished restoring the session
     if (_hasLoadedDataGlobal) return;
-    
+
     if (session) {
       _hasLoadedDataGlobal = true;
       loadAllData();
     } else {
-      setDataLoaded(true); // Allow login screen to show
+      setDataLoaded(true); // No session — allow login screen to show
     }
-  }, [session, loadAllData]);
+  }, [authLoading, session, loadAllData]);
 
   const ADMIN_ROLES = ['admin', 'Admin', 'Super Admin', 'Director'];
 
   // ── Sync mode from AuthContext session ──────────────────────────────────────
+  // IMPORTANT: authLoading is true while Supabase restores a persisted session
+  // from localStorage. We must NOT redirect to login until loading is false,
+  // otherwise every page refresh triggers a login flash.
   useEffect(() => {
+    if (authLoading) return; // Wait for session hydration to complete
+
     if (session) {
       if (mode === 'admin-login') {
         if (worker) {
@@ -1672,20 +1694,21 @@ export default function App() {
           setMode(isAdmin ? 'admin' : 'worker');
         } else if (session.user?.email) {
           const email = session.user.email.toLowerCase();
-          const isEmailAdmin = 
-            email.includes('admin') || 
-            email.includes('usher') || 
-            email.includes('director') || 
+          const isEmailAdmin =
+            email.includes('admin') ||
+            email.includes('usher') ||
+            email.includes('director') ||
             email.endsWith('@adequatecapital.co.ke');
-            
+
           if (isEmailAdmin) setMode('admin');
+          else setMode('worker');
         }
       }
     } else if (mode !== 'admin-login' && mode !== 'welcome') {
-      // If session is lost, force back to login
+      // Session truly gone (logged out or expired) — force back to login
       setMode('admin-login');
     }
-  }, [session, worker, mode, setMode]);
+  }, [authLoading, session, worker, mode, setMode]);
 
   const handleLogout = () => {
     signOut();
@@ -1735,6 +1758,16 @@ export default function App() {
     onOpenCustomerProfile: setGlobalCustomerId, onRefresh: loadAllData,
     onGlobalReset: () => setMode('welcome')
   };
+
+  // While Supabase is restoring the persisted session, show a neutral splash
+  // screen instead of the login form to avoid the flash-of-login-screen effect.
+  if (authLoading) return (
+    <div style={{ minHeight: '100vh', background: '#060A10', display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: 20 }}>
+      <div style={{ fontFamily: T.head, color: T.accent, fontWeight: 900, fontSize: 22, letterSpacing: -.5 }}>Adequate Capital</div>
+      <div style={{ width: 32, height: 32, border: '3px solid #1A2234', borderTop: `3px solid ${T.accent}`, borderRadius: '50%', animation: 'spin .8s linear infinite' }} />
+      <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+    </div>
+  );
 
   return (
     <>

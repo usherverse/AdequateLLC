@@ -409,10 +409,9 @@ const DashboardTab = ({adminUser,loans,setLoans,customers,setCustomers,payments,
               const hr = new Date().getHours();
               let greeting = "Good afternoon";
               if (hr >= 5 && hr < 12) greeting = "Good morning";
-              else if (hr >= 12 && hr < 14) greeting = "Bon appétit";
-              else if (hr >= 14 && hr < 18) greeting = "I hope you had a scrumptious lunch";
-              else if (hr >= 18 && hr < 22) greeting = "Good evening";
-              else greeting = "Burning the midnight oil? Good night";
+              else if (hr >= 12 && hr < 17) greeting = "Good afternoon";
+              else if (hr >= 17 && hr < 21) greeting = "Good evening";
+              else greeting = "Good night";
               return `${greeting}, ${adminUser?.name || 'Don'}!`;
             })()}
           </div>
