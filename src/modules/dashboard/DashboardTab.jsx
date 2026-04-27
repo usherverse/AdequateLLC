@@ -59,6 +59,28 @@ const DashboardTab = ({adminUser,loans,setLoans,customers,setCustomers,payments,
 
   const [paybillBalance, setPaybillBalance] = useState({ working: 0, utility: 0, lastUpdate: null, updating: false });
 
+  const handleCheckBalance = async () => {
+    setPaybillBalance(prev => ({ ...prev, updating: true }));
+    try {
+      const { checkAccountBalance } = await import('@/utils/mpesa');
+      await checkAccountBalance();
+      // If Daraja fails synchronously, it will throw.
+      // Otherwise, we wait for the webhook, but we add a 30-second safety timeout.
+      setTimeout(() => {
+        setPaybillBalance(prev => {
+          if (prev.updating) {
+            console.warn('Daraja balance sync timed out after 30s');
+            return { ...prev, updating: false };
+          }
+          return prev;
+        });
+      }, 30000);
+    } catch (e) {
+      setPaybillBalance(prev => ({ ...prev, updating: false }));
+      console.error('Failed to trigger balance check:', e.message);
+    }
+  };
+
   useEffect(() => {
     const fetchBalance = async () => {
       try {
@@ -66,6 +88,15 @@ const DashboardTab = ({adminUser,loans,setLoans,customers,setCustomers,payments,
         const { data } = await supabase.from('paybill_balance').select('*').eq('id', 1).single();
         if (data) {
           setPaybillBalance(prev => ({ ...prev, working: data.working_balance, utility: data.utility_balance, lastUpdate: data.last_updated }));
+          
+          // Trigger a fresh live sync on mount if it's been more than 5 minutes
+          const fiveMins = 5 * 60 * 1000;
+          if (!data.last_updated || (new Date().getTime() - new Date(data.last_updated).getTime() > fiveMins)) {
+             handleCheckBalance();
+          }
+        } else {
+           // No record exists yet, trigger first sync
+           handleCheckBalance();
         }
       } catch (e) { }
     };
@@ -81,28 +112,6 @@ const DashboardTab = ({adminUser,loans,setLoans,customers,setCustomers,payments,
 
     return () => { if (sub) sub.unsubscribe(); };
   }, []);
-
-  const handleCheckBalance = async () => {
-    setPaybillBalance(prev => ({ ...prev, updating: true }));
-    try {
-      const { checkAccountBalance } = await import('@/utils/mpesa');
-      const res = await checkAccountBalance();
-      // If Daraja fails synchronously, it will throw.
-      // Otherwise, we wait for the webhook, but we add a 30-second safety timeout.
-      setTimeout(() => {
-        setPaybillBalance(prev => {
-          if (prev.updating) {
-            console.warn('Daraja balance sync timed out after 30s');
-            return { ...prev, updating: false };
-          }
-          return prev;
-        });
-      }, 30000);
-    } catch (e) {
-      setPaybillBalance(prev => ({ ...prev, updating: false }));
-      alert('Failed to trigger balance check: ' + e.message);
-    }
-  };
 
   const dashDerived = useMemo(() => {
     const d = deriveDashboardMetrics(loans, payments, customers);
