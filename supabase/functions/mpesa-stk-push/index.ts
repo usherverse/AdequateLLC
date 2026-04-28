@@ -18,7 +18,7 @@ Deno.serve(async (req: Request) => {
     const { data: { user }, error: userError } = await supabaseClient.auth.getUser(authHeader.replace('Bearer ', ''));
     if (userError || !user) throw new Error("Unauthorized");
 
-    const { amount, phone_number, customer_id, description } = await req.json();
+    const { amount, phone_number, customer_id, description, loan_id } = await req.json();
 
     if (!amount || amount <= 0 || !phone_number || !customer_id) {
         throw new Error("Missing amount, phone_number, or customer_id");
@@ -106,6 +106,7 @@ Deno.serve(async (req: Request) => {
       phone_number: phoneStr,
       reference: customer_id, // FIXED: was customer_id
       description: description || 'Loan Payment',
+      loan_id: loan_id || null,
       status: "Pending"
     });
 

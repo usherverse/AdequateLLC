@@ -8,6 +8,7 @@ import RegistrationFeeTab from './RegistrationFeeTab';
 import PaybillReceiptsTab from './PaybillReceiptsTab';
 import AuditTab from './AuditTab';
 import SalariesTab from './SalariesTab';
+import StkRequestTab from './StkRequestTab';
 
 const PaymentsHub = ({ customers, setCustomers, loans, payments, setLoans, setPayments, workers, addAudit, showToast, unallocatedC2BCount, setUnallocatedC2BCount, salaryPayments, setSalaryPayments, workerDeductions, setWorkerDeductions, onNav, theme }) => {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -29,6 +30,7 @@ const PaymentsHub = ({ customers, setCustomers, loans, payments, setLoans, setPa
     { id: 'registration-fee', label: 'Registration Fees', icon: <FileText size={16} /> },
     { id: 'paybill', label: 'Paybill Receipts', icon: <Inbox size={16} />, badge: hubStats.unallocated + (unallocatedC2BCount || 0) },
     { id: 'salaries', label: 'Salaries B2C', icon: <Landmark size={16} /> },
+    { id: 'stk-push', label: 'Request Payment', icon: <Smartphone size={16} /> },
     { id: 'audit', label: 'Audit Ledger', icon: <SearchIcon size={16} /> },
   ];
 
@@ -203,6 +205,7 @@ const PaymentsHub = ({ customers, setCustomers, loans, payments, setLoans, setPa
           {currentTab === 'registration-fee' && <RegistrationFeeTab customers={customers} setCustomers={setCustomers} loans={loans} payments={payments} setPayments={setPayments} addAudit={addAudit} showToast={showToast} onManualLog={(c) => setManualLogData({ customer: c, type: 'registration_fee' })} />}
           { currentTab === 'paybill' && <PaybillReceiptsTab loans={loans} payments={payments} customers={customers} addAudit={addAudit} showToast={showToast} setPayments={setPayments} setUnallocatedC2BCount={setUnallocatedC2BCount} /> }
           { currentTab === 'salaries' && <SalariesTab workers={workers || []} salaryPayments={salaryPayments} setSalaryPayments={setSalaryPayments} customers={customers} loans={loans} addAudit={addAudit} showToast={showToast} onNav={onNav} workerDeductions={workerDeductions} setWorkerDeductions={setWorkerDeductions} payments={payments} theme={theme} /> }
+          { currentTab === 'stk-push' && <StkRequestTab customers={customers} loans={loans} showToast={showToast} /> }
           { currentTab === 'audit' && <AuditTab /> }
         </div>
       </Card>

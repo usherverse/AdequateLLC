@@ -60,7 +60,7 @@ Deno.serve(async (req: Request) => {
         result_desc: 'Success'
       })
       .eq('checkout_request_id', checkoutId)
-      .select()
+      .select('id, reference, description, loan_id')
       .maybeSingle();
 
     if (!request || reqErr) {
@@ -122,24 +122,30 @@ Deno.serve(async (req: Request) => {
             .eq('id', request.reference);
     } else {
         // Standard Loan Payment Logic
-        const { data: loan } = await supabase.from('loans')
-            .select('id')
-            .eq('customer_id', request.reference)
-            .in('status', ['Active', 'Overdue'])
-            .order('created_at', { ascending: false })
-            .limit(1)
-            .maybeSingle();
+        // If a specific loan_id was requested, use it. Otherwise find the latest Active/Overdue loan.
+        let targetLoanId = request.loan_id;
+
+        if (!targetLoanId) {
+            const { data: loan } = await supabase.from('loans')
+                .select('id')
+                .eq('customer_id', request.reference)
+                .in('status', ['Active', 'Overdue'])
+                .order('created_at', { ascending: false })
+                .limit(1)
+                .maybeSingle();
+            targetLoanId = loan?.id || null;
+        }
 
         const { error: payErr } = await supabase.from('payments').insert({
             id: genPayId(),
             customer_id: request.reference,
             customer_name: customerName,
-            loan_id: loan?.id || null,
+            loan_id: targetLoanId,
             amount,
             mpesa: mpesaReceipt,
             date: todayStr,
-            status: loan ? 'Allocated' : 'Unallocated',
-            allocated_by: loan ? 'M-Pesa STK Callback' : null
+            status: targetLoanId ? 'Allocated' : 'Unallocated',
+            allocated_by: targetLoanId ? 'M-Pesa STK Callback' : null
         });
 
         if (payErr) {
