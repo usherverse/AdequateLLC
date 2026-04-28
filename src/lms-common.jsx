@@ -694,6 +694,7 @@ export const fmtM = (n) =>
       ? `KES ${(n / 1e3).toFixed(1)}K`
       : `KES ${n || 0}`;
 export const now = () => new Date().toISOString().split("T")[0];
+export const nowISO = () => new Date().toISOString();
 export const ts = () =>
   new Date().toLocaleString("en-KE", { hour12: false }).replace(",", " ");
 export const uid = (p) =>

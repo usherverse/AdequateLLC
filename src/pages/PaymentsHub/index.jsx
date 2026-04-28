@@ -1,7 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { Banknote, FileText, Inbox, Search as SearchIcon, Landmark, Plus, X, ArrowUpRight, ShieldCheck, Activity, TrendingUp, DollarSign } from 'lucide-react';
-import { T, ModuleHeader, Card, Btn, fromSupabasePayment, KPI, Dialog, FI, Badge, Alert } from '@/lms-common';
+import { T, ModuleHeader, Card, Btn, fromSupabasePayment, KPI, Dialog, FI, Badge, Alert, nowISO } from '@/lms-common';
 import { supabase } from '@/config/supabaseClient';
 import DisbursementsTab from './DisbursementsTab';
 import RegistrationFeeTab from './RegistrationFeeTab';
@@ -83,7 +83,7 @@ const PaymentsHub = ({ customers, setCustomers, loans, payments, setLoans, setPa
           customerId: cusId,
           customer: result.customer_name,
           amount,
-          date: new Date().toISOString().split('T')[0],
+          date: nowISO(),
           status: 'Allocated',
           isRegFee,
           note: reference ? `Manual Entry (${method}) - ${reference}` : `Manual Entry (${method})`

@@ -6,7 +6,7 @@ import {
 } from 'lucide-react';
 import {
   T, SC, Card, DT, Btn, Search, Pills, Badge, FI, Alert, Dialog, ConfirmDialog, RefreshBtn,
-  LoanModal, LoanForm, fmt, fmtM, now, uid, ts, generateLoanAgreementHTML, generateAssetListHTML, downloadLoanDoc,
+  LoanModal, LoanForm, fmt, fmtM, now, nowISO, uid, ts, generateLoanAgreementHTML, generateAssetListHTML, downloadLoanDoc,
   sbWrite, sbInsert, toSupabaseLoan, toSupabaseCustomer, toSupabasePayment, useContactPopup, useToast,
   ModuleHeader, calculateLoanStatus, hasRegFee,
   KPI, Av, Bar
@@ -96,7 +96,7 @@ const LoansTab = ({ loans, setLoans, customers, setCustomers, payments, setPayme
     const newBal = Math.max(currentBalance - amt, 0);
     const newStatus = newBal <= 0 ? 'Settled' : payLoan.status;
     const payId = uid('PAY');
-    const payEntry = { id: payId, date: payF.date || now(), amount: amt, mpesa: payF.mpesa || 'manual', note: '', isRegFee: !!payF.isRegFee };
+    const payEntry = { id: payId, date: payF.date === now() ? nowISO() : payF.date, amount: amt, mpesa: payF.mpesa || 'manual', note: '', isRegFee: !!payF.isRegFee };
     // Update loan's embedded payment list
     const payLoanUpd = { ...payLoan, balance: newBal, status: newStatus, payments: [...(payLoan.payments || []), payEntry] };
     setLoans(ls => ls.map(l => l.id === payLoan.id ? payLoanUpd : l));

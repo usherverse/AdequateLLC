@@ -179,7 +179,7 @@ const PaymentsTab = ({payments,setPayments,loans,setLoans,customers,setCustomers
               },
               { k: 'amount', l: 'Amount', r: v => <span style={{ color: T.ok, fontFamily: T.mono, fontWeight: 800, fontSize: 15 }}>KES {fmt(v)}</span> },
               { k: 'loanId', l: 'Allocation', r: v => v ? <Badge color={T.accent} alpha={0.1}><Clock size={10} style={{marginRight:4}}/> {v}</Badge> : <span style={{color:T.dim, fontSize:12}}>—</span> },
-              { k: 'date', l: 'Timestamp', r: v => <div style={{ fontSize: 12, fontWeight: 600 }}>{v}</div> },
+              { k: 'date', l: 'Timestamp', r: v => <div style={{ fontSize: 12, fontWeight: 600 }}>{v ? (v.includes('T') ? new Date(v).toLocaleString('en-KE') : v) : '—'}</div> },
               { k: 'status', l: 'Status', r: v => <Badge color={SC[v] || T.muted} variant="capsule">{v}</Badge> },
               { k: 'allocatedBy', l: 'By', r: v => <span style={{ fontSize: 12, opacity: 0.8 }}>{v || 'System'}</span> }
             ]}

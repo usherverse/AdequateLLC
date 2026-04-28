@@ -10,9 +10,8 @@ async function check() {
   const { data, error } = await supabase
     .from('raw_mpesa_logs')
     .select('*')
-    .eq('endpoint', 'mpesa-balance-callback')
     .order('created_at', { ascending: false })
-    .limit(5);
+    .limit(10);
     
   if (error) {
     console.error("Error querying logs:", error);

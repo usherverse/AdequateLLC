@@ -176,10 +176,7 @@ Deno.serve(async (req: Request) => {
       const customerName = matchedCustomer?.name
         || mpesaName
         || (MSISDN ? `M-Pesa (${MSISDN})` : `Paybill (${BillRefNumber})`);
-      const todayStr = new Intl.DateTimeFormat('en-CA', {
-        timeZone: 'Africa/Nairobi',
-        year: 'numeric', month: '2-digit', day: '2-digit'
-      }).format(new Date());
+      const nowISO = new Date().toISOString();
 
       // ── Step 2: Registration fee (KES 500) vs loan repayment ──────────────
       if (matchedCustomer && amount === 500 && !matchedCustomer.mpesa_registered) {
@@ -199,7 +196,7 @@ Deno.serve(async (req: Request) => {
           customer_name: customerName,
           amount,
           mpesa: TransID,
-          date: todayStr,
+          date: nowISO,
           status: 'Allocated',
           is_reg_fee: true,
           allocated_by: 'M-Pesa C2B Auto'
@@ -238,7 +235,7 @@ Deno.serve(async (req: Request) => {
           loan_id: targetLoanId,
           amount,
           mpesa: TransID,
-          date: todayStr,
+          date: nowISO,
           status,
           allocated_by: targetLoanId ? `M-Pesa C2B Auto (${matchMethod})` : null
         });

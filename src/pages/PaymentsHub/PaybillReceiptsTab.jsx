@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { supabase } from '@/config/supabaseClient';
-import { T, Badge, Btn, fmt } from '@/lms-common';
+import { T, Badge, Btn, fmt, nowISO } from '@/lms-common';
 import { Check, Link, AlertTriangle } from 'lucide-react';
 
 const PaybillReceiptsTab = ({ payments = [], loans = [], customers = [], addAudit, showToast, setPayments, setUnallocatedC2BCount }) => {
@@ -49,7 +49,7 @@ const PaybillReceiptsTab = ({ payments = [], loans = [], customers = [], addAudi
         customer_name: customer.name,
         amount,
         mpesa: transaction_id,
-        date: new Date().toISOString().split('T')[0],
+        date: nowISO(),
         status: 'Allocated',
         allocated_by: 'Admin (Manual)',
         allocated_at: new Date().toISOString(),

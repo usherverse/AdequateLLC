@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { Rocket, Smartphone, Users, ChevronLeft, Search } from 'lucide-react';
 import { supabase } from '@/config/supabaseClient';
-import { T, Badge, Btn, fmt, FI, WaitingOverlay } from '@/lms-common';
+import { T, Badge, Btn, fmt, FI, WaitingOverlay, nowISO } from '@/lms-common';
 import { useRegistrationFee } from './hooks/useRegistrationFee';
 
 // A customer has paid if: mpesaRegistered flag OR any payment with is_reg_fee=true
@@ -30,7 +30,7 @@ const RegistrationFeeTab = ({ customers = [], setCustomers, payments = [], setPa
   // Sync with global state upon success
   useEffect(() => {
     if (isSuccess && customer) {
-      const today = new Date().toISOString().split('T')[0];
+      const today = nowISO();
       
       // 1. Update Global Customers List
       if (setCustomers) {
