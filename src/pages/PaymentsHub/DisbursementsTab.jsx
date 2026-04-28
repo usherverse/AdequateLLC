@@ -4,7 +4,7 @@ import { Check, X, AlertOctagon, FileText, ClipboardSignature, PackageOpen, Rock
 import { 
   T, Badge, Btn, fmt, Alert, FI, Dialog, WaitingOverlay, DT,
   hasRegFee, generateLoanAgreementHTML, generateAssetListHTML, downloadLoanDoc,
-  sbWrite, toSupabaseLoan, now
+  sbWrite, toSupabaseLoan, now, RC
 } from '@/lms-common';
 import { useDisbursements } from './hooks/useDisbursements';
 
@@ -45,6 +45,21 @@ const DisbursementsTab = ({ loans = [], customers = [], payments = [], setLoans,
     } catch (err) {
       showToast('❌ M-Pesa Error: ' + err.message, 'danger');
     }
+  };
+
+  const doDecline = () => {
+    if (!sel) return;
+    if (!window.confirm(`Are you sure you want to decline this loan application for ${sel.customer}? It will be removed from the disbursement queue.`)) return;
+
+    const upd = { ...sel, status: 'Rejected', rejectedAt: now() };
+    sbWrite('loans', toSupabaseLoan(upd))
+      .then(() => {
+        if (setLoans) setLoans(ls => ls.map(l => l.id === sel.id ? upd : l));
+        addAudit('Loan Declined at Disbursement', sel.id, `Principal: ${fmt(sel.amount)}`);
+        showToast(`⚠ Loan ${sel.id} has been declined and removed from the queue.`, 'warn');
+        setSel(null);
+      })
+      .catch(err => showToast('❌ Error: ' + err.message, 'danger'));
   };
 
   return (
@@ -190,8 +205,9 @@ const DisbursementsTab = ({ loans = [], customers = [], payments = [], setLoans,
                 </Btn>
                 <div style={{ display: 'flex', gap: 12 }}>
                   <Btn onClick={doManualDisburse} v='ok' full disabled={!feeOk || !disbF.mpesa} icon={CheckCircle}>Confirm Manual Payout</Btn>
-                  <Btn onClick={() => setSel(null)} v='secondary' style={{ minWidth: 100 }}>Close</Btn>
+                  <Btn onClick={doDecline} v='danger' outline full icon={X}>Decline Application</Btn>
                 </div>
+                <Btn onClick={() => setSel(null)} v='secondary' full>Cancel & Close</Btn>
               </div>
             </div>
           </Dialog>

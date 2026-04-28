@@ -1,5 +1,46 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.0";
 
+// ── Intouch VAS SMS helper (API Key auth) ────────────────────────────────────
+const INTOUCH_SMS_URL = "https://sms.intouchvas.io/api/v1/send";
+
+async function sendBalanceSMS(msisdn: string, customerName: string, amountPaid: number, loanBalance: number, transID: string): Promise<void> {
+  try {
+    const apiKey   = Deno.env.get("INTOUCH_API_KEY") || "";
+    const senderId = Deno.env.get("INTOUCH_SENDER_ID") || "ADEQUATE";
+
+    if (!apiKey || !msisdn) {
+      console.warn("[SMS] INTOUCH_API_KEY not set or no MSISDN — skipping.");
+      return;
+    }
+
+    // Normalise phone to 254XXXXXXXXX
+    const phone = msisdn.replace(/^\+/, "").replace(/^0/, "254");
+
+    // Format currency
+    const fmt = (n: number) => `KES ${n.toLocaleString('en-KE', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
+    const firstName = customerName.split(' ')[0];
+    const message = loanBalance > 0
+      ? `Dear ${firstName}, payment of ${fmt(amountPaid)} received (Ref: ${transID}). Your outstanding loan balance is ${fmt(loanBalance)}. Thank you - Adequate Capital.`
+      : `Dear ${firstName}, payment of ${fmt(amountPaid)} received (Ref: ${transID}). Your loan is now FULLY SETTLED! Thank you - Adequate Capital.`;
+
+    // Send SMS — API Key used directly as Bearer token
+    const smsRes = await fetch(INTOUCH_SMS_URL, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({ message, msisdn: phone, sender_id: senderId }),
+    });
+
+    const smsJson = await smsRes.json().catch(() => ({}));
+    console.log(`[SMS] Sent to ${phone}: status=${smsRes.status}`, JSON.stringify(smsJson));
+  } catch (smsErr: any) {
+    // SMS failure must NEVER crash the payment flow
+    console.error("[SMS] Failed to send balance SMS:", smsErr.message);
+  }
+}
+
 /**
  * PRODUCTION-READY M-PESA C2B (PAYBILL) CALLBACK HANDLER
  *
@@ -201,6 +242,31 @@ Deno.serve(async (req: Request) => {
           status,
           allocated_by: targetLoanId ? `M-Pesa C2B Auto (${matchMethod})` : null
         });
+
+        // ── Send loan balance SMS via Intouch VAS ──────────────────────────
+        if (matchedCustomer && targetLoanId) {
+          // Fetch the updated loan balance (already decremented by DB trigger)
+          // Also fetch the customer's registered phone number
+          const { data: customerData } = await supabase
+            .from('customers')
+            .select('phone, balance:loans(balance)')
+            .eq('id', matchedCustomer.id)
+            .eq('loans.id', targetLoanId)
+            .single();
+
+          const loanBalance = customerData?.balance?.[0]?.balance ?? 0;
+          
+          // Use the paying number if valid, otherwise fallback to the registered number
+          const targetPhone = (MSISDN && MSISDN !== "0" && MSISDN.length > 5) 
+            ? MSISDN 
+            : customerData?.phone;
+
+          if (targetPhone) {
+            await sendBalanceSMS(targetPhone, customerName, amount, loanBalance, TransID);
+          } else {
+            console.warn(`[SMS] No valid phone found for customer ${matchedCustomer.id} (MSISDN was ${MSISDN})`);
+          }
+        }
       }
 
       console.log(`[C2B ${requestId}] Processing complete.`);

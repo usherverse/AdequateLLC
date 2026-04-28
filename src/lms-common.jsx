@@ -4174,12 +4174,16 @@ export const OnboardForm = ({ workers, onSave, onClose, prefill, leadId }) => {
     }
     delete finalData.customBusinessType;
 
+    const officerWorker = workers?.find(w => w.name === finalData.officer);
+    const officerId = officerWorker?.id || null;
+
     const customerId = uid("CUS");
     return await onSave({
       id: customerId,
       ...finalData,
+      officerId, // Passing for toSupabaseCustomer
       idNumber: finalData.idNo,
-      accountNumber: customerId, // Auto-assign SYSTEM ID as account number
+      accountNumber: customerId, 
       usesIdAsAccount: false,
       loans: 0,
       risk: "Low",
@@ -12608,7 +12612,8 @@ export const toSupabaseCustomer = (c) => ({
   location: c.businessLocation || c.location || null,
   gps_coordinates: c.gps || null,
   residence: c.residence || null,
-  officer: c.officer || null,
+  officer: c.officerName || c.officer || null,
+  assigned_officer: c.assignedOfficer || c.officerId || null,
   loans: c.loans || 0,
   risk: c.risk || "Medium",
   gender: c.gender || null,
@@ -12626,13 +12631,8 @@ export const toSupabaseCustomer = (c) => ({
   n3_phone: c.n3p || null,
   n3_relation: c.n3r || null,
   documents: c.docs || [],
-  // Write to the dedicated `joined` column — NOT `created_at` which is server-managed
-  // and will silently ignore or overwrite whatever we supply.
   joined: c.joined || c.createdAt || null,
   mpesa_registered: c.mpesaRegistered || false,
-  // ── M-PESA C2B: National ID is the canonical Paybill account number ──
-  // Customers type their National ID at the paybill "account" prompt.
-  // This must always equal id_no so daraja-c2b-callback can match correctly.
   account_number: c.idNo || c.idNumber || null,
   id_number: c.idNo || c.idNumber || null,
   uses_id_as_account: true,
@@ -12650,7 +12650,8 @@ export const fromSupabaseCustomer = (r) => ({
   location: r.business_location || r.location,
   gps: r.gps_coordinates,
   residence: r.residence || r.address,
-  officer: r.assigned_officer || r.officer,
+  officer: r.assigned_officer_worker?.name || r.officer,
+  assignedOfficer: r.assigned_officer,
   loans: r.loans || 0,
   risk: r.risk || 'Medium',
   gender: r.gender,
