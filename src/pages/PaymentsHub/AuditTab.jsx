@@ -40,7 +40,15 @@ const AuditTab = () => {
         }
       });
 
-      if (error) throw error;
+      if (error) {
+        // Parse the error message from the Edge Function
+        let msg = error.message;
+        try {
+          const body = await error.context?.json();
+          if (body?.error) msg = body.error;
+        } catch(e) {}
+        throw new Error(msg);
+      }
       
       alert(data.message || 'Reversal initiated successfully.');
       fetchTxs();
