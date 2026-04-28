@@ -103,14 +103,13 @@ const AuditTab = () => {
               <th style={{ position: 'sticky', top: 0, zIndex: 10, background: T.surface, borderBottom: `1px solid ${T.border}`, padding: '14px 20px', color: T.muted, fontSize: 10, fontWeight: 850, textTransform: 'uppercase', letterSpacing: 1 }}>Amount</th>
               <th style={{ position: 'sticky', top: 0, zIndex: 10, background: T.surface, borderBottom: `1px solid ${T.border}`, padding: '14px 20px', color: T.muted, fontSize: 10, fontWeight: 850, textTransform: 'uppercase', letterSpacing: 1 }}>Reference</th>
               <th style={{ position: 'sticky', top: 0, zIndex: 10, background: T.surface, borderBottom: `1px solid ${T.border}`, padding: '14px 20px', color: T.muted, fontSize: 10, fontWeight: 850, textTransform: 'uppercase', letterSpacing: 1 }}>Status</th>
-              <th style={{ position: 'sticky', top: 0, zIndex: 10, background: T.surface, borderBottom: `1px solid ${T.border}`, padding: '14px 20px', color: T.muted, fontSize: 10, fontWeight: 850, textTransform: 'uppercase', letterSpacing: 1 }}>Actions</th>
             </tr>
           </thead>
           <tbody>
             {loading ? (
-              <tr><td colSpan="7" style={{ textAlign: 'center', padding: '60px 0', color: T.muted }}>Synchronizing Ledger...</td></tr>
+              <tr><td colSpan="6" style={{ textAlign: 'center', padding: '60px 0', color: T.muted }}>Synchronizing Ledger...</td></tr>
             ) : txs.length === 0 ? (
-              <tr><td colSpan="7" style={{ textAlign: 'center', padding: '60px 0', color: T.muted }}>No transactions recorded.</td></tr>
+              <tr><td colSpan="6" style={{ textAlign: 'center', padding: '60px 0', color: T.muted }}>No transactions recorded.</td></tr>
             ) : (
               txs.map((tx) => (
                 <tr key={`${tx.tx_type}-${tx.id}`} style={{ borderBottom: `1px solid ${T.border}`, transition: 'background 0.2s' }}>
@@ -137,62 +136,12 @@ const AuditTab = () => {
                   <td style={{ padding: '16px 20px' }}>
                     <Badge color={statusColors[tx.status] || T.muted}>{tx.status?.toUpperCase()}</Badge>
                   </td>
-                  <td style={{ padding: '16px 20px' }}>
-                    {tx.status !== 'Reversed' && (
-                      <Btn sm v="danger" onClick={() => { setRevTarget(tx); setRevReason('Wrong Number'); }} icon={RotateCcw}>Reverse</Btn>
-                    )}
-                  </td>
                 </tr>
               ))
             )}
           </tbody>
         </table>
       </div>
-
-      {revTarget && (
-        <Dialog 
-          title={`Authorize Transaction Reversal`} 
-          onClose={() => setRevTarget(null)}
-          width={480}
-        >
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-            <Alert type="danger" icon={<AlertCircle size={20} />}>
-              <b>CRITICAL ACTION:</b> You are about to reverse a <b>{revTarget.tx_type.toUpperCase()}</b> for <b>{revTarget.customer_name}</b>. 
-              {revTarget.reference && ` This will attempt a real M-Pesa refund for ${fmt(revTarget.amount)}.`}
-            </Alert>
-
-            <div style={{ background: T.surface, padding: 16, borderRadius: 16, border: `1px solid ${T.border}` }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 12 }}>
-                <span style={{ color: T.muted, fontSize: 12 }}>Amount</span>
-                <span style={{ color: T.danger, fontWeight: 900 }}>{fmt(revTarget.amount)}</span>
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                <span style={{ color: T.muted, fontSize: 12 }}>Reference</span>
-                <span style={{ color: T.txt, fontFamily: T.mono, fontSize: 12 }}>{revTarget.reference || 'Manual Entry'}</span>
-              </div>
-            </div>
-
-            <FI 
-              label="Reason for Reversal" 
-              type="select"
-              options={[
-                { l: '❌ Wrong Phone Number', v: 'Wrong Number' },
-                { l: '📉 Defaulted Client / Recovery', v: 'Defaulted Client' },
-                { l: '✍️ Entry Error / Correction', v: 'Entry Error' },
-                { l: '🔄 Customer Requested Refund', v: 'Customer Request' },
-                { l: '❓ Other / System Correction', v: 'Other' }
-              ]}
-              value={revReason}
-              onChange={v => setRevReason(v)}
-            />
-
-            <div style={{ display: 'flex', gap: 12, marginTop: 8 }}>
-              <Btn full v="danger" onClick={handleReverse} icon={RotateCcw}>Confirm & Execute Reversal</Btn>
-              <Btn outline v="secondary" onClick={() => setRevTarget(null)}>Cancel</Btn>
-            </div>
-          </div>
-        </Dialog>
-      )}
     </div>
   );
 };
