@@ -10,7 +10,7 @@ import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
  *   INTOUCH_SENDER_ID — your registered sender name (e.g. ADEQUATE)
  */
 
-const INTOUCH_SMS_URL = "https://sms.intouchvas.io/api/v1/send";
+const INTOUCH_SMS_URL = "https://sms-service.intouchvas.io/message/send/transactional";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -46,7 +46,7 @@ serve(async (req: Request) => {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "Authorization": `Bearer ${apiKey}`,
+        "x-api-key": apiKey,
       },
       body: JSON.stringify({ message, msisdn: phone, sender_id: senderId }),
     });

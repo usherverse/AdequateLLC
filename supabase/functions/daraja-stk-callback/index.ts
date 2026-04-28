@@ -1,5 +1,41 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.0";
 
+// ── Intouch VAS SMS helper (API Key auth) ────────────────────────────────────
+const INTOUCH_SMS_URL = "https://sms-service.intouchvas.io/message/send/transactional";
+
+async function sendBalanceSMS(msisdn: string, customerName: string, amountPaid: number, loanBalance: number, transID: string): Promise<void> {
+  try {
+    const apiKey   = Deno.env.get("INTOUCH_API_KEY") || "";
+    const senderId = Deno.env.get("INTOUCH_SENDER_ID") || "ADEQUATE";
+
+    if (!apiKey || !msisdn) {
+      console.warn("[SMS] INTOUCH_API_KEY not set or no MSISDN — skipping.");
+      return;
+    }
+
+    const phone = msisdn.replace(/^\+/, "").replace(/^0/, "254");
+    const fmt = (n: number) => `KES ${n.toLocaleString('en-KE', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
+    const firstName = customerName.split(' ')[0];
+    const message = loanBalance > 0
+      ? `Dear ${firstName}, payment of ${fmt(amountPaid)} received (Ref: ${transID}). Your outstanding loan balance is ${fmt(loanBalance)}. Thank you - Adequate Capital.`
+      : `Dear ${firstName}, payment of ${fmt(amountPaid)} received (Ref: ${transID}). Your loan is now FULLY SETTLED! Thank you - Adequate Capital.`;
+
+    const smsRes = await fetch(INTOUCH_SMS_URL, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-api-key": apiKey,
+      },
+      body: JSON.stringify({ message, msisdn: phone, sender_id: senderId }),
+    });
+
+    const smsJson = await smsRes.json().catch(() => ({}));
+    console.log(`[SMS] Sent to ${phone}: status=${smsRes.status}`, JSON.stringify(smsJson));
+  } catch (smsErr: any) {
+    console.error("[SMS] Failed to send balance SMS:", smsErr.message);
+  }
+}
+
 /**
  * PRODUCTION-READY M-PESA STK CALLBACK HANDLER (Unified)
  * This function is now "Trigger-Driven". It logs the payment 
@@ -151,6 +187,23 @@ Deno.serve(async (req: Request) => {
         if (payErr) {
             console.error("[M-Pesa Edge] Loan Payment Log Error:", payErr.message);
             throw new Error(`Payment insertion failed: ${payErr.message}`);
+        }
+
+        // ── Send loan balance SMS via Intouch VAS ──────────────────────────
+        if (request.reference && targetLoanId) {
+            const { data: customerData } = await supabase
+                .from('customers')
+                .select('phone, balance:loans(balance)')
+                .eq('id', request.reference)
+                .eq('loans.id', targetLoanId)
+                .single();
+
+            const loanBalance = customerData?.balance?.[0]?.balance ?? 0;
+            const targetPhone = (phone && phone !== "0" && phone.length > 5) ? phone : customerData?.phone;
+
+            if (targetPhone) {
+                await sendBalanceSMS(targetPhone, customerName, amount, loanBalance, mpesaReceipt);
+            }
         }
     }
 

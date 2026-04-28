@@ -1,7 +1,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.0";
 
 // ── Intouch VAS SMS helper (API Key auth) ────────────────────────────────────
-const INTOUCH_SMS_URL = "https://sms.intouchvas.io/api/v1/send";
+const INTOUCH_SMS_URL = "https://sms-service.intouchvas.io/message/send/transactional";
 
 async function sendBalanceSMS(msisdn: string, customerName: string, amountPaid: number, loanBalance: number, transID: string): Promise<void> {
   try {
@@ -28,7 +28,7 @@ async function sendBalanceSMS(msisdn: string, customerName: string, amountPaid: 
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "Authorization": `Bearer ${apiKey}`,
+        "x-api-key": apiKey,
       },
       body: JSON.stringify({ message, msisdn: phone, sender_id: senderId }),
     });
