@@ -1,11 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '@/config/supabaseClient';
-import { T, Badge, Btn, fmt } from '@/lms-common';
-import { RotateCcw, ArrowDownLeft, ArrowUpRight, Activity } from 'lucide-react';
+import { RotateCcw, ArrowDownLeft, ArrowUpRight, Activity, AlertCircle } from 'lucide-react';
+import { T, Badge, Btn, fmt, Dialog, FI, Alert } from '@/lms-common';
 
 const AuditTab = () => {
   const [txs, setTxs] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [revTarget, setRevTarget] = useState(null);
+  const [revReason, setRevReason] = useState('Wrong Number');
 
   const fetchTxs = async () => {
     setLoading(true);
@@ -23,25 +25,18 @@ const AuditTab = () => {
     fetchTxs();
   }, []);
 
-  const handleReverse = async (tx) => {
-    const isMpesa = !!tx.reference && tx.reference.length > 5;
-    const confirmMsg = isMpesa 
-      ? `This will attempt a REAL M-PESA REVERSAL via Safaricom for ${fmt(tx.amount)}. Are you sure?`
-      : `Are you sure you want to reverse this transaction?`;
-    
-    if (!window.confirm(confirmMsg)) return;
-
-    const reason = window.prompt(`Enter reason for reversing ${tx.tx_type} ${tx.reference || tx.id}:`, 'Wrong Number');
-    if (!reason) return;
+  const handleReverse = async () => {
+    if (!revTarget || !revReason) return;
+    const tx = revTarget;
 
     setLoading(true);
+    setRevTarget(null);
     try {
-      // Use the Edge Function for M-Pesa level reversal
       const { data, error } = await supabase.functions.invoke('mpesa-reversal', {
         body: {
           tx_type: tx.tx_type,
           id: tx.id,
-          reason: reason
+          reason: revReason
         }
       });
 
@@ -136,7 +131,7 @@ const AuditTab = () => {
                   </td>
                   <td style={{ padding: '16px 20px' }}>
                     {tx.status !== 'Reversed' && (
-                      <Btn sm v="danger" onClick={() => handleReverse(tx)} icon={RotateCcw}>Reverse</Btn>
+                      <Btn sm v="danger" onClick={() => { setRevTarget(tx); setRevReason('Wrong Number'); }} icon={RotateCcw}>Reverse</Btn>
                     )}
                   </td>
                 </tr>
@@ -145,6 +140,51 @@ const AuditTab = () => {
           </tbody>
         </table>
       </div>
+
+      {revTarget && (
+        <Dialog 
+          title={`Authorize Transaction Reversal`} 
+          onClose={() => setRevTarget(null)}
+          width={480}
+        >
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+            <Alert type="danger" icon={<AlertCircle size={20} />}>
+              <b>CRITICAL ACTION:</b> You are about to reverse a <b>{revTarget.tx_type.toUpperCase()}</b> for <b>{revTarget.customer_name}</b>. 
+              {revTarget.reference && ` This will attempt a real M-Pesa refund for ${fmt(revTarget.amount)}.`}
+            </Alert>
+
+            <div style={{ background: T.surface, padding: 16, borderRadius: 16, border: `1px solid ${T.border}` }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 12 }}>
+                <span style={{ color: T.muted, fontSize: 12 }}>Amount</span>
+                <span style={{ color: T.danger, fontWeight: 900 }}>{fmt(revTarget.amount)}</span>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                <span style={{ color: T.muted, fontSize: 12 }}>Reference</span>
+                <span style={{ color: T.txt, fontFamily: T.mono, fontSize: 12 }}>{revTarget.reference || 'Manual Entry'}</span>
+              </div>
+            </div>
+
+            <FI 
+              label="Reason for Reversal" 
+              type="select"
+              options={[
+                { l: '❌ Wrong Phone Number', v: 'Wrong Number' },
+                { l: '📉 Defaulted Client / Recovery', v: 'Defaulted Client' },
+                { l: '✍️ Entry Error / Correction', v: 'Entry Error' },
+                { l: '🔄 Customer Requested Refund', v: 'Customer Request' },
+                { l: '❓ Other / System Correction', v: 'Other' }
+              ]}
+              value={revReason}
+              onChange={v => setRevReason(v)}
+            />
+
+            <div style={{ display: 'flex', gap: 12, marginTop: 8 }}>
+              <Btn full v="danger" onClick={handleReverse} icon={RotateCcw}>Confirm & Execute Reversal</Btn>
+              <Btn outline v="secondary" onClick={() => setRevTarget(null)}>Cancel</Btn>
+            </div>
+          </div>
+        </Dialog>
+      )}
     </div>
   );
 };
