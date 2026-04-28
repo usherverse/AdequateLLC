@@ -33,7 +33,7 @@ serve(async (req: Request) => {
     }
 
     const apiKey   = Deno.env.get("INTOUCH_API_KEY") || "";
-    const senderId = Deno.env.get("INTOUCH_SENDER_ID") || "ADEQUATE";
+    const senderId = Deno.env.get("INTOUCH_SENDER_ID") || "Adequate";
 
     if (!apiKey) {
       throw new Error("INTOUCH_API_KEY secret not configured.");

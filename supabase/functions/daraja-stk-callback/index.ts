@@ -6,7 +6,7 @@ const INTOUCH_SMS_URL = "https://sms-service.intouchvas.io/message/send/transact
 async function sendBalanceSMS(msisdn: string, customerName: string, amountPaid: number, loanBalance: number, transID: string): Promise<void> {
   try {
     const apiKey   = Deno.env.get("INTOUCH_API_KEY") || "";
-    const senderId = Deno.env.get("INTOUCH_SENDER_ID") || "ADEQUATE";
+    const senderId = Deno.env.get("INTOUCH_SENDER_ID") || "Adequate";
 
     if (!apiKey || !msisdn) {
       console.warn("[SMS] INTOUCH_API_KEY not set or no MSISDN — skipping.");
@@ -191,14 +191,12 @@ Deno.serve(async (req: Request) => {
 
         // ── Send loan balance SMS via Intouch VAS ──────────────────────────
         if (request.reference && targetLoanId) {
-            const { data: customerData } = await supabase
-                .from('customers')
-                .select('phone, balance:loans(balance)')
-                .eq('id', request.reference)
-                .eq('loans.id', targetLoanId)
-                .single();
+            const [{ data: loanData }, { data: customerData }] = await Promise.all([
+                supabase.from('loans').select('balance').eq('id', targetLoanId).single(),
+                supabase.from('customers').select('phone').eq('id', request.reference).single()
+            ]);
 
-            const loanBalance = customerData?.balance?.[0]?.balance ?? 0;
+            const loanBalance = loanData?.balance ?? 0;
             const targetPhone = (phone && phone !== "0" && phone.length > 5) ? phone : customerData?.phone;
 
             if (targetPhone) {

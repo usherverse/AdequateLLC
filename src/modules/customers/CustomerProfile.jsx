@@ -13,6 +13,7 @@ export default function CustomerProfile({
   addAudit 
 }) {
   const [activeTab, setActiveTab] = useState('overview');
+  const [riskProfile, setRiskProfile] = useState(null);
   const [loading, setLoading]     = useState(false);
   const [errorMsg, setErrorMsg]   = useState(null);
   const [showEdit, setShowEdit]   = useState(false);
@@ -78,10 +79,11 @@ export default function CustomerProfile({
         }
         if (!cData) throw new Error('Customer not found');
 
-        const [lRes, pRes, iRes] = await Promise.allSettled([
+        const [lRes, pRes, iRes, rRes] = await Promise.allSettled([
           supabase.from('loans').select('*').eq('customer_id', customerId),
           supabase.from('payments').select('*').eq('customer_id', customerId).order('date', { ascending: false }),
           supabase.from('interactions').select('*').eq('customer_id', customerId).order('created_at', { ascending: false }),
+          supabase.from('customer_risk_profiles').select('*').eq('customer_id', customerId).maybeSingle(),
         ]);
 
         if (!active) return;
@@ -99,6 +101,7 @@ export default function CustomerProfile({
         if (lRes.status === 'fulfilled' && lRes.value.data) setLoans(lRes.value.data.map(fromSupabaseLoan));
         if (pRes.status === 'fulfilled' && pRes.value.data) setPayments(pRes.value.data.map(fromSupabasePayment));
         if (iRes.status === 'fulfilled' && iRes.value.data) setInters(iRes.value.data.map(fromSupabaseInteraction));
+        if (rRes.status === 'fulfilled' && rRes.value.data) setRiskProfile(rRes.value.data);
 
       } catch (err) {
         if (active) setErrorMsg(err.message || 'Unknown database fetch error');
@@ -195,7 +198,7 @@ export default function CustomerProfile({
     }
   };
 
-  const tabs = ['Overview', 'Loan History', 'Payment History', 'Interactions', 'Documents', 'Next of Kin'];
+  const tabs = ['Overview', 'Risk Analysis', 'Loan History', 'Payment History', 'Interactions', 'Documents', 'Next of Kin'];
   // Map label to internal ID for switching
   const tabId = v => v.toLowerCase().replace(/ /g, '');
 
@@ -363,8 +366,11 @@ export default function CustomerProfile({
                 <div className="row-grouped"><span style={{ color: T.dim, fontSize: 13 }}>Date Joined</span><span style={{ color: T.txt }}>{customer.joined ? new Date(customer.joined).toLocaleDateString() : '—'}</span></div>
                 <div className="row-grouped"><span style={{ color: T.dim, fontSize: 13 }}>Assigned Officer</span><span style={{ color: T.txt }}>{customer.assigned_officer_worker?.name || 'Unassigned'}</span></div>
                 <div className="row-grouped" style={{ border: 'none' }}>
-                  <span style={{ color: T.dim, fontSize: 13 }}>Risk Scoring</span>
-                  <Badge color={customer.risk === 'High' ? T.danger : customer.risk === 'Medium' ? T.warn : T.ok}>{customer.risk || 'Low'}</Badge>
+                  <span style={{ color: T.dim, fontSize: 13 }}>Risk Profile</span>
+                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4 }}>
+                    <Badge color={customer.risk === 'Critical' || customer.risk === 'High' ? T.danger : customer.risk === 'Medium' ? T.warn : T.ok}>{customer.risk || 'Low'}</Badge>
+                    {riskProfile && <span style={{ fontSize: 10, color: T.muted, fontWeight: 700, textTransform: 'uppercase' }}>{riskProfile.repayment_style}</span>}
+                  </div>
                 </div>
                 {isBlacklisted && (
                   <div className="row-grouped" style={{ border: 'none', background: `${T.danger}10`, padding: '12px 16px', borderRadius: 12, marginTop: 12 }}>
@@ -451,6 +457,71 @@ export default function CustomerProfile({
                 </div>
               </div>
             </Card>
+          </div>
+        )}
+
+
+        {activeTab === 'riskanalysis' && (
+          <div style={{ padding: 24 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: 24, marginBottom: 32 }}>
+              <Card style={{ padding: 24, borderRadius: 24, background: `linear-gradient(135deg, ${T.card}, ${T.surface})` }}>
+                <div style={{ fontSize: 11, color: T.muted, fontWeight: 800, textTransform: 'uppercase', marginBottom: 16 }}>Calculated Risk Rating</div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+                  <div style={{ 
+                    width: 64, height: 64, borderRadius: 32, 
+                    background: riskProfile?.calculated_risk === 'Critical' ? T.danger : riskProfile?.calculated_risk === 'High' ? T.danger : riskProfile?.calculated_risk === 'Medium' ? T.warn : T.ok,
+                    display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 24
+                  }}>
+                    {riskProfile?.calculated_risk === 'Critical' ? '🚨' : riskProfile?.calculated_risk === 'High' ? '🔥' : riskProfile?.calculated_risk === 'Medium' ? '⚖️' : '✅'}
+                  </div>
+                  <div>
+                    <div style={{ fontSize: 24, fontWeight: 900, color: T.txt }}>{riskProfile?.calculated_risk || 'Low'}</div>
+                    <div style={{ fontSize: 12, color: T.muted }}>Based on {riskProfile?.total_loans || 0} historical loans</div>
+                  </div>
+                </div>
+              </Card>
+
+              <Card style={{ padding: 24, borderRadius: 24 }}>
+                <div style={{ fontSize: 11, color: T.muted, fontWeight: 800, textTransform: 'uppercase', marginBottom: 16 }}>Repayment Behavior</div>
+                <div style={{ fontSize: 20, fontWeight: 800, color: T.accent, marginBottom: 4 }}>{riskProfile?.repayment_style || 'Standard'}</div>
+                <div style={{ fontSize: 12, color: T.muted }}>{riskProfile?.payment_count || 0} repayments recorded to date</div>
+              </Card>
+
+              <Card style={{ padding: 24, borderRadius: 24 }}>
+                <div style={{ fontSize: 11, color: T.muted, fontWeight: 800, textTransform: 'uppercase', marginBottom: 16 }}>Arrears Exposure</div>
+                <div style={{ fontSize: 20, fontWeight: 800, color: (riskProfile?.max_overdue_days || 0) > 0 ? T.danger : T.ok, marginBottom: 4 }}>{riskProfile?.max_overdue_days || 0} Days</div>
+                <div style={{ fontSize: 12, color: T.muted }}>Maximum historical delay recorded</div>
+              </Card>
+            </div>
+
+            <h3 style={{ fontSize: 16, fontWeight: 900, marginBottom: 20 }}>Risk Breakdown</h3>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+               <div style={{ display: 'flex', gap: 16, background: T.surface, padding: 20, borderRadius: 16, border: `1px solid ${T.border}` }}>
+                  <div style={{ fontSize: 20 }}>📅</div>
+                  <div>
+                    <div style={{ fontWeight: 800, color: T.txt }}>Punctuality Score</div>
+                    <div style={{ fontSize: 13, color: T.muted, marginTop: 4 }}>
+                      {riskProfile?.max_overdue_days === 0 
+                        ? "Excellent. Customer has never exceeded a due date." 
+                        : (riskProfile?.max_overdue_days || 0) < 7 
+                        ? "Good. Occasional minor delays (under 7 days)." 
+                        : "Poor. Frequent long-term arrears detected."}
+                    </div>
+                  </div>
+               </div>
+               
+               <div style={{ display: 'flex', gap: 16, background: T.surface, padding: 20, borderRadius: 16, border: `1px solid ${T.border}` }}>
+                  <div style={{ fontSize: 20 }}>💳</div>
+                  <div>
+                    <div style={{ fontWeight: 800, color: T.txt }}>Repayment Completeness</div>
+                    <div style={{ fontSize: 13, color: T.muted, marginTop: 4 }}>
+                      {riskProfile?.repayment_style === 'Frequent Partial' 
+                        ? "High Frequency. Customer prefers small, frequent installments." 
+                        : "Standard. Customer typically makes large, lump-sum repayments."}
+                    </div>
+                  </div>
+               </div>
+            </div>
           </div>
         )}
 

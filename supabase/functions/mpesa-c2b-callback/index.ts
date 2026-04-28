@@ -6,7 +6,7 @@ const INTOUCH_SMS_URL = "https://sms-service.intouchvas.io/message/send/transact
 async function sendBalanceSMS(msisdn: string, customerName: string, amountPaid: number, loanBalance: number, transID: string): Promise<void> {
   try {
     const apiKey   = Deno.env.get("INTOUCH_API_KEY") || "";
-    const senderId = Deno.env.get("INTOUCH_SENDER_ID") || "ADEQUATE";
+    const senderId = Deno.env.get("INTOUCH_SENDER_ID") || "Adequate";
 
     if (!apiKey || !msisdn) {
       console.warn("[SMS] INTOUCH_API_KEY not set or no MSISDN — skipping.");
@@ -35,9 +35,25 @@ async function sendBalanceSMS(msisdn: string, customerName: string, amountPaid: 
 
     const smsJson = await smsRes.json().catch(() => ({}));
     console.log(`[SMS] Sent to ${phone}: status=${smsRes.status}`, JSON.stringify(smsJson));
+
+    // Log to DB for debugging
+    await supabase.from('sms_logs').insert({
+      phone,
+      message,
+      status_code: smsRes.status,
+      response_body: smsJson,
+      sender_id: senderId,
+      source: 'mpesa-c2b-callback'
+    });
   } catch (smsErr: any) {
-    // SMS failure must NEVER crash the payment flow
     console.error("[SMS] Failed to send balance SMS:", smsErr.message);
+    await supabase.from('sms_logs').insert({
+      phone: msisdn,
+      message: 'CRITICAL_ERROR',
+      status_code: 500,
+      response_body: { error: smsErr.message },
+      source: 'mpesa-c2b-callback'
+    });
   }
 }
 
@@ -241,16 +257,13 @@ Deno.serve(async (req: Request) => {
 
         // ── Send loan balance SMS via Intouch VAS ──────────────────────────
         if (matchedCustomer && targetLoanId) {
-          // Fetch the updated loan balance (already decremented by DB trigger)
-          // Also fetch the customer's registered phone number
-          const { data: customerData } = await supabase
-            .from('customers')
-            .select('phone, balance:loans(balance)')
-            .eq('id', matchedCustomer.id)
-            .eq('loans.id', targetLoanId)
-            .single();
+          // Fetch the updated loan balance and customer phone
+          const [{ data: loanData }, { data: customerData }] = await Promise.all([
+            supabase.from('loans').select('balance').eq('id', targetLoanId).single(),
+            supabase.from('customers').select('phone').eq('id', matchedCustomer.id).single()
+          ]);
 
-          const loanBalance = customerData?.balance?.[0]?.balance ?? 0;
+          const loanBalance = loanData?.balance ?? 0;
           
           // Use the paying number if valid, otherwise fallback to the registered number
           const targetPhone = (MSISDN && MSISDN !== "0" && MSISDN.length > 5) 
