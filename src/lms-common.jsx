@@ -6550,8 +6550,23 @@ const DonutChart = ({
   );
 };
 
-export const deriveDashboardMetrics = (loans, payments, customers) => {
-  const paidMap = payments.reduce((acc, p) => {
+export const deriveDashboardMetrics = (loans, payments, customers, filters = {}) => {
+  const { startDate, endDate } = filters;
+
+  // 1. Filter data based on date range if provided
+  let filteredLoans = loans;
+  let filteredPayments = payments;
+
+  if (startDate && endDate) {
+    // For portfolio metrics, we focus on loans disbursed or active in the period
+    filteredLoans = loans.filter(l => {
+      const d = l.disbursed || l.disbursedAt || l.createdAt?.split('T')[0];
+      return d >= startDate && d <= endDate;
+    });
+    filteredPayments = payments.filter(p => p.date >= startDate && p.date <= endDate);
+  }
+
+  const paidMap = filteredPayments.reduce((acc, p) => {
     if (p.loanId && p.status === "Allocated")
       acc[p.loanId] = (acc[p.loanId] || 0) + p.amount;
     return acc;
@@ -6563,7 +6578,7 @@ export const deriveDashboardMetrics = (loans, payments, customers) => {
   
   const activeList = [], ovList = [];
 
-  loans.forEach(l => {
+  filteredLoans.forEach(l => {
     const p = l.disbursed ? (paidMap[l.id] || 0) : 0;
     const e = calculateLoanStatus(l, null, p);
     
@@ -6599,14 +6614,14 @@ export const deriveDashboardMetrics = (loans, payments, customers) => {
     }
   });
 
-  const unalloc = payments.filter(p => !p.loanId || p.status === "Unallocated").reduce((s, p) => s + p.amount, 0);
+  const unalloc = filteredPayments.filter(p => !p.loanId || p.status === "Unallocated").reduce((s, p) => s + p.amount, 0);
   const totalExpectedVolume = totalDisb * 1.3;
   const collRate = totalExpectedVolume > 0 
     ? ((coll / totalExpectedVolume) * 100).toFixed(1) 
     : "0.0";
 
   const activeBorrowerIds = new Set();
-  loans.forEach(l => {
+  filteredLoans.forEach(l => {
     const p = paidMap[l.id] || 0;
     const e = calculateLoanStatus(l, null, p);
     if (!['Settled', 'Written off', 'Approved', 'Application submitted', 'worker-pending'].includes(e.badgeStatus)) {
@@ -6615,7 +6630,7 @@ export const deriveDashboardMetrics = (loans, payments, customers) => {
   });
   const activeBorrowersCount = activeBorrowerIds.size;
 
-  const pendingApprovals = loans.filter(l => l.status === 'Application submitted' || l.status === 'worker-pending').length;
+  const pendingApprovals = filteredLoans.filter(l => l.status === 'Application submitted' || l.status === 'worker-pending').length;
 
   return { 
     book, active, overdue, written, approved, totalDisb, coll, ovAmt, unalloc, 
@@ -6635,7 +6650,23 @@ export const LivePortfolioChart = ({
   custPhone,
   scrollTop,
 }) => {
-  const derived = useMemo(() => deriveDashboardMetrics(loans, payments, customers), [loans, payments, customers]);
+  // 1. Initial State: Default to current month
+  const getMonthDates = () => {
+    const d = new Date();
+    const first = new Date(d.getFullYear(), d.getMonth(), 1).toISOString().split('T')[0];
+    const last = new Date(d.getFullYear(), d.getMonth() + 1, 0).toISOString().split('T')[0];
+    return { first, last };
+  };
+
+  const { first, last } = getMonthDates();
+  const [startDate, setStartDate] = useState(first);
+  const [endDate, setEndDate] = useState(last);
+  const [focus, setFocus] = useState("All");
+
+  const derived = useMemo(() => 
+    deriveDashboardMetrics(loans, payments, customers, { startDate, endDate }), 
+  [loans, payments, customers, startDate, endDate]);
+
   const { book, active, overdue, written, approved, totalDisb, coll, unalloc, settledVolume, writtenVolume, approvedVolume, ovAmt, par1, par7, par30, parTotal, healthyCount, totalExpectedVolume, paidMap, collRate } = derived;
 
   const fmtK = (v) =>
@@ -6649,6 +6680,7 @@ export const LivePortfolioChart = ({
 
   const charts = [
     {
+      id: "portfolio",
       label: "Loan Portfolio",
       sub: `${active} active · ${overdue} overdue`,
       centerValue: `KES ${fmtK(book)}`,
@@ -6678,6 +6710,7 @@ export const LivePortfolioChart = ({
       ],
     },
     {
+      id: "collections",
       label: "Collections",
       sub: `Disbursed: KES ${fmtK(totalDisb)}`,
       centerValue: `${collRate}%`,
@@ -6714,6 +6747,7 @@ export const LivePortfolioChart = ({
       ],
     },
     {
+      id: "par",
       label: "Portfolio at Risk",
       sub: `${par1} loans overdue`,
       centerValue: `${parTotal > 0 ? ((par1 / parTotal) * 100).toFixed(1) : 0}%`,
@@ -6750,6 +6784,7 @@ export const LivePortfolioChart = ({
       ],
     },
     {
+      id: "risk",
       label: "Customer Risk",
       sub: `${customers.length} total customers`,
       centerValue: customers.length,
@@ -6787,52 +6822,93 @@ export const LivePortfolioChart = ({
     },
   ];
 
+  const visibleCharts = focus === "All" ? charts : charts.filter(c => c.id === focus);
+
   return (
     <Card style={{ marginBottom: 16 }}>
       <div
         style={{
-          padding: "14px 18px 10px",
+          padding: "16px 20px",
           borderBottom: `1px solid ${T.border}`,
           display: "flex",
           justifyContent: "space-between",
           alignItems: "center",
           flexWrap: "wrap",
-          gap: 8,
+          gap: 12,
         }}
       >
         <div>
           <div
             style={{
               color: T.txt,
-              fontWeight: 800,
-              fontSize: 14,
+              fontWeight: 900,
+              fontSize: 15,
               fontFamily: T.head,
+              display: "flex",
+              alignItems: "center",
+              gap: 8
             }}
           >
-            📊 Portfolio Performance
+            <BarChart3 size={18} color={T.accent} /> Portfolio Performance
           </div>
-          <div style={{ color: T.muted, fontSize: 11, marginTop: 2 }}>
-            Click any segment to navigate · hover for details
+          <div style={{ color: T.muted, fontSize: 11, marginTop: 4, fontWeight: 600 }}>
+            Period: {new Date(startDate).toLocaleDateString('en-KE', { month: 'short', year: 'numeric' })}
           </div>
         </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-          <div
-            style={{
-              width: 6,
-              height: 6,
-              borderRadius: 99,
-              background: T.ok,
-              boxShadow: `0 0 6px ${T.ok}88`,
-            }}
-          />
-          <span style={{ color: T.muted, fontSize: 11 }}>Interactive</span>
+
+        <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+           {/* Date Range Controls */}
+           <div style={{ display: 'flex', alignItems: 'center', gap: 6, background: T.surface, padding: '4px 8px', borderRadius: 12, border: `1px solid ${T.border}` }}>
+              <Calendar size={14} color={T.muted} />
+              <input 
+                type="date" 
+                value={startDate} 
+                onChange={e => setStartDate(e.target.value)}
+                style={{ background: 'transparent', border: 'none', padding: 0, fontSize: 11, fontWeight: 800, width: 105, color: T.txt }} 
+              />
+              <span style={{ color: T.muted, fontSize: 11 }}>→</span>
+              <input 
+                type="date" 
+                value={endDate} 
+                onChange={e => setEndDate(e.target.value)}
+                style={{ background: 'transparent', border: 'none', padding: 0, fontSize: 11, fontWeight: 800, width: 105, color: T.txt }} 
+              />
+           </div>
+
+           {/* Chart Selector */}
+           <select 
+             value={focus} 
+             onChange={e => setFocus(e.target.value)}
+             style={{ height: 32, padding: '0 10px', fontSize: 11, fontWeight: 800, borderRadius: 10, background: T.surface, border: `1px solid ${T.border}`, color: T.txt }}
+           >
+              <option value="All">All Performance Charts</option>
+              <option value="portfolio">Loan Portfolio Focus</option>
+              <option value="collections">Collections Focus</option>
+              <option value="par">Risk Analysis (PAR)</option>
+              <option value="risk">Customer Risk Levels</option>
+           </select>
+
+           <div style={{ width: 1, height: 20, background: T.border }} />
+
+           <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+            <div
+              style={{
+                width: 6,
+                height: 6,
+                borderRadius: 99,
+                background: T.ok,
+                boxShadow: `0 0 6px ${T.ok}88`,
+              }}
+            />
+            <span style={{ color: T.muted, fontSize: 11, fontWeight: 700 }}>Interactive</span>
+          </div>
         </div>
       </div>
       <div style={{ padding: "20px 18px" }}>
         <div className="port-grid">
-          {charts.map((c, i) => (
+          {visibleCharts.map((c, i) => (
             <DonutChart
-              key={c.label}
+              key={c.id || c.label}
               {...c}
               size={164}
               thickness={28}
@@ -6857,6 +6933,11 @@ export const LivePortfolioChart = ({
                 if (seg.nav === "loans" || seg.nav === "collections") {
                   rows = loans
                     .filter((l) => {
+                      const d = l.disbursed || l.disbursedAt || l.createdAt?.split('T')[0];
+                      if (startDate && endDate) {
+                        if (d < startDate || d > endDate) return false;
+                      }
+
                       const p = paidMap[l.id] || 0;
                       const e = calculateLoanStatus(l, null, p);
                       
@@ -6983,7 +7064,10 @@ export const LivePortfolioChart = ({
                     { k: "officer", l: "Officer" },
                   ];
                 } else if (seg.nav === "payments") {
-                  rows = payments.filter((p) => (nf ? p.status === nf : true));
+                  rows = payments.filter((p) => {
+                    const inDate = (startDate && endDate) ? (p.date >= startDate && p.date <= endDate) : true;
+                    return inDate && (nf ? p.status === nf : true);
+                  });
                   cols = [
                     {
                       k: "id",
