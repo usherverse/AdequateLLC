@@ -24,25 +24,35 @@ const AuditTab = () => {
   }, []);
 
   const handleReverse = async (tx) => {
+    const isMpesa = !!tx.reference && tx.reference.length > 5;
+    const confirmMsg = isMpesa 
+      ? `This will attempt a REAL M-PESA REVERSAL via Safaricom for ${fmt(tx.amount)}. Are you sure?`
+      : `Are you sure you want to reverse this transaction?`;
+    
+    if (!window.confirm(confirmMsg)) return;
+
     const reason = window.prompt(`Enter reason for reversing ${tx.tx_type} ${tx.reference || tx.id}:`, 'Wrong Number');
     if (!reason) return;
 
+    setLoading(true);
     try {
-      const { data, error } = await supabase.rpc('reverse_transaction', {
-        p_type: tx.tx_type,
-        p_id: tx.id,
-        p_reason: reason
+      // Use the Edge Function for M-Pesa level reversal
+      const { data, error } = await supabase.functions.invoke('mpesa-reversal', {
+        body: {
+          tx_type: tx.tx_type,
+          id: tx.id,
+          reason: reason
+        }
       });
 
       if (error) throw error;
-      if (data?.success) {
-        alert('Transaction reversed successfully. The ledger and loan balance have been updated.');
-        fetchTxs();
-      } else {
-        alert('Reversal failed: ' + data?.message);
-      }
+      
+      alert(data.message || 'Reversal initiated successfully.');
+      fetchTxs();
     } catch (err) {
-      alert('Error: ' + err.message);
+      alert('Reversal Error: ' + err.message);
+    } finally {
+      setLoading(false);
     }
   };
 
