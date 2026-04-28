@@ -17,5 +17,7 @@ async function run() {
   await checkSchema('customers');
   await checkSchema('loans');
   await checkSchema('payments');
+  await checkSchema('b2c_disbursements');
+  await checkSchema('stk_requests');
 }
 run();
