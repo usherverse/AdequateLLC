@@ -364,6 +364,7 @@ export default function CustomerProfile({
                 <div className="row-grouped"><span style={{ color: T.dim, fontSize: 13 }}>Alt. Phone</span><span style={{ color: T.txt }}>{customer.altPhone || '—'}</span></div>
                 <div className="row-grouped"><span style={{ color: T.dim, fontSize: 13 }}>Gender</span><span style={{ color: T.txt }}>{customer.gender || '—'}</span></div>
                 <div className="row-grouped"><span style={{ color: T.dim, fontSize: 13 }}>Date Joined</span><span style={{ color: T.txt }}>{customer.joined ? new Date(customer.joined).toLocaleDateString() : '—'}</span></div>
+                <div className="row-grouped"><span style={{ color: T.dim, fontSize: 13 }}>Credit Limit</span><span style={{ color: T.ok, fontWeight: 800 }}>{fmt(customer.credit_limit || 5000)}</span></div>
                 <div className="row-grouped"><span style={{ color: T.dim, fontSize: 13 }}>Assigned Officer</span><span style={{ color: T.txt }}>{customer.assigned_officer_worker?.name || 'Unassigned'}</span></div>
                 <div className="row-grouped" style={{ border: 'none' }}>
                   <span style={{ color: T.dim, fontSize: 13 }}>Risk Profile</span>
@@ -494,7 +495,53 @@ export default function CustomerProfile({
               </Card>
             </div>
 
-            <h3 style={{ fontSize: 16, fontWeight: 900, marginBottom: 20 }}>Risk Breakdown</h3>
+            <h3 style={{ fontSize: 16, fontWeight: 900, marginBottom: 20 }}>Credit Limit Progression</h3>
+            <Card style={{ padding: 24, borderRadius: 24, background: `linear-gradient(135deg, ${T.card}, rgba(0,212,170,0.05))` }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 24 }}>
+                <div>
+                  <div style={{ fontSize: 11, color: T.muted, fontWeight: 800, textTransform: 'uppercase', marginBottom: 4 }}>Current Assigned Limit</div>
+                  <div style={{ fontSize: 32, fontWeight: 900, color: T.txt }}>{fmt(riskProfile?.current_limit || 5000)}</div>
+                </div>
+                <div style={{ textAlign: 'right' }}>
+                  <div style={{ fontSize: 11, color: T.muted, fontWeight: 800, textTransform: 'uppercase', marginBottom: 4 }}>Growth Status</div>
+                  <Badge color={riskProfile?.limit_status?.includes('Eligible') ? T.ok : riskProfile?.limit_status?.includes('Frozen') ? T.danger : T.accent}>
+                    {riskProfile?.limit_status || 'Checking...'}
+                  </Badge>
+                </div>
+              </div>
+
+              {/* Progress Steps */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 24 }}>
+                {[1, 2, 3].map(step => (
+                  <div key={step} style={{ 
+                    flex: 1, height: 8, borderRadius: 4, 
+                    background: (riskProfile?.total_loans || 0) >= step ? T.accent : T.border,
+                    position: 'relative'
+                  }}>
+                    <div style={{ position: 'absolute', top: 12, left: 0, fontSize: 10, color: T.muted, fontWeight: 700 }}>Loan {step}</div>
+                  </div>
+                ))}
+                <div style={{ width: 40, height: 40, borderRadius: 20, background: (riskProfile?.total_loans || 0) >= 3 ? T.accent : T.border, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#000', fontSize: 18 }}>
+                   🚀
+                </div>
+              </div>
+
+              <div style={{ background: T.surface, padding: 16, borderRadius: 16, border: `1px dashed ${T.accent}40` }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span style={{ fontSize: 13, color: T.dim }}>Suggested Next Limit</span>
+                  <span style={{ fontSize: 18, fontWeight: 900, color: T.accent }}>{fmt(riskProfile?.suggested_limit || 5000)}</span>
+                </div>
+                <div style={{ fontSize: 11, color: T.muted, marginTop: 4 }}>
+                  {riskProfile?.total_loans < 3 
+                    ? `Requires ${3 - riskProfile.total_loans} more settled loan(s) to enter growth phase.`
+                    : riskProfile?.max_overdue_days > 0 
+                    ? "Increase paused due to historical arrears. Clear all balances to reset."
+                    : "Eligibility confirmed. You can safely increase this customer's limit by KES 2,000."}
+                </div>
+              </div>
+            </Card>
+
+            <h3 style={{ fontSize: 16, fontWeight: 900, marginBottom: 20, marginTop: 32 }}>Risk Breakdown</h3>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                <div style={{ display: 'flex', gap: 16, background: T.surface, padding: 20, borderRadius: 16, border: `1px solid ${T.border}` }}>
                   <div style={{ fontSize: 20 }}>📅</div>
