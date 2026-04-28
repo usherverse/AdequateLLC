@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { Smartphone, Search, User, CreditCard, AlertCircle, CheckCircle, Rocket, X, ChevronRight, Landmark } from 'lucide-react';
-import { T, Card, Btn, FI, Badge, Alert, WaitingOverlay, fmt } from '@/lms-common';
+import { T, Card, Btn, FI, Badge, Alert, WaitingOverlay, fmt, CH } from '@/lms-common';
 import { supabase } from '@/config/supabaseClient';
 
 export const useStkPush = (customerId) => {
@@ -191,7 +191,7 @@ const StkRequestTab = ({ customers = [], loans = [], showToast }) => {
                 onMouseLeave={e => { e.currentTarget.style.borderColor = T.border; e.currentTarget.style.background = T.surface; }}
               >
                 <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                  <div style={{ width: 36, height: 36, borderRadius: 18, background: T.accent, color: '#000', display: 'flex', alignItems: 'center', justifyCenter: 'center', fontWeight: 900, fontSize: 12 }}>
+                  <div style={{ width: 36, height: 36, borderRadius: 18, background: T.accent, color: '#000', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 900, fontSize: 12 }}>
                     <span style={{width:'100%', textAlign:'center'}}>{c.name?.[0]}</span>
                   </div>
                   <div>
@@ -357,11 +357,6 @@ const StkRequestTab = ({ customers = [], loans = [], showToast }) => {
   );
 };
 
-const CH = ({ title, sub }) => (
-  <div style={{ marginBottom: 24 }}>
-    <h2 style={{ fontSize: 24, fontWeight: 900, color: T.txt, margin: 0 }}>{title}</h2>
-    <p style={{ color: T.muted, fontSize: 14, marginTop: 4 }}>{sub}</p>
-  </div>
-);
+
 
 export default StkRequestTab;
